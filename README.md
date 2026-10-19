@@ -13,7 +13,7 @@ If you've tried using the built-in performance bars in `etaHEN` alongside `kstuf
 
 ## ⚡ How to use it
 
-1. Send the `perfbar.elf` payload to your PS5.
+1. Send the `perfbar-complete.elf` payload to your PS5.
 2. Start a game.
 3. After roughly 5–10 seconds, the overlay will appear in the top-left corner.
 
