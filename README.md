@@ -7,7 +7,7 @@ A standalone on-screen performance overlay for the PS5. It draws FPS, frametimes
 ### 🛑 Why this exists
 If you've tried using the built-in performance bars in `etaHEN` alongside `kstuff`, you know they often fight over kernel control and cause instant kernel panics. 
 
-**perfbar** was built to fix that. It is a completely standalone payload. It does not require `kstuff`, and it does not fight with any other payload for kernel memory. You can run this alongside your normal setup without causing a System Software Error.
+**perfbar** was built to fix that. It is a completely standalone payload. It does not require any other payloads, and it does not fight with any other payload for kernel memory. You can run this alongside your normal setup without causing a System Software Error.
 
 ![perfbar overlay in action](image.png)
 
