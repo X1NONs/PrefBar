@@ -1,1 +1,28 @@
-# PrefBar
+# perfbar - On-Screen Performance Overlay for Jailbroken PS5
+
+**Version 0.1.1**
+
+A standalone on-screen performance overlay for the PS5. It draws FPS, frametimes, 1% lows, CPU/SoC temperatures, and RAM/VRAM usage directly over your games.
+
+### 🛑 Why this exists
+If you've tried using the built-in performance bars in `etaHEN` alongside `kstuff`, you know they often fight over kernel control and cause instant kernel panics. 
+
+**perfbar** was built to fix that. It is a completely standalone payload. It does not require `kstuff`, and it does not fight with any other payload for kernel memory. You can run this alongside your normal setup without causing a System Software Error.
+
+![perfbar overlay in action](image.png)
+
+## ⚡ How to use it
+
+1. Send the `perfbar.elf` payload to your PS5.
+2. Start a game.
+3. After roughly 5–10 seconds, the overlay will appear in the top-left corner.
+
+## 💎 Credits & License
+
+**License:** GPL-3.0
+
+This project is a fork of open-source work:
+*   **FPS Source (`/dev/dce`):** `etaHEN` and `OnionHEN` (LightningMods, PHU Games Tools by ArkSama).
+*   **ShellUI Renderer:** `erickdavestech` (ps5-dualsense-overlay) and the Common FPS team.
+
+**Disclaimer:** This is unofficial homebrew. Use at your own risk.
