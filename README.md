@@ -1,4 +1,4 @@
-# perfbar - On-Screen Performance Overlay for Jailbroken PS5
+# PerfBar - On-Screen Performance Overlay for Jailbroken PS5
 
 **Version 0.1.1**
 
