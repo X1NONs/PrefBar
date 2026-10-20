@@ -2,7 +2,7 @@
 
 [![Downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total.svg?style=for-the-badge)]()
 
-**Version 0.1.1**
+**Version 0.1.2**
 
 A standalone on-screen performance overlay for the PS5. It draws FPS, frametimes, 1% lows, CPU/SoC temperatures, and RAM/VRAM usage directly over your games.
 
@@ -15,7 +15,7 @@ If you've tried using the built-in performance bars in `etaHEN` alongside `kstuf
 
 ## ⚡ How to use it
 
-1. Send the `perfbar-complete.elf` payload to your PS5.
+1. Send the `PrefBar-complete_VX.X.X.elf` payload to your PS5.
 2. Start a game.
 3. After roughly 5–10 seconds, the overlay will appear in the top-left corner.
 
