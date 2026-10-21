@@ -11,6 +11,7 @@ If you've tried using the built-in performance bars in `etaHEN` alongside `kstuf
 
 **perfbar** was built to fix that. It is a completely standalone payload. It does not require any other payloads, and it does not fight with any other payload for kernel memory. You can run this alongside your normal setup without causing a System Software Error.
 
+![perfbar overlay in action](image.png)
 ![perfbar overlay in action](image2.png)
 
 ## ⚡ How to use it
