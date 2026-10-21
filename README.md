@@ -4,7 +4,7 @@
 
 **Version 0.1.3**
 
-A standalone on-screen performance overlay for the PS5. It draws FPS, frametimes, 1% lows, CPU/SoC temperatures,fan usage and RAM/VRAM usage directly over your games.
+A standalone on-screen performance overlay for the PS5. It draws FPS, frametimes, 1% lows, CPU/SoC temperatures, fan usage, and RAM/VRAM usage directly over your games.
 
 ### Why this exists
 If you've tried using the built-in performance bars in `etaHEN` alongside `kstuff`, you know they often fight over kernel control and cause instant kernel panics. 
