@@ -1,4 +1,4 @@
-# PerfBar - On-Screen Performance Overlay for Jailbroken PS5
+# PrefBar - On-Screen Performance Overlay for Jailbroken PS5
 
 [![Downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total.svg?style=for-the-badge)]()
 
