@@ -3,6 +3,7 @@
 [![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge)](https://github.com/X1NONs/PrefBar/releases)
 
 **Version 0.2.0**
+**(Major architectural rebuild, introducing a cleaner structure, improved efficiency, an optimized runtime, and expanded customization options.)**
 
 A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games, without requiring a separate renderer payload.
 
