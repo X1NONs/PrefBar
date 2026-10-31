@@ -28,7 +28,7 @@ Metric availability depends on the PS5 firmware and runtime environment. An unav
 
 ## 🎮 How to use it
 
-1. Download `PrefBar-complete_V0.2.0.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases).
+1. Download `PrefBar-complete_V0.2.0.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.2.0).
 2. Load the combined ELF on your jailbroken PS5 using your usual payload loader.
 3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The overlay normally appears in the top-left corner.
 4. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
