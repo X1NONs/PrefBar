@@ -7,6 +7,10 @@
 
 A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games, without requiring a separate renderer payload.
 
+## 💡 Why This Exists
+
+The built-in performance bars available in some PS5 homebrew setups can conflict with other kernel-level components. PrefBar was created as an independent alternative: a standalone payload with its own ShellUI renderer, designed to provide in-game telemetry without relying on another overlay's rendering path.
+
 ![PrefBar overlay in action](Docs/image1.png)
 ![PrefBar overlay in action](Docs/image2.png)
 
