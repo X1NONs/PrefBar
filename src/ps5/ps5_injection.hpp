@@ -37,6 +37,9 @@ struct ShellUiHookPatchReport {
     std::uint32_t read_reported_len = 0;
     std::uint32_t read_requested = 0;
     bool read_attempted = false;
+    bool probe_mdbg_attempted = false;
+    int probe_mdbg_rc = -1;
+    int probe_mdbg_errno = 0;
     int write_rc = -1;
     bool write_attempted = false;
     bool expected_matched = false;

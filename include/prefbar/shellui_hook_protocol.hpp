@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -56,8 +57,8 @@ inline ShellUiHookBackend shellui_hook_backend(
 /*
  * The background-PUI path never replaces Application.Update. It changes only
  * the first byte of Diagnostics.CheckRunningOnMainThread to RET while ShellUI
- * is ptrace-stopped. FW 1.xx-8.20 uses MDBG; selected higher firmware uses
- * ptrace I/O. FW 9.60 deliberately keeps the hardware-proven update-chain
+ * is ptrace-stopped. FW 1.xx-8.20, 9.00, 9.05, 10.01, and 11.xx-13.xx use
+ * MDBG; other selected firmware uses ptrace I/O. FW 9.60 keeps the update-chain
  * backend. Unknown future firmware fails closed.
  */
 inline ShellUiHookBackend shellui_main_thread_guard_backend(
@@ -65,15 +66,16 @@ inline ShellUiHookBackend shellui_main_thread_guard_backend(
     const std::uint32_t family = sdk & 0xffff0000U;
 
     /*
-     * Low/mid firmware uses the controller MDBG backend.  Higher firmware
-     * keeps the same one-byte, expected-byte-verified guard transaction but
-     * uses ptrace I/O, which is already required by the ShellUI loader.
+     * MDBG firmware uses the controller's expected-byte-verified guard
+     * transaction. Other selected firmware uses ptrace I/O, which is already
+     * required by the ShellUI loader.
      *
      * FW 9.60 deliberately stays on the hardware-proven Application.Update
      * chain path; returning Unsupported here selects that existing backend.
      */
     if ((family >= 0x01000000U && family <= 0x08200000U) ||
         family == 0x09000000U ||
+        family == 0x09050000U || family == 0x10010000U ||
         (family >= 0x11000000U && family <= 0x13ff0000U))
         return ShellUiHookBackend::Mdbg;
     if ((family >= 0x08300000U && family < 0x09000000U) ||
@@ -274,11 +276,21 @@ inline ShellUiHookBackend shellui_hook_probe_backend(
     const std::uint32_t family = sdk & 0xffff0000U;
     if ((family >= 0x01000000U && family <= 0x08200000U) ||
         family == 0x09000000U ||
+        family == 0x09050000U || family == 0x10010000U ||
         (family >= 0x11000000U && family <= 0x13ff0000U))
         return ShellUiHookBackend::Mdbg;
     if (family >= 0x08300000U && family <= 0x13ff0000U)
         return ShellUiHookBackend::PtraceIo;
     return ShellUiHookBackend::Unsupported;
+}
+
+inline bool shellui_hook_probe_needs_mdbg_diagnostic(
+    std::uint32_t sdk, bool read_attempted,
+    int read_raw_rc, int read_errno) noexcept {
+    return shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo &&
+        read_attempted &&
+        read_raw_rc == -1 &&
+        read_errno == EFAULT;
 }
 
 } // namespace prefbar

@@ -303,8 +303,14 @@ pt_copyout_diagnostic(pid_t pid, intptr_t addr, void* buf, size_t len,
                                  operation_attempted ? operation_attempted : &local_attempted);
   if(transferred && (operation_attempted ? *operation_attempted : local_attempted))
     *transferred = iod.piod_len;
+
+  /* Reject successful but incomplete diagnostic reads. */
+  if (rc == 0 && iod.piod_len != len)
+    return EIO;
+
   return rc;
 }
+
 
 int
 pt_copyout(pid_t pid, intptr_t addr, void* buf, size_t len) {
@@ -479,9 +485,9 @@ pt_socket(pid_t pid, int domain, int type, int protocol) {
 int
 pt_setsockopt(pid_t pid, int fd, int level, int optname, intptr_t optval,
 	      socklen_t optlen) {
-  return (int)pt_syscall(pid, SYS_setsockopt, fd, level, optname, optval,
-			 optlen, 0);
+  return (int)pt_syscall(pid, SYS_setsockopt, fd, level, optname, optlen, 0);
 }
+
 
 int
 pt_bind(pid_t pid, int sockfd, intptr_t addr, socklen_t addrlen) {

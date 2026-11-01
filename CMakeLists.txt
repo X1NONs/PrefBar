@@ -157,5 +157,11 @@ else()
         target_include_directories(prefbar_touchpad_tests PRIVATE include)
         target_compile_options(prefbar_touchpad_tests PRIVATE -Wall -Wextra -UNDEBUG)
         add_test(NAME prefbar_touchpad_tests COMMAND prefbar_touchpad_tests)
+
+        add_executable(prefbar_hook_protocol_tests
+            scripts/tests/test_shellui_hook_protocol.cpp)
+        target_include_directories(prefbar_hook_protocol_tests PRIVATE include)
+        target_compile_options(prefbar_hook_protocol_tests PRIVATE -Wall -Wextra -UNDEBUG)
+        add_test(NAME prefbar_hook_protocol_tests COMMAND prefbar_hook_protocol_tests)
     endif()
 endif()
