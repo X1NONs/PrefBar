@@ -172,20 +172,6 @@ For the ptrace-I/O path, `read_reported_len` is copied from `ptrace_io_desc.piod
 
 This instrumentation improves diagnosis; it is not itself a fix for firmware-specific probe failures. A successful static release check or host test does not establish that every firmware's ShellUI path works. Confirm with a PS5 SDK build and hardware test.
 
-### Issue #2: PS5 Pro 9.05 and original PS5 10.01
-
-The reported 0.1.3 logs show successful game detection and ShellUI bootstrap, followed by failed ptrace hook probes (`status=-5`, `read_rc=14`, `verified=0`). Error 14 is `EFAULT`. No hook write was attempted; the marker timeout and renderer-offline notification follow the failed probe. The supplied 0.2.0 logs reproduce this on firmware 10.01 and show `probe_mdbg_attempted=1 probe_mdbg_rc=0`: MDBG reads the same addresses successfully. These logs establish a ptrace-specific ShellUI code-read failure on 10.01, not a frame-sampler failure or a PS5 Pro RAM-pool cause.
-
-The fix selects MDBG for the JIT probe and one-byte main-thread guard on firmware 9.05 and 10.01. The write uses the existing stopped-process transaction: compare expected bytes, temporarily permit writing the JIT page, change only the guard byte, restore RX permissions, verify the complete expected result, and roll back on failure. The firmware 9.60 update-chain path and unsupported-firmware policy are unchanged. The reporter confirmed that the rebuilt payload displays the overlay on an original PS5 running 10.01. Firmware 9.05 uses the same fix but has not yet been verified on hardware.
-
-On a ptrace probe that returns `EFAULT`, the controller now makes a separate, read-only MDBG comparison at the same address while ShellUI remains stopped. The log adds `probe_mdbg_attempted`, `probe_mdbg_rc`, and `probe_mdbg_errno`. A successful comparison does not acknowledge the ptrace probe as successful, change page permissions, or enable hook writes. Successful ptrace calls with a short reported length fail with `read_rc=EIO` rather than accepting incomplete expected bytes.
-
-If `probe_mdbg_attempted=1` and `probe_mdbg_rc=0`, MDBG can read the address when ptrace cannot, which supports investigating the ptrace backend or mapping permissions. If both reads fail, the result is still inconclusive: collect the renderer stage and logs to investigate mappings, addresses, and authorization. Descriptor length on a failed ptrace call is not evidence of a successful transfer.
-
-The logs also show overlapping controller launches and attach failures. Embedded startup now acquires the existing singleton lock before creating the sampler thread, and a rejected startup exits the controller before discovery or injection. The embedded process retains the lock even if its sampler stops, preventing another controller from competing for ShellUI or the hook-protocol files.
-
-For a console comparison, build this branch with the PS5 SDK, restart the console between payload runs, load the payload once, and reproduce with the same game and loader/payload versions used in the report. Collect `/data/prefbar/controller.log`, `/data/prefbar/injector.log`, `/system_tmp/prefbar_shellui.log`, and `/system_tmp/prefbar_shellui.stage` from each console. Record the payload checksum, console model, firmware, game title ID, and other loaded payload versions. On the fixed firmware path, expect `backend=mdbg-rwx`, successful probe/guard acknowledgements, and then `ShellUI renderer online`. Do not repeatedly reinject into a quarantined ShellUI session.
-
 ## Repository layout
 
 | Path | Purpose |
