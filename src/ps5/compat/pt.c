@@ -30,36 +30,42 @@ along with this program; see the file COPYING. If not, see
 
 #include "pt.h"
 
-
 static int
-sys_ptrace(int request, pid_t pid, caddr_t addr, int data) {
-  uint8_t privcaps[16] = {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
-                          0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
+sys_ptrace(int request, pid_t pid, caddr_t addr, int data)
+{
+  uint8_t privcaps[16] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   pid_t mypid = getpid();
   uint8_t caps[16];
   uint64_t authid;
   int ret;
 
-  if(!(authid=kernel_get_ucred_authid(mypid))) {
+  if (!(authid = kernel_get_ucred_authid(mypid)))
+  {
     return -1;
   }
-  if(kernel_get_ucred_caps(mypid, caps)) {
+  if (kernel_get_ucred_caps(mypid, caps))
+  {
     return -1;
   }
 
-  if(kernel_set_ucred_authid(mypid, 0x4800000000010003l)) {
+  if (kernel_set_ucred_authid(mypid, 0x4800000000010003l))
+  {
     return -1;
   }
-  if(kernel_set_ucred_caps(mypid, privcaps)) {
+  if (kernel_set_ucred_caps(mypid, privcaps))
+  {
     return -1;
   }
 
   ret = (int)syscall(SYS_ptrace, request, pid, addr, data);
 
-  if(kernel_set_ucred_authid(mypid, authid)) {
+  if (kernel_set_ucred_authid(mypid, authid))
+  {
     return -1;
   }
-  if(kernel_set_ucred_caps(mypid, caps)) {
+  if (kernel_set_ucred_caps(mypid, caps))
+  {
     return -1;
   }
 
@@ -70,138 +76,156 @@ sys_ptrace(int request, pid_t pid, caddr_t addr, int data) {
  * sys_ptrace()/pt_copyout() path untouched for loader and runtime operations. */
 static int
 sys_ptrace_diagnostic(int request, pid_t pid, caddr_t addr, int data,
-                      int *raw_rc, int *raw_errno, int *attempted) {
-  uint8_t privcaps[16] = {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
-                          0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
+                      int *raw_rc, int *raw_errno, int *attempted)
+{
+  uint8_t privcaps[16] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   pid_t mypid = getpid();
   uint8_t caps[16];
   uint64_t authid;
   int ret;
 
-  if(raw_rc) *raw_rc = -1;
-  if(raw_errno) *raw_errno = 0;
-  if(attempted) *attempted = 0;
+  if (raw_rc)
+    *raw_rc = -1;
+  if (raw_errno)
+    *raw_errno = 0;
+  if (attempted)
+    *attempted = 0;
 
-  if(!(authid=kernel_get_ucred_authid(mypid))) return -1;
-  if(kernel_get_ucred_caps(mypid, caps)) return -1;
-  if(kernel_set_ucred_authid(mypid, 0x4800000000010003l)) return -1;
-  if(kernel_set_ucred_caps(mypid, privcaps)) return -1;
+  if (!(authid = kernel_get_ucred_authid(mypid)))
+    return -1;
+  if (kernel_get_ucred_caps(mypid, caps))
+    return -1;
+  if (kernel_set_ucred_authid(mypid, 0x4800000000010003l))
+    return -1;
+  if (kernel_set_ucred_caps(mypid, privcaps))
+    return -1;
 
   errno = 0;
-  if(attempted) *attempted = 1;
+  if (attempted)
+    *attempted = 1;
   ret = (int)syscall(SYS_ptrace, request, pid, addr, data);
   const int syscall_errno = errno; /* capture before credential restoration */
-  if(raw_rc) *raw_rc = ret;
-  if(raw_errno) *raw_errno = syscall_errno;
+  if (raw_rc)
+    *raw_rc = ret;
+  if (raw_errno)
+    *raw_errno = syscall_errno;
 
-  if(kernel_set_ucred_authid(mypid, authid)) return -1;
-  if(kernel_set_ucred_caps(mypid, caps)) return -1;
+  if (kernel_set_ucred_authid(mypid, authid))
+    return -1;
+  if (kernel_set_ucred_caps(mypid, caps))
+    return -1;
   return ret;
 }
 
-
 intptr_t
-pt_resolve(pid_t pid, const char* nid) {
+pt_resolve(pid_t pid, const char *nid)
+{
   intptr_t addr;
 
-  if((addr=kernel_dynlib_resolve(pid, 0x1, nid))) {
+  if ((addr = kernel_dynlib_resolve(pid, 0x1, nid)))
+  {
     return addr;
   }
 
   return kernel_dynlib_resolve(pid, 0x2001, nid);
 }
 
-
-int
-pt_trace_me(void) {
+int pt_trace_me(void)
+{
   return sys_ptrace(PT_TRACE_ME, 0, 0, 0);
 }
 
-
-int
-pt_attach(pid_t pid) {
-  if(sys_ptrace(PT_ATTACH, pid, 0, 0) == -1) {
+int pt_attach(pid_t pid)
+{
+  if (sys_ptrace(PT_ATTACH, pid, 0, 0) == -1)
+  {
     return -1;
   }
 
-  if(waitpid(pid, 0, 0) < 0) {
-    return -1;
-  }
-
-  return 0;
-}
-
-
-int
-pt_detach(pid_t pid, int sig) {
-  if(sys_ptrace(PT_DETACH, pid, 0, sig) == -1) {
+  if (waitpid(pid, 0, 0) < 0)
+  {
     return -1;
   }
 
   return 0;
 }
 
-
-int
-pt_follow_fork(pid_t pid) {
-  if(sys_ptrace(PT_FOLLOW_FORK, pid, NULL, 1) == -1) {
-    return -1;
-  }
-
-  if(sys_ptrace(PT_LWP_EVENTS, pid, NULL, 1) == -1) {
+int pt_detach(pid_t pid, int sig)
+{
+  if (sys_ptrace(PT_DETACH, pid, 0, sig) == -1)
+  {
     return -1;
   }
 
   return 0;
 }
 
+int pt_follow_fork(pid_t pid)
+{
+  if (sys_ptrace(PT_FOLLOW_FORK, pid, NULL, 1) == -1)
+  {
+    return -1;
+  }
 
-int
-pt_follow_exec(pid_t pid) {
-  if(sys_ptrace(PT_LWP_EVENTS, pid, NULL, 1) == -1) {
+  if (sys_ptrace(PT_LWP_EVENTS, pid, NULL, 1) == -1)
+  {
     return -1;
   }
 
   return 0;
 }
 
+int pt_follow_exec(pid_t pid)
+{
+  if (sys_ptrace(PT_LWP_EVENTS, pid, NULL, 1) == -1)
+  {
+    return -1;
+  }
 
+  return 0;
+}
 
-pid_t
-pt_await_child(pid_t pid) {
+pid_t pt_await_child(pid_t pid)
+{
   struct ptrace_lwpinfo lwpinfo;
 
   memset(&lwpinfo, 0, sizeof(lwpinfo));
-  while(!(lwpinfo.pl_flags & PL_FLAG_FORKED)) {
-    if(waitpid(pid, NULL, 0) == -1) {
+  while (!(lwpinfo.pl_flags & PL_FLAG_FORKED))
+  {
+    if (waitpid(pid, NULL, 0) == -1)
+    {
       return -1;
     }
 
-    if(sys_ptrace(PT_LWPINFO, pid, (caddr_t)&lwpinfo, sizeof(lwpinfo)) == -1) {
+    if (sys_ptrace(PT_LWPINFO, pid, (caddr_t)&lwpinfo, sizeof(lwpinfo)) == -1)
+    {
       return -1;
     }
   }
 
-  if(waitpid(lwpinfo.pl_child_pid, NULL, 0) == -1) {
+  if (waitpid(lwpinfo.pl_child_pid, NULL, 0) == -1)
+  {
     return -1;
   }
 
   return lwpinfo.pl_child_pid;
 }
 
-
-
-int
-pt_await_exec(pid_t pid) {
+int pt_await_exec(pid_t pid)
+{
   struct ptrace_lwpinfo lwpinfo;
 
   memset(&lwpinfo, 0, sizeof(lwpinfo));
-  while(!(lwpinfo.pl_flags & PL_FLAG_EXEC)) {
-    if(waitpid(pid, NULL, 0) == -1) {
+  while (!(lwpinfo.pl_flags & PL_FLAG_EXEC))
+  {
+    if (waitpid(pid, NULL, 0) == -1)
+    {
       return -1;
     }
 
-    if(sys_ptrace(PT_LWPINFO, pid, (caddr_t)&lwpinfo, sizeof(lwpinfo)) == -1) {
+    if (sys_ptrace(PT_LWPINFO, pid, (caddr_t)&lwpinfo, sizeof(lwpinfo)) == -1)
+    {
       return -1;
     }
   }
@@ -209,116 +233,112 @@ pt_await_exec(pid_t pid) {
   return 0;
 }
 
-int
-pt_step(int pid) {
-  if(sys_ptrace(PT_STEP, pid, (caddr_t)1, 0)) {
+int pt_step(int pid)
+{
+  if (sys_ptrace(PT_STEP, pid, (caddr_t)1, 0))
+  {
     return -1;
   }
 
-  if(waitpid(pid, 0, 0) < 0) {
-    return -1;
-  }
-
-  return 0;
-}
-
-
-int
-pt_continue(pid_t pid, int sig) {
-  if(sys_ptrace(PT_CONTINUE, pid, (caddr_t)1, sig) == -1) {
+  if (waitpid(pid, 0, 0) < 0)
+  {
     return -1;
   }
 
   return 0;
 }
 
+int pt_continue(pid_t pid, int sig)
+{
+  if (sys_ptrace(PT_CONTINUE, pid, (caddr_t)1, sig) == -1)
+  {
+    return -1;
+  }
 
-int
-pt_getint(pid_t pid, intptr_t addr) {
+  return 0;
+}
+
+int pt_getint(pid_t pid, intptr_t addr)
+{
   return sys_ptrace(PT_READ_D, pid, (caddr_t)addr, 0);
 }
 
-
-int
-pt_setint(pid_t pid, intptr_t addr, int val) {
+int pt_setint(pid_t pid, intptr_t addr, int val)
+{
   return sys_ptrace(PT_WRITE_D, pid, (caddr_t)addr, val);
 }
 
-
-int
-pt_getregs(pid_t pid, struct reg *r) {
+int pt_getregs(pid_t pid, struct reg *r)
+{
   return sys_ptrace(PT_GETREGS, pid, (caddr_t)r, 0);
 }
 
-
-int
-pt_setregs(pid_t pid, const struct reg *r) {
+int pt_setregs(pid_t pid, const struct reg *r)
+{
   return sys_ptrace(PT_SETREGS, pid, (caddr_t)r, 0);
 }
 
-
-
-int
-pt_copyin(pid_t pid, const void* buf, intptr_t addr, size_t len) {
+int pt_copyin(pid_t pid, const void *buf, intptr_t addr, size_t len)
+{
   struct ptrace_io_desc iod = {
-    .piod_op = PIOD_WRITE_D,
-    .piod_offs = (void*)addr,
-    .piod_addr = (void*)buf,
-    .piod_len = len};
+      .piod_op = PIOD_WRITE_D,
+      .piod_offs = (void *)addr,
+      .piod_addr = (void *)buf,
+      .piod_len = len};
   return sys_ptrace(PT_IO, pid, (caddr_t)&iod, 0);
 }
 
-
-int
-pt_setchar(pid_t pid, intptr_t addr, char val) {
+int pt_setchar(pid_t pid, intptr_t addr, char val)
+{
   return pt_copyin(pid, &val, addr, sizeof(val));
 }
 
-
-int
-pt_setshort(pid_t pid, intptr_t addr, short val) {
+int pt_setshort(pid_t pid, intptr_t addr, short val)
+{
   return pt_copyin(pid, &val, addr, sizeof(val));
 }
 
-
-int
-pt_setlong(pid_t pid, intptr_t addr, long val) {
+int pt_setlong(pid_t pid, intptr_t addr, long val)
+{
   return pt_copyin(pid, &val, addr, sizeof(val));
 }
 
-
-int
-pt_copyout_diagnostic(pid_t pid, intptr_t addr, void* buf, size_t len,
-                      size_t *transferred, int *raw_errno,
-                      int *raw_rc, int *operation_attempted) {
+int pt_copyout_diagnostic(pid_t pid, intptr_t addr, void *buf, size_t len,
+                          size_t *transferred, int *raw_errno,
+                          int *raw_rc, int *operation_attempted)
+{
   struct ptrace_io_desc iod = {
-    .piod_op = PIOD_READ_D,
-    .piod_offs = (void*)addr,
-    .piod_addr = buf,
-    .piod_len = len};
-  if(transferred) *transferred = 0;
+      .piod_op = PIOD_READ_D,
+      .piod_offs = (void *)addr,
+      .piod_addr = buf,
+      .piod_len = len};
+  if (transferred)
+    *transferred = 0;
   int local_attempted = 0;
   int rc = sys_ptrace_diagnostic(PT_IO, pid, (caddr_t)&iod, 0,
                                  raw_rc, raw_errno,
                                  operation_attempted ? operation_attempted : &local_attempted);
-  if(transferred && (operation_attempted ? *operation_attempted : local_attempted))
+  if (transferred && (operation_attempted ? *operation_attempted : local_attempted))
     *transferred = iod.piod_len;
+  if (rc == 0 && iod.piod_len != len)
+  {
+    return EIO;
+  }
   return rc;
 }
 
-int
-pt_copyout(pid_t pid, intptr_t addr, void* buf, size_t len) {
+int pt_copyout(pid_t pid, intptr_t addr, void *buf, size_t len)
+{
   struct ptrace_io_desc iod = {
-    .piod_op = PIOD_READ_D,
-    .piod_offs = (void*)addr,
-    .piod_addr = buf,
-    .piod_len = len};
+      .piod_op = PIOD_READ_D,
+      .piod_offs = (void *)addr,
+      .piod_addr = buf,
+      .piod_len = len};
   return sys_ptrace(PT_IO, pid, (caddr_t)&iod, 0);
 }
 
-
-char
-pt_getchar(pid_t pid, intptr_t addr) {
+char pt_getchar(pid_t pid, intptr_t addr)
+{
   char val = 0;
 
   pt_copyout(pid, addr, &val, sizeof(val));
@@ -326,9 +346,8 @@ pt_getchar(pid_t pid, intptr_t addr) {
   return val;
 }
 
-
-short
-pt_getshort(pid_t pid, intptr_t addr) {
+short pt_getshort(pid_t pid, intptr_t addr)
+{
   short val = 0;
 
   pt_copyout(pid, addr, &val, sizeof(val));
@@ -336,9 +355,8 @@ pt_getshort(pid_t pid, intptr_t addr) {
   return val;
 }
 
-
-long
-pt_getlong(pid_t pid, intptr_t addr) {
+long pt_getlong(pid_t pid, intptr_t addr)
+{
   long val = 0;
 
   pt_copyout(pid, addr, &val, sizeof(val));
@@ -346,14 +364,14 @@ pt_getlong(pid_t pid, intptr_t addr) {
   return val;
 }
 
-
-long
-pt_call(pid_t pid, intptr_t addr, ...) {
+long pt_call(pid_t pid, intptr_t addr, ...)
+{
   struct reg jmp_reg;
   struct reg bak_reg;
   va_list ap;
 
-  if(pt_getregs(pid, &bak_reg)) {
+  if (pt_getregs(pid, &bak_reg))
+  {
     return -1;
   }
 
@@ -365,47 +383,55 @@ pt_call(pid_t pid, intptr_t addr, ...) {
   jmp_reg.r_rsi = va_arg(ap, uint64_t);
   jmp_reg.r_rdx = va_arg(ap, uint64_t);
   jmp_reg.r_rcx = va_arg(ap, uint64_t);
-  jmp_reg.r_r8  = va_arg(ap, uint64_t);
-  jmp_reg.r_r9  = va_arg(ap, uint64_t);
+  jmp_reg.r_r8 = va_arg(ap, uint64_t);
+  jmp_reg.r_r9 = va_arg(ap, uint64_t);
   va_end(ap);
 
-  if(pt_setregs(pid, &jmp_reg)) {
+  if (pt_setregs(pid, &jmp_reg))
+  {
     return -1;
   }
 
   // single step until the function returns
-  while(jmp_reg.r_rsp <= bak_reg.r_rsp) {
-    if(pt_step(pid)) {
+  while (jmp_reg.r_rsp <= bak_reg.r_rsp)
+  {
+    if (pt_step(pid))
+    {
       return -1;
     }
-    if(pt_getregs(pid, &jmp_reg)) {
+    if (pt_getregs(pid, &jmp_reg))
+    {
       return -1;
     }
   }
 
   // restore registers
-  if(pt_setregs(pid, &bak_reg)) {
+  if (pt_setregs(pid, &bak_reg))
+  {
     return -1;
   }
 
   return jmp_reg.r_rax;
 }
 
-
-long
-pt_syscall(pid_t pid, int sysno, ...) {
+long pt_syscall(pid_t pid, int sysno, ...)
+{
   intptr_t addr = pt_resolve(pid, "HoLVWNanBBc");
   struct reg jmp_reg;
   struct reg bak_reg;
   va_list ap;
 
-  if(!addr) {
+  if (!addr)
+  {
     return -1;
-  } else {
+  }
+  else
+  {
     addr += 0xa;
   }
 
-  if(pt_getregs(pid, &bak_reg)) {
+  if (pt_getregs(pid, &bak_reg))
+  {
     return -1;
   }
 
@@ -418,117 +444,111 @@ pt_syscall(pid_t pid, int sysno, ...) {
   jmp_reg.r_rsi = va_arg(ap, uint64_t);
   jmp_reg.r_rdx = va_arg(ap, uint64_t);
   jmp_reg.r_r10 = va_arg(ap, uint64_t);
-  jmp_reg.r_r8  = va_arg(ap, uint64_t);
-  jmp_reg.r_r9  = va_arg(ap, uint64_t);
+  jmp_reg.r_r8 = va_arg(ap, uint64_t);
+  jmp_reg.r_r9 = va_arg(ap, uint64_t);
   va_end(ap);
 
-  if(pt_setregs(pid, &jmp_reg)) {
+  if (pt_setregs(pid, &jmp_reg))
+  {
     return -1;
   }
 
   // single step until the function returns
-  while(jmp_reg.r_rsp <= bak_reg.r_rsp) {
-    if(pt_step(pid)) {
+  while (jmp_reg.r_rsp <= bak_reg.r_rsp)
+  {
+    if (pt_step(pid))
+    {
       return -1;
     }
-    if(pt_getregs(pid, &jmp_reg)) {
+    if (pt_getregs(pid, &jmp_reg))
+    {
       return -1;
     }
   }
 
   // restore registers
-  if(pt_setregs(pid, &bak_reg)) {
+  if (pt_setregs(pid, &bak_reg))
+  {
     return -1;
   }
 
   return jmp_reg.r_rax;
 }
 
-
 intptr_t
 pt_mmap(pid_t pid, intptr_t addr, size_t len, int prot, int flags,
-	int fd, off_t off) {
+        int fd, off_t off)
+{
   return pt_syscall(pid, SYS_mmap, addr, len, prot, flags, fd, off);
 }
 
-
-int
-pt_msync(pid_t pid, intptr_t addr, size_t len, int flags) {
+int pt_msync(pid_t pid, intptr_t addr, size_t len, int flags)
+{
   return pt_syscall(pid, SYS_msync, addr, len, flags);
 }
 
-
-int
-pt_munmap(pid_t pid, intptr_t addr, size_t len) {
+int pt_munmap(pid_t pid, intptr_t addr, size_t len)
+{
   return pt_syscall(pid, SYS_munmap, addr, len);
 }
 
-
-int
-pt_mprotect(pid_t pid, intptr_t addr, size_t len, int prot) {
+int pt_mprotect(pid_t pid, intptr_t addr, size_t len, int prot)
+{
   return pt_syscall(pid, SYS_mprotect, addr, len, prot);
 }
 
-
-int
-pt_socket(pid_t pid, int domain, int type, int protocol) {
+int pt_socket(pid_t pid, int domain, int type, int protocol)
+{
   return (int)pt_syscall(pid, SYS_socket, domain, type, protocol);
 }
 
-
-int
-pt_setsockopt(pid_t pid, int fd, int level, int optname, intptr_t optval,
-	      socklen_t optlen) {
+int pt_setsockopt(pid_t pid, int fd, int level, int optname, intptr_t optval,
+                  socklen_t optlen)
+{
   return (int)pt_syscall(pid, SYS_setsockopt, fd, level, optname, optval,
-			 optlen, 0);
+                         optlen, 0);
 }
 
-int
-pt_bind(pid_t pid, int sockfd, intptr_t addr, socklen_t addrlen) {
+int pt_bind(pid_t pid, int sockfd, intptr_t addr, socklen_t addrlen)
+{
   return (int)pt_syscall(pid, SYS_bind, sockfd, addr, addrlen);
 }
 
-
 ssize_t
-pt_recvmsg(pid_t pid, int fd, intptr_t msg, int flags) {
+pt_recvmsg(pid_t pid, int fd, intptr_t msg, int flags)
+{
   return (int)pt_syscall(pid, SYS_recvmsg, fd, msg, flags);
 }
 
-
-int
-pt_close(pid_t pid, int fd) {
+int pt_close(pid_t pid, int fd)
+{
   return (int)pt_syscall(pid, SYS_close, fd);
 }
 
-
-int
-pt_dup2(pid_t pid, int oldfd, int newfd) {
+int pt_dup2(pid_t pid, int oldfd, int newfd)
+{
   return (int)pt_syscall(pid, SYS_dup2, oldfd, newfd);
 }
 
-
-int
-pt_rdup(pid_t pid, pid_t other_pid, int fd) {
+int pt_rdup(pid_t pid, pid_t other_pid, int fd)
+{
   return (int)pt_syscall(pid, 0x25b, other_pid, fd);
 }
 
-
-int
-pt_pipe(pid_t pid, intptr_t pipefd) {
+int pt_pipe(pid_t pid, intptr_t pipefd)
+{
   intptr_t faddr = pt_resolve(pid, "-Jp7F+pXxNg");
   return (int)pt_call(pid, faddr, pipefd);
 }
 
-
-int
-pt_signal(pid_t pid, int signum, intptr_t handler) {
+int pt_signal(pid_t pid, int signum, intptr_t handler)
+{
   intptr_t faddr = pt_resolve(pid, "VADc3MNQ3cM");
   return (int)pt_call(pid, faddr, signum, handler);
 }
 
-
-void
-pt_perror(pid_t pid, const char *s) {
+void pt_perror(pid_t pid, const char *s)
+{
   intptr_t faddr = pt_resolve(pid, "9BcDykPmo1I");
   intptr_t addr = pt_call(pid, faddr);
   int err = pt_getint(pid, addr);
@@ -540,16 +560,17 @@ pt_perror(pid_t pid, const char *s) {
   puts(buf);
 }
 
-
 intptr_t
-pt_sceKernelGetProcParam(pid_t pid) {
+pt_sceKernelGetProcParam(pid_t pid)
+{
   intptr_t faddr = pt_resolve(pid, "959qrazPIrg");
 
   return pt_call(pid, faddr);
 }
 
 intptr_t
-pt_getargv(pid_t pid) {
+pt_getargv(pid_t pid)
+{
   intptr_t faddr = pt_resolve(pid, "FJmglmTMdr4");
 
   return pt_call(pid, faddr);

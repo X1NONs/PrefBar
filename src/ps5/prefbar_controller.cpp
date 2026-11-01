@@ -241,6 +241,7 @@ extern "C" int main() {
         prefbar_debug_event(
             PBDBG_ERR, "telemetry.thread",
             "telemetry thread failed to start (rc=%d)", telemetry_rc);
+        return 1;
     }
     const pid_t shellui_pid = prefbar::ps5::observe_shellui_pid();
     const prefbar::ps5::ProcessLookupResult game =
