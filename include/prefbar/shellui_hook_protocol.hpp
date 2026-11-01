@@ -66,9 +66,9 @@ inline ShellUiHookBackend shellui_main_thread_guard_backend(
     const std::uint32_t family = sdk & 0xffff0000U;
 
     /*
-    * MDBG firmware uses the controller's expected-byte-verified guard
-    * transaction. Other selected firmware uses ptrace I/O, which is already
-    * required by the ShellUI loader.
+     * MDBG firmware uses the controller's expected-byte-verified guard
+     * transaction. Other selected firmware uses ptrace I/O, which is already
+     * required by the ShellUI loader.
      *
      * FW 9.60 deliberately stays on the hardware-proven Application.Update
      * chain path; returning Unsupported here selects that existing backend.
@@ -289,8 +289,8 @@ inline bool shellui_hook_probe_needs_mdbg_diagnostic(
     int read_raw_rc, int read_errno) noexcept {
     return shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo &&
         read_attempted &&
-        (read_raw_rc == EFAULT ||
-         (read_raw_rc == -1 && read_errno == EFAULT));
+        read_raw_rc == -1 &&
+        read_errno == EFAULT;
 }
 
 } // namespace prefbar
