@@ -159,7 +159,9 @@ ShellUiHookPollResult poll_and_apply_shellui_hook(
     const bool high_family =
         firmware_family >= 0x11000000U && firmware_family <= 0x13ff0000U;
     const bool fw_needs_mprotect =
-        (firmware_family == 0x09000000U || high_family) &&
+        (firmware_family == 0x09000000U ||
+         firmware_family == 0x09050000U ||
+         firmware_family == 0x10010000U || high_family) &&
         backend == ShellUiHookBackend::Mdbg;
 
     report.backend = fw_needs_mprotect
@@ -189,8 +191,8 @@ ShellUiHookPollResult poll_and_apply_shellui_hook(
     };
     const auto write_target = [&](const std::uint8_t* bytes) {
         /*
-         * FW 9.00 and high firmware (e.g. 13.60) can read JIT code through MDBG
-         * but reject a write while the JIT page is RX. For these firmware families,
+         * FW 9.00, 9.05, 10.01, and high firmware use MDBG for JIT code.
+         * Writes can be rejected while the JIT page is RX. For these families,
          * temporarily make the code page RWX while ShellUI is stopped, write the bytes,
          * then restore RX before verification. No game process memory is written.
          */
@@ -280,6 +282,18 @@ ShellUiHookPollResult poll_and_apply_shellui_hook(
                 report.verified = true;
                 report.status = ShellUiHookStatus::Success;
             } else {
+                if (shellui_hook_probe_needs_mdbg_diagnostic(
+                        report.sdk_version, report.read_attempted,
+                        report.read_raw_rc, report.read_errno)) {
+                    std::array<std::uint8_t, kShellUiHookPatchSize> diagnostic{};
+                    errno = 0;
+                    report.probe_mdbg_attempted = true;
+                    report.probe_mdbg_rc = mdbg_copyout(
+                        shellui_pid,
+                        static_cast<intptr_t>(request.method_address),
+                        diagnostic.data(), diagnostic.size());
+                    report.probe_mdbg_errno = errno;
+                }
                 report.status = ShellUiHookStatus::ExpectedBytesMismatch;
             }
         } else if (report.read_rc != 0 ||
