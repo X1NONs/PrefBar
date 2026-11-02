@@ -289,8 +289,8 @@ inline bool shellui_hook_probe_needs_mdbg_diagnostic(
     int read_raw_rc, int read_errno) noexcept {
     return shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo &&
         read_attempted &&
-        read_raw_rc == -1 &&
-        read_errno == EFAULT;
+        (read_raw_rc == EFAULT ||
+         (read_raw_rc == -1 && read_errno == EFAULT));
 }
 
 } // namespace prefbar

@@ -20,7 +20,7 @@ int main() {
 
     for (const std::uint32_t sdk : {0x08300000U, 0x09600000U, 0x10000000U}) {
         assert(shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo);
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));
+              assert(shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));
         assert(shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, EFAULT));
         assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, false, EFAULT, 0));
         assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, 0, EFAULT));
