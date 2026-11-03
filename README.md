@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Docs/logo.png" alt="PrefBar Logo" width="100%" height="120">
+  <img src="Docs/logo.png" alt="PrefBar Logo" width="90%" height="120">
 </p>
 
 [![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge)](https://github.com/X1NONs/PrefBar/releases)
