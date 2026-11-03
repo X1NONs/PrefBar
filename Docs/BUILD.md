@@ -58,7 +58,7 @@ Host tests do not require the PS5 SDK and do not produce a PS5 payload:
 make test
 ```
 
-This configures the root CMake project with `PREFBAR_BUILD_PS5=OFF`, builds the test executables under `build-host/`, and runs CTest. The tests cover the telemetry wire format, diagnostic-event/configuration behavior, and touchpad triple-click helper.
+This configures the root CMake project with `PREFBAR_BUILD_PS5=OFF`, builds the test executables under `build-host/`, and runs CTest. The four tests cover telemetry wire-format validation, diagnostic-event and configuration behavior, touchpad triple-click handling, and ShellUI hook-protocol validation. The hook-protocol test checks firmware/backend selection, EFAULT diagnostic conditions, and validation of the one-byte main-thread-guard request.
 
 ## Build options
 
