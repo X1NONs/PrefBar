@@ -1093,6 +1093,11 @@ static void format_sensors(const sensors_t *s, char *buf, size_t n)
         app(buf, n, "%sSoC %dC", sep, s->soc_temp);
         sep = " | ";
     }
+    if (s->have_power)
+    {
+        app(buf, n, "%sPWR %.0f W", sep, s->power_w);
+        sep = " | ";
+    }
     if (s->have_fan)
     {
         app(buf, n, "%sFan %d", sep, s->fan);
@@ -1148,6 +1153,8 @@ static void format_kv(const report_t *r, const sensors_t *s, char *buf, size_t n
         app(buf, n, "cpu_temp_c=%d\n", s->cpu_temp);
     if (s->have_soc_temp)
         app(buf, n, "soc_temp_c=%d\n", s->soc_temp);
+    if (s->have_power)
+        app(buf, n, "soc_power_w=%.2f\n", s->power_w);
     if (s->have_fan)
         app(buf, n, "fan_duty=%d\n", s->fan);
     if (s->have_ram)

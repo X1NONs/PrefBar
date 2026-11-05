@@ -28,7 +28,7 @@ int main(void)
     CHECK(prefbar_wire_valid(NULL, sizeof p) == 0);
     p = good(); CHECK(prefbar_wire_valid(&p, sizeof p - 1) == 0);      /* length mismatch */
     p = good(); p.magic ^= 1;          CHECK(!prefbar_wire_valid(&p, sizeof p));
-    p = good(); p.version = 1;         CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.version = 2;         CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.size = 10;           CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.sequence = 0;        CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.rows = 0;            CHECK(!prefbar_wire_valid(&p, sizeof p));

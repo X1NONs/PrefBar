@@ -304,10 +304,11 @@ static void test_compact_overlay_rows(void)
 
 static void test_power_sensor_and_row(void)
 {
-    reset("show_power=1\n");
+    reset("show_power=1\noverlay_horizontal=1\n");
     config_t cfg;
     CHECK(load_config(&cfg) == 1, "power config should load");
-    CHECK(cfg.show_power == 1, "show_power should default to enabled");
+    CHECK(cfg.show_power == 1, "show_power should be enabled by config");
+    CHECK(cfg.overlay_horizontal == 1, "overlay_horizontal should parse as enabled");
 
     sensors_t sens;
     cpuu_t cpuu = {0};
@@ -332,6 +333,24 @@ static void test_power_sensor_and_row(void)
     cfg.show_power = 0;
     n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == 1 && rows[0][0] == '\0', "disabled PWR should not leave a row");
+
+    cfg.show_power = 1;
+    cfg.show_fps = 1;
+    cfg.show_cpu = 1;
+    cfg.show_soc_temp = 1;
+    cfg.show_fan_duty = 1;
+    cfg.show_memory = 1;
+    cfg.ov_mode = 1;
+    sens.have_fan = 1;
+    sens.fan = 23;
+    sens.have_ram = 1;
+    sens.ram_used_mb = 2048;
+    sens.ram_total_mb = 6144;
+    sens.have_vram = 1;
+    sens.vram_pct = 25.0f;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n <= PREFBAR_ROWS, "all advanced metrics must fit the wire row capacity (%d/%d)", n, PREFBAR_ROWS);
+    CHECK(n == PREFBAR_ROWS, "all seven rows should be available in the fully populated advanced layout (got %d)", n);
 }
 
 static void test_reload_config_preserves_last_good(void)

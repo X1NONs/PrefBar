@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 #define PREFBAR_WIRE_MAGIC   0x52414250u   /* bytes 'P','B','A','R' (little endian) */
-#define PREFBAR_WIRE_VERSION 2u
+#define PREFBAR_WIRE_VERSION 3u
 #define PREFBAR_WIRE_PORT    39028u
 #define PREFBAR_CONTROL_PORT     39029u   /* ShellUI -> controller debug/control events */
 #define PREFBAR_ROWS         7

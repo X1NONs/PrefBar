@@ -68,7 +68,7 @@ The telemetry worker writes human-readable `status.txt` and key/value `status.kv
 
 ### 3. Telemetry and control protocol
 
-`include/prefbar/telemetry_wire.h` defines the C-compatible version-2 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries up to seven text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and the horizontal-layout flag.
+`include/prefbar/telemetry_wire.h` defines the C-compatible version-3 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries up to seven text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and the horizontal-layout flag.
 
 The controller sends telemetry to the renderer over UDP loopback on port `39028`. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
 
