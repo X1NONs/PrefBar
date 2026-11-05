@@ -341,6 +341,13 @@ static void test_power_sensor_and_row(void)
     cfg.show_fan_duty = 1;
     cfg.show_memory = 1;
     cfg.ov_mode = 1;
+    sens.have_cpu = 1;
+    sens.dbg_have = 1;
+    for (int i = 0; i < NCORES; ++i) {
+        sens.core_ok[i] = 1;
+        sens.core[i] = 30.0f;
+        sens.dbg_ratio[i] = 0.5f;
+    }
     sens.have_fan = 1;
     sens.fan = 23;
     sens.have_ram = 1;

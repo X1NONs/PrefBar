@@ -60,7 +60,7 @@ The current overlay can show:
 - RAM and VRAM readings when available.
 - SoC APU power consumption in watts when the kernel API is available.
 
-The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted.
+The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted. Horizontal mode places the compacted rows on one line and reduces the font size when needed to fit the available screen width.
 
 **Fan duty is not fan RPM.** The currently used fan API reports a Q10 duty value, converted to a percentage. The project does not claim that this API supplies tachometer RPM.
 
