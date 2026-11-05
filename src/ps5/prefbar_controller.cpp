@@ -155,7 +155,12 @@ void write_startup_record(pid_t first_shellui,
                 /* Keep the last confirmed PID until this candidate is stable. */
             }
         } else if (game.size_query_rc != 0 || game.data_query_rc != 0) {
-            /* An incomplete sysctl scan is unknown, not proof that the game exited. */
+            /* An incomplete sysctl scan is unknown, not proof that the game exited.
+             * Preserve readiness for the last confirmed game during this scan. */
+            if (reported_game_pid > 0) {
+                stable_game_pid = reported_game_pid;
+                stable_game_samples = kGameStableSamples;
+            }
         } else if (reported_game_pid > 0 &&
                    missing_game_samples < kGameExitGraceSamples) {
             ++missing_game_samples;
