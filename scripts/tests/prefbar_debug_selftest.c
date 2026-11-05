@@ -249,6 +249,7 @@ static void test_compact_overlay_rows(void)
     cfg.show_soc_temp = 1;
     cfg.show_fan_duty = 0;
     cfg.show_memory = 1;
+    cfg.show_power = 0;
     report.fps = 60.0;
     report.avg_ms = 16.7;
     report.low1_fps = 58.0;
@@ -299,6 +300,38 @@ static void test_compact_overlay_rows(void)
     n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == 1 && rows[0][0] == '\0',
           "all-disabled overlay must send one empty clearing row (n=%d, text='%s')", n, rows[0]);
+}
+
+static void test_power_sensor_and_row(void)
+{
+    reset("show_power=1\n");
+    config_t cfg;
+    CHECK(load_config(&cfg) == 1, "power config should load");
+    CHECK(cfg.show_power == 1, "show_power should default to enabled");
+
+    sensors_t sens;
+    cpuu_t cpuu = {0};
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.have_power == 1, "simulated SoC power API should provide a sample");
+    CHECK(sens.power_w > 100.0f && sens.power_w < 300.0f,
+          "power should be converted from milliwatts to watts (got %.2f W)", sens.power_w);
+
+    cfg.sensors = 1;
+    cfg.show_fps = 0;
+    cfg.show_cpu = 0;
+    cfg.show_soc_temp = 0;
+    cfg.show_fan_duty = 0;
+    cfg.show_memory = 0;
+    cfg.show_power = 1;
+    report_t report = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && strncmp(rows[0], "PWR ", 4) == 0 && strstr(rows[0], " W") != NULL,
+          "PWR should be emitted as a compact standalone row (n=%d, row='%s')", n, rows[0]);
+
+    cfg.show_power = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && rows[0][0] == '\0', "disabled PWR should not leave a row");
 }
 
 static void test_reload_config_preserves_last_good(void)
@@ -368,6 +401,7 @@ int main(void)
     test_notification_switches();
     test_config_file_and_values();
     test_compact_overlay_rows();
+    test_power_sensor_and_row();
     test_reload_config_preserves_last_good();
     test_toast_cap();
     test_rotation();

@@ -172,6 +172,7 @@ struct TelemetryLayout {
     float g;
     float b;
     bool shadow;
+    bool horizontal;
     bool valid;
 };
 TelemetryLayout g_telemetry_layout{};
@@ -1129,15 +1130,35 @@ void prefbar_draw_text() {
         return;
     }
 
-    const int font_px = pkt.font_size;
+    const bool horizontal = (pkt.flags & PREFBAR_WIRE_FLAG_HORIZONTAL) != 0;
     const int corner = pkt.corner;
     const int rows = pkt.rows;
     const float mx = pkt.margin_x;
     const float my = pkt.margin_y;
+    int font_px = pkt.font_size;
 
-    /* The row count only matters for the bottom-left anchor; ignoring it for top-left keeps the
-     * labels from being rebuilt every time a sensor row appears or disappears. */
-    const int layout_rows = (corner == PREFBAR_CORNER_BL) ? rows : 0;
+    /* In horizontal mode, estimate text widths and reduce the font only as much as
+     * needed to keep all populated rows within the 1920px ShellUI width. */
+    if (horizontal) {
+        std::size_t characters = 0;
+        for (int i = 0; i < rows; ++i)
+            characters += std::strlen(pkt.text[i]);
+        const float gaps = static_cast<float>(rows > 0 ? rows - 1 : 0) *
+                           static_cast<float>(font_px) * 0.72f;
+        const float available = 1920.0f - mx * 2.0f;
+        const float estimated = static_cast<float>(characters) *
+                                static_cast<float>(font_px) * 0.62f + gaps;
+        if (estimated > available && characters > 0) {
+            const float scaled = static_cast<float>(font_px) * available / estimated;
+            font_px = static_cast<int>(scaled);
+            if (font_px < 10) font_px = 10;
+        }
+    }
+
+    /* Bottom anchoring reserves one line in horizontal mode. */
+    const int layout_rows = (corner == PREFBAR_CORNER_BL)
+        ? (horizontal ? 1 : rows)
+        : 0;
     unsigned why = 0;
     if (!g_telemetry_layout.valid) why |= 1u;
     if (g_telemetry_layout.font != font_px) why |= 2u;
@@ -1148,6 +1169,7 @@ void prefbar_draw_text() {
         g_telemetry_layout.b != pkt.b) why |= 64u;
     const bool want_shadow = (pkt.flags & PREFBAR_WIRE_FLAG_TEXT_SHADOW) != 0;
     if (g_telemetry_layout.shadow != want_shadow) why |= 128u;
+    if (g_telemetry_layout.horizontal != horizontal) why |= 256u;
     MonoObject* labels[PREFBAR_ROWS]{};
     MonoObject* shadows[PREFBAR_ROWS]{};
     if (!why) {
@@ -1175,7 +1197,7 @@ void prefbar_draw_text() {
         }
         const float line_h = static_cast<float>(font_px) * 1.3f;
         const float y0 = (corner == PREFBAR_CORNER_BL)
-            ? 1080.0f - my - line_h * static_cast<float>(rows)
+            ? 1080.0f - my - line_h * static_cast<float>(layout_rows)
             : my;
         int created = 0;
         for (int i = 0; i < PREFBAR_ROWS; ++i) {
@@ -1185,7 +1207,7 @@ void prefbar_draw_text() {
                 char shadow_id[40];
                 std::snprintf(shadow_id, sizeof(shadow_id), "id_prefbar_shadow%d", i);
                 MonoObject* shadow = create_label(
-                    shadow_id, mx + 1.5f, y0 + line_h * static_cast<float>(i) + 1.5f,
+                    shadow_id, mx + 1.5f, y0 + (horizontal ? 0.0f : line_h * static_cast<float>(i)) + 1.5f,
                     "", font, 0, 0.0f, 0.0f, 0.0f, 0.82f);
                 if (shadow && append_child(root, shadow) &&
                     replace_managed_handle(g_telemetry_shadow_handle[i], shadow)) {
@@ -1195,7 +1217,7 @@ void prefbar_draw_text() {
                 }
             }
             MonoObject* label = create_label(
-                id, mx, y0 + line_h * static_cast<float>(i), "", font, 0,
+                id, mx, y0 + (horizontal ? 0.0f : line_h * static_cast<float>(i)), "", font, 0,
                 pkt.r, pkt.g, pkt.b, pkt.a);
             if (label && append_child(root, label) &&
                 replace_managed_handle(g_telemetry_row_handle[i], label) &&
@@ -1211,10 +1233,15 @@ void prefbar_draw_text() {
                  g_row_rebuild_count, why, created, PREFBAR_ROWS, font_px, corner, rows);
         g_telemetry_layout = TelemetryLayout{
             font_px, corner, layout_rows, mx, my, pkt.r, pkt.g, pkt.b,
-            want_shadow, created == PREFBAR_ROWS};
+            want_shadow, horizontal, created == PREFBAR_ROWS};
     }
 
     int applied = 0;
+    float horizontal_x = mx;
+    MonoClass* label_class = horizontal
+        ? mono_class_from_name_(g_pui_image, "Sce.PlayStation.PUI.UI2", "Label")
+        : nullptr;
+    const float horizontal_gap = static_cast<float>(font_px) * 0.72f;
     for (int i = 0; i < PREFBAR_ROWS; ++i) {
         if (!labels[i])
             continue;
@@ -1225,6 +1252,20 @@ void prefbar_draw_text() {
             text = (i == 0) ? banner : "";
         else if (!stale && i < rows)
             text = pkt.text[i];
+
+        if (horizontal) {
+            if (label_class) {
+                (void)set_property_direct(label_class, labels[i], "X", horizontal_x);
+                if (want_shadow && shadows[i])
+                    (void)set_property_direct(label_class, shadows[i], "X", horizontal_x + 1.5f);
+            }
+            if (text[0]) {
+                const float estimated_width =
+                    static_cast<float>(std::strlen(text)) * static_cast<float>(font_px) * 0.62f;
+                horizontal_x += estimated_width + horizontal_gap;
+            }
+        }
+
         if (want_shadow && shadows[i])
             (void)set_label_text(shadows[i], text);
         if (set_label_text(labels[i], text))

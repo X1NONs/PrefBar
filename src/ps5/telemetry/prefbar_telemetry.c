@@ -302,7 +302,9 @@ static void ensure_default_config_file(void)
         "show_cpu=1\n"
         "show_soc_temp=1\n"
         "show_fan_duty=1\n"
-        "show_memory=1\n\n"
+        "show_memory=1\n"
+        "show_power=1\n"
+        "overlay_horizontal=0\n\n"
         "[input]\n"
         "touchpad_toggle=1\n\n"
         "[diagnostics]\n"
@@ -658,6 +660,7 @@ typedef char ps_stats_size_check[(sizeof(struct ps_proc_stats) == 0x28) ? 1 : -1
 extern int sceKernelGetCpuTemperature(int *) __attribute__((weak));
 extern int sceKernelGetSocSensorTemperature(int, int *) __attribute__((weak));
 extern int sceKernelGetCurrentFanDuty(uint16_t *, uint64_t *) __attribute__((weak));
+extern int sceKernelGetSocPowerConsumption(void *) __attribute__((weak));
 extern int sceKernelGetCpuUsage(struct ps_proc_stats *, int32_t *) __attribute__((weak));
 extern int sceKernelGetThreadName(uint32_t, char *) __attribute__((weak));
 extern int get_page_table_stats(int, int, int *, int *) __attribute__((weak));
@@ -689,6 +692,16 @@ static int sceKernelGetCurrentFanDuty(uint16_t *duty_q10, uint64_t *chassis_info
     (void)duty_q10;
     (void)chassis_info;
     return -1;
+}
+static int sceKernelGetSocPowerConsumption(void *out_raw)
+{
+    if (!out_raw)
+        return -1;
+    uint32_t *lanes = (uint32_t *)out_raw;
+    memset(lanes, 0, sizeof(uint32_t) * 28u);
+    for (int lane = 0; lane < 8; ++lane)
+        lanes[lane * 3] = 18000u + (uint32_t)lane * 1000u;
+    return 0;
 }
 static const double SIM_IDLE_FRAC[NCORES] = {0.90, 0.70, 0.50, 0.80, 0.60, 0.95, 0.70, 0.85};
 static int sceKernelGetThreadName(uint32_t id, char *out)
@@ -847,6 +860,8 @@ typedef struct
     int core_ok[NCORES];
     int have_ram, ram_used_mb, ram_total_mb;
     float ram_pct;
+    int have_power;
+    float power_w;
     int have_vram;
     float vram_pct;
     int vram_used_mb, vram_total_mb;
@@ -993,6 +1008,24 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
         {
             s->have_fan = 1;
             s->fan = (int)(((uint32_t)duty_q10 * 100u + 512u) / 1024u);
+        }
+    }
+
+    /* SoC power API exposes milliwatt lanes in a 28-word output block.
+     * The eight aggregate lanes are at offsets 0, 3, ... 21. */
+    if (SYM_PRESENT(sceKernelGetSocPowerConsumption))
+    {
+        uint32_t raw[28] = {0};
+        if (sceKernelGetSocPowerConsumption(raw) == 0)
+        {
+            uint64_t total_mw = 0;
+            for (int lane = 0; lane < 8; ++lane)
+                total_mw += raw[lane * 3];
+            if (total_mw > 0)
+            {
+                s->power_w = (float)total_mw / 1000.0f;
+                s->have_power = 1;
+            }
         }
     }
 
@@ -1146,6 +1179,7 @@ typedef struct
     int notifications, startup_notification, error_notifications, debug_notifications;
     int debug_notify;
     int text_shadow, show_fps, show_cpu, show_soc_temp, show_fan_duty, show_memory;
+    int show_power, overlay_horizontal;
     int touchpad_toggle;
     float text_r, text_g, text_b;
 } config_t;
@@ -1284,6 +1318,12 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
         append_overlay_row(rows, &n, row);
     }
 
+    if (cfg->sensors && cfg->show_power && s->have_power)
+    {
+        snprintf(row, sizeof row, "PWR %.0f W", s->power_w);
+        append_overlay_row(rows, &n, row);
+    }
+
     if (cfg->ov_mode == 1 && cfg->sensors)
     {
         if (cfg->show_cpu && s->have_cpu)
@@ -1337,7 +1377,8 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
     p.rows = (uint8_t)n;
     p.flags = (uint8_t)((cfg->text_shadow ? PREFBAR_WIRE_FLAG_TEXT_SHADOW : 0u) |
                         (cfg->touchpad_toggle ? PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE : 0u) |
-                        (cfg->overlay ? PREFBAR_WIRE_FLAG_OVERLAY_ENABLED : 0u));
+                        (cfg->overlay ? PREFBAR_WIRE_FLAG_OVERLAY_ENABLED : 0u) |
+                        (cfg->overlay_horizontal ? PREFBAR_WIRE_FLAG_HORIZONTAL : 0u));
     p.font_size = (uint16_t)cfg->ov_font;
     p.margin_x = (float)cfg->ov_x;
     p.margin_y = (float)cfg->ov_y;
@@ -1565,6 +1606,8 @@ static void config_defaults(config_t *c)
     c->show_soc_temp = 1;
     c->show_fan_duty = 1;
     c->show_memory = 1;
+    c->show_power = 1;
+    c->overlay_horizontal = 0;
     c->touchpad_toggle = 1;
     c->text_r = 0.95f;
     c->text_g = 0.95f;
@@ -1639,6 +1682,8 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("show_soc_temp", show_soc_temp, 1, 0, 1)
     CONFIG_INT("show_fan_duty", show_fan_duty, 1, 0, 1)
     CONFIG_INT("show_memory", show_memory, 1, 0, 1)
+    CONFIG_INT("show_power", show_power, 1, 0, 1)
+    CONFIG_INT("overlay_horizontal", overlay_horizontal, 0, 0, 1)
     CONFIG_INT("touchpad_toggle", touchpad_toggle, 1, 0, 1)
 #undef CONFIG_INT
     if (strcmp(key, "text_color") == 0)

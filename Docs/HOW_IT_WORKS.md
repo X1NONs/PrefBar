@@ -58,6 +58,9 @@ The current overlay can show:
 - SoC temperature when available.
 - Fan duty as a percentage.
 - RAM and VRAM readings when available.
+- SoC APU power consumption in watts when the kernel API is available.
+
+The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted.
 
 **Fan duty is not fan RPM.** The currently used fan API reports a Q10 duty value, converted to a percentage. The project does not claim that this API supplies tachometer RPM.
 
@@ -65,7 +68,7 @@ The telemetry worker writes human-readable `status.txt` and key/value `status.kv
 
 ### 3. Telemetry and control protocol
 
-`include/prefbar/telemetry_wire.h` defines the C-compatible version-2 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries the text rows, font size, corner/position, text color, overlay visibility, text-shadow state, and touchpad-toggle state.
+`include/prefbar/telemetry_wire.h` defines the C-compatible version-2 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries up to seven text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and the horizontal-layout flag.
 
 The controller sends telemetry to the renderer over UDP loopback on port `39028`. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
 
@@ -113,12 +116,14 @@ All boolean values use `0` (off) or `1` (on).
 | `overlay_corner` | Overlay anchor: `0` top-left, `2` bottom-left | `0` or `2`; default `0` |
 | `overlay_x` | Horizontal margin in pixels | `0`–`1800`; default `24` |
 | `overlay_y` | Vertical margin in pixels | `0`–`1000`; default `24` |
+| `overlay_horizontal` | Render telemetry rows as one horizontal bar | `0` or `1`; default `0` |
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
 | `show_fps` | Show the FPS row | `0` or `1`; default `1` |
 | `show_cpu` | Show CPU utilization/temperature | `0` or `1`; default `1` |
 | `show_soc_temp` | Show SoC temperature | `0` or `1`; default `1` |
 | `show_fan_duty` | Show fan-duty percentage | `0` or `1`; default `1` |
 | `show_memory` | Show RAM/VRAM metrics | `0` or `1`; default `1` |
+| `show_power` | Show SoC APU power in watts when available | `0` or `1`; default `1` |
 | `touchpad_toggle` | Enable triple-click overlay visibility control | `0` or `1`; default `1` |
 | `diag` | Enable diagnostic captures | `0` or `1`; default `0` in the embedded PS5 build |
 | `poll_us` | Telemetry polling interval in microseconds | `500`–`20000`; default `2000` |
@@ -145,6 +150,7 @@ overlay_font=26
 overlay_corner=0
 overlay_x=24
 overlay_y=24
+overlay_horizontal=0
 
 [telemetry]
 sensors=1
@@ -153,6 +159,7 @@ show_cpu=1
 show_soc_temp=1
 show_fan_duty=1
 show_memory=1
+show_power=1
 
 [input]
 touchpad_toggle=1
