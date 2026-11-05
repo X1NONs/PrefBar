@@ -49,6 +49,8 @@ The controller waits for stable process observations before starting the rendere
 
 The telemetry worker does not read or write game-process memory. The DCE counter is used as the source for frame statistics. Sensor APIs are optional/weakly linked, so a metric can be unavailable on a particular firmware or runtime environment.
 
+Disabled or unavailable metric rows are compacted, so later enabled metrics move up instead of leaving blank gaps. When all metrics are disabled, PrefBar sends an empty row to clear previously displayed text.
+
 The current overlay can show:
 
 - FPS, average frametime, and 1% low.
@@ -89,9 +91,9 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. Changes take effect after restarting PrefBar.
+It does not overwrite an existing file. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
-The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used.
+The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
 All boolean values use `0` (off) or `1` (on).
 

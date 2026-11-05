@@ -60,6 +60,7 @@
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
 /* Published by the C++ controller after its game-process stability gate. */
 extern int prefbar_game_process_ready(void);
+extern uint64_t prefbar_game_session_generation(void);
 #endif
 
 #ifdef PREFBAR_SIM
@@ -273,29 +274,11 @@ static int read_config_int(const char *key, int fallback, int min_value, int max
     return (int)parsed;
 }
 
-static int read_config_rgb(const char *key, float *r, float *g, float *b)
-{
-    char value[32];
-    if (!read_config_value(key, value, sizeof value))
-        return 0;
-    if (value[0] != '#' || strlen(value) != 7)
-        return 0;
-    char *end = NULL;
-    errno = 0;
-    long rgb = strtol(value + 1, &end, 16);
-    if (errno || end == value + 1 || *end || rgb < 0 || rgb > 0xffffff)
-        return 0;
-    *r = (float)((rgb >> 16) & 0xff) / 255.0f;
-    *g = (float)((rgb >> 8) & 0xff) / 255.0f;
-    *b = (float)(rgb & 0xff) / 255.0f;
-    return 1;
-}
-
 static void ensure_default_config_file(void)
 {
     static const char defaults[] =
         "# PrefBar 0.2.0 configuration\n"
-        "# Edit values and restart PrefBar to apply them.\n"
+        "# Values are reloaded once when a new game session starts.\n"
         "# Boolean values: 0 = off, 1 = on. Invalid values use defaults.\n\n"
         "[notifications]\n"
         "notifications=1\n"
@@ -1161,6 +1144,7 @@ typedef struct
     int notify_sec, poll_us, sensors, diag;
     int overlay, ov_mode, ov_font, ov_corner, ov_x, ov_y;
     int notifications, startup_notification, error_notifications, debug_notifications;
+    int debug_notify;
     int text_shadow, show_fps, show_cpu, show_soc_temp, show_fan_duty, show_memory;
     int touchpad_toggle;
     float text_r, text_g, text_b;
@@ -1235,79 +1219,99 @@ static void overlay_control_poll(void)
 }
 #endif /* PREFBAR_EMBED && !PREFBAR_SIM */
 
+static void append_overlay_row(
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN], int *count, const char *text)
+{
+    if (!rows || !count || !text || !text[0] || *count >= PREFBAR_ROWS)
+        return;
+    snprintf(rows[*count], PREFBAR_ROW_LEN, "%s", text);
+    ++*count;
+}
+
 static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s,
                       char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN])
 {
-    int n = cfg->sensors
-                ? ((cfg->ov_mode == 1) ? PREFBAR_ROWS : 4)
-                : 1;
-    for (int i = 0; i < PREFBAR_ROWS; ++i)
-        rows[i][0] = 0;
+    int n = 0;
+    char row[PREFBAR_ROW_LEN];
+
+    memset(rows, 0, sizeof(char) * PREFBAR_ROWS * PREFBAR_ROW_LEN);
 
     if (cfg->show_fps)
     {
         if (r->idle)
-            app(rows[0], PREFBAR_ROW_LEN, "FPS --");
+            snprintf(row, sizeof row, "FPS --");
         else
-            app(rows[0], PREFBAR_ROW_LEN, "FPS %.1f  %.1f ms  1%%L %.1f",
-                r->fps, r->avg_ms, r->low1_fps);
+            snprintf(row, sizeof row, "FPS %.1f  %.1f ms  1%%L %.1f",
+                     r->fps, r->avg_ms, r->low1_fps);
+        append_overlay_row(rows, &n, row);
     }
 
     if (cfg->sensors && (cfg->show_cpu || cfg->show_soc_temp))
     {
+        row[0] = '\0';
         if (cfg->show_cpu && s->have_cpu)
         {
-            app(rows[1], PREFBAR_ROW_LEN, "CPU %.0f%%", s->cpu_avg);
+            snprintf(row, sizeof row, "CPU %.0f%%", s->cpu_avg);
             if (s->have_cpu_temp)
-                app(rows[1], PREFBAR_ROW_LEN, " %dC", s->cpu_temp);
+                app(row, sizeof row, " %dC", s->cpu_temp);
         }
         else if (cfg->show_cpu && s->have_cpu_temp)
         {
-            app(rows[1], PREFBAR_ROW_LEN, "CPU %dC", s->cpu_temp);
+            snprintf(row, sizeof row, "CPU %dC", s->cpu_temp);
         }
         if (cfg->show_soc_temp && s->have_soc_temp)
-            app(rows[1], PREFBAR_ROW_LEN, "%sSoC %dC", rows[1][0] ? "  " : "", s->soc_temp);
+            app(row, sizeof row, "%sSoC %dC", row[0] ? "  " : "", s->soc_temp);
+        append_overlay_row(rows, &n, row);
     }
 
     if (cfg->sensors && cfg->show_fan_duty)
     {
         if (s->have_fan)
-            app(rows[2], PREFBAR_ROW_LEN, "Fan: %d%%", s->fan);
+            snprintf(row, sizeof row, "Fan: %d%%", s->fan);
         else
-            app(rows[2], PREFBAR_ROW_LEN, "Fan: --");
+            snprintf(row, sizeof row, "Fan: --");
+        append_overlay_row(rows, &n, row);
     }
 
     if (cfg->sensors && cfg->show_memory)
     {
+        row[0] = '\0';
         if (s->have_ram)
-            app(rows[3], PREFBAR_ROW_LEN, "RAM %d/%d MB", s->ram_used_mb, s->ram_total_mb);
+            snprintf(row, sizeof row, "RAM %d/%d MB", s->ram_used_mb, s->ram_total_mb);
         if (s->have_vram)
-            app(rows[3], PREFBAR_ROW_LEN, "%sVRAM %.0f%%",
-                rows[3][0] ? "  " : "", s->vram_pct);
+            app(row, sizeof row, "%sVRAM %.0f%%",
+                row[0] ? "  " : "", s->vram_pct);
+        append_overlay_row(rows, &n, row);
     }
 
     if (cfg->ov_mode == 1 && cfg->sensors)
     {
-        if (s->have_cpu)
+        if (cfg->show_cpu && s->have_cpu)
         {
-            app(rows[4], PREFBAR_ROW_LEN, "cores:");
+            row[0] = '\0';
+            snprintf(row, sizeof row, "cores:");
             for (int i = 0; i < NCORES; ++i)
             {
                 if (s->core_ok[i])
-                    app(rows[4], PREFBAR_ROW_LEN, " %.0f", s->core[i]);
+                    app(row, sizeof row, " %.0f", s->core[i]);
                 else
-                    app(rows[4], PREFBAR_ROW_LEN, " --");
+                    app(row, sizeof row, " --");
             }
+            append_overlay_row(rows, &n, row);
         }
         if (s->dbg_have)
         {
-            app(rows[5], PREFBAR_ROW_LEN, "idle/dt:");
+            row[0] = '\0';
+            snprintf(row, sizeof row, "idle/dt:");
             for (int i = 0; i < NCORES; ++i)
-                app(rows[5], PREFBAR_ROW_LEN, " %.2f", (double)s->dbg_ratio[i]);
+                app(row, sizeof row, " %.2f", (double)s->dbg_ratio[i]);
+            append_overlay_row(rows, &n, row);
         }
-        n = PREFBAR_ROWS;
     }
-    return n;
+
+    /* The wire format requires at least one row; send an empty row to clear
+     * old text when every metric is disabled or unavailable. */
+    return n > 0 ? n : 1;
 }
 
 static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN], int n)
@@ -1533,45 +1537,173 @@ static void diag_capture(const char *tag, int idx, uint64_t t_ns, uint64_t t0_ns
 
 /* ---------------------------------------------------------------- config */
 
-static int load_config(config_t *c)
+static void config_defaults(config_t *c)
 {
     memset(c, 0, sizeof(*c));
-    c->notify_sec = read_config_int("notify_sec", 0, 0, 3600);
-    c->poll_us = read_config_int("poll_us", 2000, 500, 20000);
-    c->sensors = read_config_int("sensors", 1, 0, 1);
+    c->notify_sec = 0;
+    c->poll_us = 2000;
+    c->sensors = 1;
 #ifdef PREFBAR_EMBED
-    c->diag = read_config_int("diag", 0, 0, 1);
+    c->diag = 0;
 #else
-    c->diag = read_config_int("diag", 1, 0, 1);
+    c->diag = 1;
 #endif
-    c->overlay = read_config_int("overlay", 1, 0, 1);
-    c->ov_mode = read_config_int("overlay_mode", 0, 0, 1);
-    c->ov_font = read_config_int("overlay_font", 26, 10, 96);
-    {
-        const int configured_corner = read_config_int(
-            "overlay_corner", PREFBAR_CORNER_TL, PREFBAR_CORNER_TL, PREFBAR_CORNER_BL);
-        c->ov_corner = configured_corner == PREFBAR_CORNER_BL
-                           ? PREFBAR_CORNER_BL
-                           : PREFBAR_CORNER_TL;
-    }
-    c->ov_x = read_config_int("overlay_x", 24, 0, 1800);
-    c->ov_y = read_config_int("overlay_y", 24, 0, 1000);
-    c->notifications = read_config_int("notifications", 1, 0, 1);
-    c->startup_notification = read_config_int("startup_notification", 1, 0, 1);
-    c->error_notifications = read_config_int("error_notifications", 1, 0, 1);
-    c->debug_notifications = read_config_int("debug_notifications", 1, 0, 1);
-    c->text_shadow = read_config_int("text_shadow", 1, 0, 1);
-    c->show_fps = read_config_int("show_fps", 1, 0, 1);
-    c->show_cpu = read_config_int("show_cpu", 1, 0, 1);
-    c->show_soc_temp = read_config_int("show_soc_temp", 1, 0, 1);
-    c->show_fan_duty = read_config_int("show_fan_duty", 1, 0, 1);
-    c->show_memory = read_config_int("show_memory", 1, 0, 1);
-    c->touchpad_toggle = read_config_int("touchpad_toggle", 1, 0, 1);
+    c->overlay = 1;
+    c->ov_mode = 0;
+    c->ov_font = 26;
+    c->ov_corner = PREFBAR_CORNER_TL;
+    c->ov_x = 24;
+    c->ov_y = 24;
+    c->notifications = 1;
+    c->startup_notification = 1;
+    c->error_notifications = 1;
+    c->debug_notifications = 1;
+    c->debug_notify = 3;
+    c->text_shadow = 1;
+    c->show_fps = 1;
+    c->show_cpu = 1;
+    c->show_soc_temp = 1;
+    c->show_fan_duty = 1;
+    c->show_memory = 1;
+    c->touchpad_toggle = 1;
     c->text_r = 0.95f;
     c->text_g = 0.95f;
     c->text_b = 0.95f;
-    (void)read_config_rgb("text_color", &c->text_r, &c->text_g, &c->text_b);
-    return access(PREFBAR_CONFIG_PATH, F_OK) == 0;
+}
+
+static int config_int_value(const char *value, int fallback, int min_value, int max_value)
+{
+    if (!value || !value[0])
+        return fallback;
+    char *end = NULL;
+    errno = 0;
+    long parsed = strtol(value, &end, 10);
+    if (errno || end == value || *end || parsed < min_value || parsed > max_value)
+        return fallback;
+    return (int)parsed;
+}
+
+static int config_rgb_value(const char *value, float *r, float *g, float *b)
+{
+    if (!value || value[0] != '#' || strlen(value) != 7)
+        return 0;
+    char *end = NULL;
+    errno = 0;
+    long rgb = strtol(value + 1, &end, 16);
+    if (errno || end == value + 1 || *end || rgb < 0 || rgb > 0xffffff)
+        return 0;
+    *r = (float)((rgb >> 16) & 0xff) / 255.0f;
+    *g = (float)((rgb >> 8) & 0xff) / 255.0f;
+    *b = (float)(rgb & 0xff) / 255.0f;
+    return 1;
+}
+
+static void config_apply_value(config_t *c, const char *key, const char *value)
+{
+#define CONFIG_INT(name, member, fallback, min_value, max_value)                 \
+    if (strcmp(key, name) == 0)                                                   \
+    {                                                                             \
+        c->member = config_int_value(value, fallback, min_value, max_value);       \
+        return;                                                                   \
+    }
+    CONFIG_INT("notify_sec", notify_sec, 0, 0, 3600)
+    CONFIG_INT("poll_us", poll_us, 2000, 500, 20000)
+    CONFIG_INT("sensors", sensors, 1, 0, 1)
+#ifdef PREFBAR_EMBED
+    CONFIG_INT("diag", diag, 0, 0, 1)
+#else
+    CONFIG_INT("diag", diag, 1, 0, 1)
+#endif
+    CONFIG_INT("overlay", overlay, 1, 0, 1)
+    CONFIG_INT("overlay_mode", ov_mode, 0, 0, 1)
+    CONFIG_INT("overlay_font", ov_font, 26, 10, 96)
+    if (strcmp(key, "overlay_corner") == 0)
+    {
+        const int corner = config_int_value(value, PREFBAR_CORNER_TL,
+                                            PREFBAR_CORNER_TL, PREFBAR_CORNER_BL);
+        c->ov_corner = corner == PREFBAR_CORNER_BL
+                           ? PREFBAR_CORNER_BL
+                           : PREFBAR_CORNER_TL;
+        return;
+    }
+    CONFIG_INT("overlay_x", ov_x, 24, 0, 1800)
+    CONFIG_INT("overlay_y", ov_y, 24, 0, 1000)
+    CONFIG_INT("notifications", notifications, 1, 0, 1)
+    CONFIG_INT("startup_notification", startup_notification, 1, 0, 1)
+    CONFIG_INT("error_notifications", error_notifications, 1, 0, 1)
+    CONFIG_INT("debug_notifications", debug_notifications, 1, 0, 1)
+    CONFIG_INT("debug_notify", debug_notify, 3, 0, DBG_TRACE)
+    CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
+    CONFIG_INT("show_fps", show_fps, 1, 0, 1)
+    CONFIG_INT("show_cpu", show_cpu, 1, 0, 1)
+    CONFIG_INT("show_soc_temp", show_soc_temp, 1, 0, 1)
+    CONFIG_INT("show_fan_duty", show_fan_duty, 1, 0, 1)
+    CONFIG_INT("show_memory", show_memory, 1, 0, 1)
+    CONFIG_INT("touchpad_toggle", touchpad_toggle, 1, 0, 1)
+#undef CONFIG_INT
+    if (strcmp(key, "text_color") == 0)
+        (void)config_rgb_value(value, &c->text_r, &c->text_g, &c->text_b);
+}
+
+static int load_config(config_t *c)
+{
+    if (!c)
+        return 0;
+    config_defaults(c);
+
+    /* Read one snapshot so a reload cannot mix values from separate saves. */
+    FILE *f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (!f)
+        return 0;
+
+    char line[256];
+    while (fgets(line, sizeof line, f))
+    {
+        if (!strchr(line, '\n') && !feof(f))
+        {
+            fclose(f); /* reject an overlong/incomplete line */
+            return 0;
+        }
+        trim_config_text(line);
+        if (!line[0] || line[0] == '#' || line[0] == ';' || line[0] == '[')
+            continue;
+        char *eq = strchr(line, '=');
+        if (!eq)
+            continue;
+        *eq++ = '\0';
+        trim_config_text(line);
+        trim_config_text(eq);
+        if (line[0])
+            config_apply_value(c, line, eq);
+    }
+
+    const int read_failed = ferror(f);
+    const int close_failed = fclose(f) != 0;
+    return !read_failed && !close_failed;
+}
+
+static void apply_debug_config(const config_t *cfg)
+{
+    if (!cfg)
+        return;
+    DBG_LOCK();
+    dbg_init_locked();
+    g_dbg.notify_level = cfg->debug_notify;
+    g_dbg.notifications_enabled = cfg->notifications;
+    g_dbg.startup_notification = cfg->startup_notification;
+    g_dbg.error_notifications = cfg->error_notifications;
+    g_dbg.debug_notifications = cfg->debug_notifications;
+    DBG_UNLOCK();
+}
+
+static int reload_config(config_t *active)
+{
+    config_t candidate;
+    if (!active || !load_config(&candidate))
+        return 0; /* retain the last known-good settings */
+    *active = candidate;
+    apply_debug_config(active);
+    return 1;
 }
 
 /* ------------------------------------------------------------------ main */
@@ -1623,6 +1755,7 @@ static int prefbar_run(int install_signals, int lock)
     int have_conf = load_config(&cfg);
     if (!have_conf)
         dbg_event(DBG_WARN, "config.file", "prefbar.conf unavailable; using built-in defaults");
+    apply_debug_config(&cfg);
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
     overlay_control_open();
 #endif
@@ -1684,6 +1817,7 @@ static int prefbar_run(int install_signals, int lock)
     int fps_active = 0, fps_seen = 0; /* frames flowing / ever seen           */
     int reports = 0, ram_noted = 0, cpu_zero_run = 0;
     int game_was_active = 0;
+    uint64_t applied_config_session_generation = 0;
 
     while (!g_stop)
     {
@@ -1691,6 +1825,42 @@ static int prefbar_run(int install_signals, int lock)
         overlay_control_poll();
 #endif
         uint64_t t = now_ns();
+#if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
+        const uint64_t session_generation = prefbar_game_session_generation();
+        if (session_generation != 0 &&
+            session_generation != applied_config_session_generation)
+        {
+            /* One attempt per confirmed game entry; a failed read leaves the
+             * current last known-good settings untouched. */
+            applied_config_session_generation = session_generation;
+            if (reload_config(&cfg))
+            {
+                memset(&cpuu, 0, sizeof cpuu);
+                memset(&sens, 0, sizeof sens);
+                if (cfg.sensors)
+                    sensors_read(&sens, &cpuu, t); /* prime CPU sampling */
+
+                reports = 0;
+                ram_noted = 0;
+                cpu_zero_run = 0;
+                last_notify = 0;
+                diag_left = cfg.diag ? DIAG_REPORTS : 0;
+                diag_idx = 0;
+                ram_seen = 0;
+                diag_arm_at = 0;
+                diag_tag = "game-entry";
+                dbg_event(DBG_INFO, "config.reload",
+                          "configuration reloaded for game session %llu",
+                          (unsigned long long)session_generation);
+            }
+            else
+            {
+                dbg_event(DBG_WARN, "config.reload",
+                          "reload failed for game session %llu; keeping previous settings",
+                          (unsigned long long)session_generation);
+            }
+        }
+#endif
         uint64_t count;
         int game_active = 1;
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
