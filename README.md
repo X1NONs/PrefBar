@@ -75,6 +75,17 @@ Want to compile PrefBar yourself? See the [build guide](Docs/BUILD.md) for the P
 
 For architecture details, runtime behavior, and configuration internals, see [HOW_IT_WORKS.md](Docs/HOW_IT_WORKS.md).
 
+## ❤️ Support
+
+PrefBar is free software under GPL-3.0 and will stay free. If it's useful to you, voluntary tips are appreciated, no strings attached.
+
+| Network | Address |
+|---|---|
+| BTC | `bc1qse9aacl20l2kewxkr529nxvjrsnulz6x9vxf43` |
+| ETH / USDC (ERC-20) | `0x5De60ca53aE6Dbd8C8B9a99a578519244D264ee0` |
+| BNB (BEP-20) | `0x5De60ca53aE6Dbd8C8B9a99a578519244D264ee0` |
+| SOL | `2qJYqm3pnX1jFtcG5zKtoh8KTuXE7iqqwNxCLFy2oFk3` |
+| TRX (TRC-20) | `TC5BpBP4P8AcXqvYC7RtWyXfL6Xx1QR5ph` |
 
 ## 💎 Credits & license
 
