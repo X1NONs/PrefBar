@@ -51,6 +51,10 @@
 #ifdef PREFBAR_EMBED
 #include <pthread.h>
 #endif
+#if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
+#include <ps5/kernel.h>
+#include <ps5/nid.h>
+#endif
 #include "prefbar/telemetry_wire.h"
 #ifndef PREFBAR_SIM
 #include <sys/types.h>
@@ -665,6 +669,45 @@ extern int sceKernelGetCpuUsage(struct ps_proc_stats *, int32_t *) __attribute__
 extern int sceKernelGetThreadName(uint32_t, char *) __attribute__((weak));
 extern int get_page_table_stats(int, int, int *, int *) __attribute__((weak));
 #define SYM_PRESENT(f) ((void *)(f) != NULL)
+
+typedef int (*soc_power_api_t)(void *);
+static soc_power_api_t g_soc_power_api;
+
+static void resolve_soc_power_api(void)
+{
+    /* Prefer a normal weak import when this firmware's import table exposes it. */
+    if (sceKernelGetSocPowerConsumption) {
+        g_soc_power_api = sceKernelGetSocPowerConsumption;
+        return;
+    }
+
+    /* Some SDK/import-library combinations do not expose this newer symbol.
+     * Resolve it from the loaded kernel_sys module by name, with NID fallback. */
+    uint32_t handle = 0;
+    const pid_t pid = getpid();
+    if (kernel_dynlib_handle(pid, "libkernel_sys.sprx", &handle) < 0 || !handle)
+        return;
+
+    intptr_t address = kernel_dynlib_dlsym(
+        pid, handle, "sceKernelGetSocPowerConsumption");
+    if (!address) {
+        char nid[12];
+        if (nid_encode("sceKernelGetSocPowerConsumption", nid))
+            address = kernel_dynlib_resolve(pid, handle, nid);
+    }
+    if (address)
+        g_soc_power_api = (soc_power_api_t)(uintptr_t)address;
+}
+
+static int soc_power_api_present(void)
+{
+    return g_soc_power_api != NULL;
+}
+
+static int soc_power_read(void *out)
+{
+    return g_soc_power_api ? g_soc_power_api(out) : -1;
+}
 #else
 #define SYM_PRESENT(f) 1
 /* simulated sensors so the logic can be tested on a host */
@@ -703,6 +746,8 @@ static int sceKernelGetSocPowerConsumption(void *out_raw)
         lanes[lane * 3] = 18000u + (uint32_t)lane * 1000u;
     return 0;
 }
+static int soc_power_api_present(void) { return 1; }
+static int soc_power_read(void *out) { return sceKernelGetSocPowerConsumption(out); }
 static const double SIM_IDLE_FRAC[NCORES] = {0.90, 0.70, 0.50, 0.80, 0.60, 0.95, 0.70, 0.85};
 static int sceKernelGetThreadName(uint32_t id, char *out)
 {
@@ -1013,10 +1058,10 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
 
     /* SoC power API exposes milliwatt lanes in a 28-word output block.
      * The eight aggregate lanes are at offsets 0, 3, ... 21. */
-    if (SYM_PRESENT(sceKernelGetSocPowerConsumption))
+    if (soc_power_api_present())
     {
         uint32_t raw[28] = {0};
-        if (sceKernelGetSocPowerConsumption(raw) == 0)
+        if (soc_power_read(raw) == 0)
         {
             uint64_t total_mw = 0;
             for (int lane = 0; lane < 8; ++lane)
@@ -1809,6 +1854,10 @@ static int prefbar_run(int install_signals, int lock)
         dbg_event(DBG_WARN, "config.file", "prefbar.conf unavailable; using built-in defaults");
     apply_debug_config(&cfg);
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
+    resolve_soc_power_api();
+    dbg_event(DBG_INFO, "sensor.soc_power",
+              "sceKernelGetSocPowerConsumption %s",
+              soc_power_api_present() ? "resolved" : "unavailable");
     overlay_control_open();
 #endif
 
