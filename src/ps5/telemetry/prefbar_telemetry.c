@@ -9,7 +9,7 @@
  * to <DATA_DIR>/status.txt (human readable) and <DATA_DIR>/status.kv
  * (key=value, for a future overlay / scripts), plus an optional toast.
  *
- * Debug events (0.2.0): lifecycle milestones, sensor/display availability and
+ * Debug events (0.2.1): lifecycle milestones, sensor/display availability and
  * failures are appended to <DATA_DIR>/debug.log and, depending on
  * "debug_notify" in prefbar.conf, shown as system toasts (see Docs/HOW_IT_WORKS.md).
  *
@@ -101,7 +101,7 @@ static uint64_t now_ns(void)
  * toasts per run, so a fault loop can never bury the screen in notifications.
  * Safe to call from the controller thread and the sampler thread at once.
  */
-#define PREFBAR_VERSION "0.2.0"
+#define PREFBAR_VERSION "0.2.1"
 
 #define DBG_ERR 1
 #define DBG_WARN 2
@@ -281,7 +281,7 @@ static int read_config_int(const char *key, int fallback, int min_value, int max
 static void ensure_default_config_file(void)
 {
     static const char defaults[] =
-        "# PrefBar 0.2.0 configuration\n"
+        "# PrefBar 0.2.1 configuration\n"
         "# Values are reloaded once when a new game session starts.\n"
         "# Boolean values: 0 = off, 1 = on. Invalid values use defaults.\n\n"
         "[notifications]\n"

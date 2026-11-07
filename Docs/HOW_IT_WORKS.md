@@ -1,4 +1,4 @@
-# PrefBar 0.2.0: how it works
+# PrefBar 0.2.1: how it works
 
 This document describes the implementation present in the repository. It is not a feature roadmap and does not claim that every firmware path has been tested.
 
@@ -12,13 +12,13 @@ The PS5 Payload SDK supplies the cross-compilation toolchain and PS5 headers/lib
 
 The PS5 CMake configuration defines two targets:
 
-1. `prefbar_shellui` builds `PrefBar_ShellUI_v0.2.0.elf`, the renderer image.
-2. `prefbar_controller` builds `PrefBar_controller_v0.2.0.elf`, the controller payload.
+1. `prefbar_shellui` builds `PrefBar_ShellUI_v0.2.1.elf`, the renderer image.
+2. `prefbar_controller` builds `PrefBar_controller_v0.2.1.elf`, the controller payload.
 
 `scripts/tools/embed_binary.py` converts the renderer ELF into a generated C++ byte array under `build-ps5/generated/`. That generated source is linked into the controller. `scripts/tools/verify_release.py` performs static checks on the intermediate artifacts. The build script stages one combined payload:
 
 ```text
-dist/PrefBar-complete_V0.2.0.elf
+dist/PrefBar-complete_V0.2.1.elf
 ```
 
 The renderer ELF and controller ELF under `build-ps5/` are intermediate build outputs, not separate files that users need to load.
@@ -78,7 +78,7 @@ The hook/control request and acknowledgment structures are declared in `include/
 
 `src/ps5/shellui_payload/prefbar_shellui.cpp` is the renderer implementation and `prefbar_shellui_entry.cpp` provides its entry point. The renderer attaches to the ShellUI Mono runtime, uses the PUI UI classes to create text labels, receives telemetry packets, and updates the labels when the packet or visibility state changes.
 
-The renderer is built as an intermediate ELF and embedded in the controller. Users therefore load the combined `PrefBar-complete_V0.2.0.elf`, not a separate renderer ELF.
+The renderer is built as an intermediate ELF and embedded in the controller. Users therefore load the combined `PrefBar-complete_V0.2.1.elf`, not a separate renderer ELF.
 
 The renderer reads the DualSense touchpad-click state. Three distinct touchpad-click press edges within a 1.5-second window toggle the overlay. Hiding the overlay does not stop the telemetry worker.
 
@@ -131,7 +131,7 @@ All boolean values use `0` (off) or `1` (on).
 Example configuration:
 
 ```ini
-# PrefBar 0.2.0 configuration
+# PrefBar 0.2.1 configuration
 
 [notifications]
 notifications=1

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(PrefBar VERSION 0.2.0 LANGUAGES C CXX)
+project(PrefBar VERSION 0.2.1 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -25,7 +25,7 @@ if(PREFBAR_BUILD_PS5)
         src/ps5/shellui_payload/prefbar_shellui_entry.cpp
     )
     set_target_properties(prefbar_shellui PROPERTIES
-        OUTPUT_NAME "PrefBar_ShellUI_v0.2.0"
+        OUTPUT_NAME "PrefBar_ShellUI_v0.2.1"
         PREFIX ""
         SUFFIX ".elf"
         NO_SONAME TRUE
@@ -91,7 +91,7 @@ if(PREFBAR_BUILD_PS5)
         "${PREFBAR_SHELLUI_BLOB_CPP}"
     )
     set_target_properties(prefbar_controller PROPERTIES
-        OUTPUT_NAME "PrefBar_controller_v0.2.0.elf"
+        OUTPUT_NAME "PrefBar_controller_v0.2.1.elf"
     )
     target_include_directories(prefbar_controller PRIVATE
         include

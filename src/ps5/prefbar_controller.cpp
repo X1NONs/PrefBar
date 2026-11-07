@@ -58,7 +58,7 @@ void write_startup_record(pid_t first_shellui,
 
     std::fprintf(
         fp,
-        "PrefBar V0.2.0 controller\n"
+        "PrefBar V0.2.1 controller\n"
         "Mode=single-controller embedded-telemetry shellui-renderer\n"
         "Game gate=%u consecutive samples; ShellUI gate=%u consecutive samples; "
         "poll=%u ms\n"

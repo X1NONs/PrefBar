@@ -37,7 +37,7 @@ void write_online_marker() {
     /*
      * Returning an injected ShellUI ELF thread can destabilize the console.
      * A compatibility or socket failure therefore remains inert and resident
-     * instead of returning through the loader. The V0.2.0 renderer preserves that proven
+     * instead of returning through the loader. The V0.2.1 renderer preserves that proven
      * lifecycle and patches a native hook only while ShellUI is stopped.
      */
     for (;;)
@@ -68,7 +68,7 @@ void* elf_main(void* payload_args) {
 
     if (FILE* fp = std::fopen(kLog, "w")) {
         std::fputs(
-            "PrefBar V0.2.0 renderer\n",
+            "PrefBar V0.2.1 renderer\n",
             fp);
         std::fclose(fp);
     }
