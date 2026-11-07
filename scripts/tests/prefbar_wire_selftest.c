@@ -21,19 +21,19 @@ static prefbar_wire_t good(void)
 int main(void)
 {
     prefbar_wire_t p;
-    CHECK(sizeof(prefbar_wire_t) == 621);
+    CHECK(sizeof(prefbar_wire_t) == 717);
     CHECK(offsetof(prefbar_wire_t, text) == 45);
     p = good(); { unsigned char b[4]; memcpy(b, &p.magic, 4); CHECK(!memcmp(b, "PBAR", 4)); }
     p = good(); CHECK(prefbar_wire_valid(&p, sizeof p) == 1);
     CHECK(prefbar_wire_valid(NULL, sizeof p) == 0);
     p = good(); CHECK(prefbar_wire_valid(&p, sizeof p - 1) == 0);      /* length mismatch */
     p = good(); p.magic ^= 1;          CHECK(!prefbar_wire_valid(&p, sizeof p));
-    p = good(); p.version = 1;         CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.version = 2;         CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.size = 10;           CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.sequence = 0;        CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.rows = 0;            CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.rows = PREFBAR_ROWS + 1; CHECK(!prefbar_wire_valid(&p, sizeof p));
-    p = good(); p.flags = PREFBAR_WIRE_FLAG_TEXT_SHADOW | PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE | PREFBAR_WIRE_FLAG_OVERLAY_ENABLED; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_TEXT_SHADOW | PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE | PREFBAR_WIRE_FLAG_OVERLAY_ENABLED | PREFBAR_WIRE_FLAG_HORIZONTAL; CHECK(prefbar_wire_valid(&p, sizeof p));
     p = good(); p.flags = 0x80; CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.rows = PREFBAR_ROWS;    CHECK(prefbar_wire_valid(&p, sizeof p));
     p = good(); p.corner = 1;          CHECK(!prefbar_wire_valid(&p, sizeof p));

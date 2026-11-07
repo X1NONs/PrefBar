@@ -236,6 +236,158 @@ static void *hammer(void *arg)
     return NULL;
 }
 
+static void test_compact_overlay_rows(void)
+{
+    config_t cfg = {0};
+    report_t report = {0};
+    sensors_t sens = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+
+    cfg.sensors = 1;
+    cfg.show_fps = 1;
+    cfg.show_cpu = 1;
+    cfg.show_soc_temp = 1;
+    cfg.show_fan_duty = 0;
+    cfg.show_memory = 1;
+    cfg.show_power = 0;
+    report.fps = 60.0;
+    report.avg_ms = 16.7;
+    report.low1_fps = 58.0;
+    sens.have_cpu = 1;
+    sens.cpu_avg = 42.0f;
+    sens.have_soc_temp = 1;
+    sens.soc_temp = 55;
+    sens.have_ram = 1;
+    sens.ram_used_mb = 2500;
+    sens.ram_total_mb = 6144;
+
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 3, "disabled fan row should compact; expected 3 rows, got %d", n);
+    CHECK(strncmp(rows[0], "FPS ", 4) == 0, "FPS should remain row 0: %s", rows[0]);
+    CHECK(strncmp(rows[1], "CPU ", 4) == 0 && strstr(rows[1], "SoC") != NULL,
+          "CPU and SoC should share row 1: %s", rows[1]);
+    CHECK(strncmp(rows[2], "RAM ", 4) == 0,
+          "RAM should move into row 2 when fan is disabled: %s", rows[2]);
+
+    cfg.show_fps = 0;
+    cfg.show_cpu = 0;
+    cfg.show_soc_temp = 0;
+    cfg.show_fan_duty = 1;
+    sens.have_fan = 1;
+    sens.fan = 23;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 2, "disabled FPS/CPU should compact; expected 2 rows, got %d", n);
+    CHECK(strncmp(rows[0], "Fan: ", 5) == 0, "fan should become row 0: %s", rows[0]);
+    CHECK(strncmp(rows[1], "RAM ", 4) == 0, "RAM should become row 1: %s", rows[1]);
+
+    cfg.ov_mode = 1;
+    cfg.show_cpu = 1;
+    cfg.show_fan_duty = 0;
+    sens.have_cpu = 1;
+    sens.dbg_have = 1;
+    for (int i = 0; i < NCORES; ++i) {
+        sens.core_ok[i] = 1;
+        sens.core[i] = 25.0f + (float)i;
+        sens.dbg_ratio[i] = 0.5f;
+    }
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 4, "advanced rows should append only populated rows; expected 4, got %d", n);
+    CHECK(strncmp(rows[2], "cores:", 6) == 0, "core row should follow active metrics: %s", rows[2]);
+    CHECK(strncmp(rows[3], "idle/dt:", 8) == 0, "diagnostic row should follow core row: %s", rows[3]);
+
+    cfg.sensors = 0;
+    cfg.show_fps = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && rows[0][0] == '\0',
+          "all-disabled overlay must send one empty clearing row (n=%d, text='%s')", n, rows[0]);
+}
+
+static void test_power_sensor_and_row(void)
+{
+    reset("show_power=1\noverlay_horizontal=1\n");
+    config_t cfg;
+    CHECK(load_config(&cfg) == 1, "power config should load");
+    CHECK(cfg.show_power == 1, "show_power should be enabled by config");
+    CHECK(cfg.overlay_horizontal == 1, "overlay_horizontal should parse as enabled");
+
+    sensors_t sens;
+    cpuu_t cpuu = {0};
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.have_power == 1, "simulated SoC power API should provide a sample");
+    CHECK(sens.power_w > 100.0f && sens.power_w < 300.0f,
+          "power should be converted from milliwatts to watts (got %.2f W)", sens.power_w);
+
+    cfg.sensors = 1;
+    cfg.show_fps = 0;
+    cfg.show_cpu = 0;
+    cfg.show_soc_temp = 0;
+    cfg.show_fan_duty = 0;
+    cfg.show_memory = 0;
+    cfg.show_power = 1;
+    report_t report = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && strncmp(rows[0], "PWR ", 4) == 0 && strstr(rows[0], " W") != NULL,
+          "PWR should be emitted as a compact standalone row (n=%d, row='%s')", n, rows[0]);
+
+    cfg.show_power = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && rows[0][0] == '\0', "disabled PWR should not leave a row");
+
+    cfg.show_power = 1;
+    cfg.show_fps = 1;
+    cfg.show_cpu = 1;
+    cfg.show_soc_temp = 1;
+    cfg.show_fan_duty = 1;
+    cfg.show_memory = 1;
+    cfg.ov_mode = 1;
+    sens.have_cpu = 1;
+    sens.dbg_have = 1;
+    for (int i = 0; i < NCORES; ++i) {
+        sens.core_ok[i] = 1;
+        sens.core[i] = 30.0f;
+        sens.dbg_ratio[i] = 0.5f;
+    }
+    sens.have_fan = 1;
+    sens.fan = 23;
+    sens.have_ram = 1;
+    sens.ram_used_mb = 2048;
+    sens.ram_total_mb = 6144;
+    sens.have_vram = 1;
+    sens.vram_pct = 25.0f;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n <= PREFBAR_ROWS, "all advanced metrics must fit the wire row capacity (%d/%d)", n, PREFBAR_ROWS);
+    CHECK(n == PREFBAR_ROWS, "all seven rows should be available in the fully populated advanced layout (got %d)", n);
+}
+
+static void test_reload_config_preserves_last_good(void)
+{
+    reset("show_fps=1\ndebug_notify=1\n");
+    config_t active;
+    CHECK(load_config(&active) == 1, "initial config should load");
+    apply_debug_config(&active);
+    CHECK(active.show_fps == 1 && active.debug_notify == 1,
+          "initial config values should be loaded");
+
+    FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");
+    CHECK(f != NULL, "open replacement config");
+    if (f) {
+        fputs("show_fps=0\ndebug_notify=4\noverlay_font=32\n", f);
+        fclose(f);
+    }
+    CHECK(reload_config(&active) == 1, "valid game-entry config reload should succeed");
+    CHECK(active.show_fps == 0 && active.debug_notify == 4 && active.ov_font == 32,
+          "reload should apply values from one new config snapshot");
+    CHECK(g_dbg.notify_level == 4, "debug notification threshold should reload too");
+
+    const int old_show_fps = active.show_fps;
+    const int old_font = active.ov_font;
+    CHECK(unlink(PREFBAR_CONFIG_PATH) == 0, "remove config to simulate read failure");
+    CHECK(reload_config(&active) == 0, "missing config should reject reload");
+    CHECK(active.show_fps == old_show_fps && active.ov_font == old_font,
+          "failed reload must preserve the last known-good settings");
+}
+
 static void test_threads(void)
 {
     reset("debug_notify=4\n");
@@ -274,6 +426,9 @@ int main(void)
     test_levels();
     test_notification_switches();
     test_config_file_and_values();
+    test_compact_overlay_rows();
+    test_power_sensor_and_row();
+    test_reload_config_preserves_last_good();
     test_toast_cap();
     test_rotation();
     test_guards();

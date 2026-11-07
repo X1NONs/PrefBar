@@ -32,6 +32,7 @@ namespace {
 constexpr const char* kControllerLog = "/data/prefbar/controller.log";
 constexpr unsigned kShellUiStableSamples = 10;
 constexpr unsigned kGameStableSamples = 3;
+constexpr unsigned kGameExitGraceSamples = 10; /* 500 ms at the controller poll rate */
 constexpr std::uint64_t kRendererWarningDelayUs = 20'000'000ULL;
 constexpr std::uint64_t kRendererWarningRepeatUs = 60'000'000ULL;
 constexpr unsigned kMaxRendererWarnings = 3;
@@ -39,6 +40,7 @@ constexpr useconds_t kPollIntervalUs = 50'000;
 
 /* Read by the embedded telemetry thread before it touches /dev/dce. */
 std::atomic<int> g_game_process_ready{0};
+std::atomic<std::uint64_t> g_game_session_generation{0};
 
 std::uint64_t monotonic_us() noexcept {
     timespec ts{};
@@ -88,6 +90,7 @@ void write_startup_record(pid_t first_shellui,
     unsigned stable_shellui_samples = 0;
     pid_t stable_game_pid = -1;
     unsigned stable_game_samples = 0;
+    unsigned missing_game_samples = 0;
     bool renderer_online = false;
     bool renderer_was_reported = false;
     unsigned renderer_warnings = 0;
@@ -140,18 +143,33 @@ void write_startup_record(pid_t first_shellui,
 
         const prefbar::ps5::ProcessLookupResult game =
             prefbar::ps5::find_game_process();
+        bool game_exit_confirmed = false;
         if (game.pid > 0) {
+            missing_game_samples = 0;
             if (game.pid == stable_game_pid) {
                 if (stable_game_samples < kGameStableSamples)
                     ++stable_game_samples;
             } else {
                 stable_game_pid = game.pid;
                 stable_game_samples = 1;
-                reported_game_pid = -1;
+                /* Keep the last confirmed PID until this candidate is stable. */
             }
+        } else if (game.size_query_rc != 0 || game.data_query_rc != 0) {
+            /* An incomplete sysctl scan is unknown, not proof that the game exited.
+             * Preserve readiness for the last confirmed game during this scan. */
+            if (reported_game_pid > 0) {
+                stable_game_pid = reported_game_pid;
+                stable_game_samples = kGameStableSamples;
+            }
+        } else if (reported_game_pid > 0 &&
+                   missing_game_samples < kGameExitGraceSamples) {
+            ++missing_game_samples;
+            stable_game_pid = reported_game_pid;
+            stable_game_samples = kGameStableSamples;
         } else {
             stable_game_pid = -1;
             stable_game_samples = 0;
+            game_exit_confirmed = reported_game_pid > 0;
         }
 
         const bool game_ready =
@@ -161,6 +179,7 @@ void write_startup_record(pid_t first_shellui,
         const std::uint64_t now = monotonic_us();
         if (game_ready && reported_game_pid != stable_game_pid) {
             reported_game_pid = stable_game_pid;
+            g_game_session_generation.fetch_add(1, std::memory_order_relaxed);
             renderer_warnings = 0;
             next_renderer_warning_us = now + kRendererWarningDelayUs;
             prefbar_debug_event(
@@ -168,12 +187,13 @@ void write_startup_record(pid_t first_shellui,
                 "game detected (pid %d, title %s)",
                 static_cast<int>(stable_game_pid),
                 game.title_id[0] ? game.title_id : "unknown");
-        } else if (!game_ready && reported_game_pid > 0) {
+        } else if (game_exit_confirmed && reported_game_pid > 0) {
             prefbar_debug_event(
                 PBDBG_INFO, "game.exited",
                 "game process no longer present (pid %d)",
                 static_cast<int>(reported_game_pid));
             reported_game_pid = -1;
+            missing_game_samples = 0;
         }
 
         const bool shellui_ready =
@@ -219,6 +239,10 @@ void write_startup_record(pid_t first_shellui,
 
 extern "C" int prefbar_game_process_ready(void) noexcept {
     return g_game_process_ready.load(std::memory_order_relaxed);
+}
+
+extern "C" std::uint64_t prefbar_game_session_generation(void) noexcept {
+    return g_game_session_generation.load(std::memory_order_relaxed);
 }
 
 extern "C" int main() {

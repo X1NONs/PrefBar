@@ -49,6 +49,8 @@ The controller waits for stable process observations before starting the rendere
 
 The telemetry worker does not read or write game-process memory. The DCE counter is used as the source for frame statistics. Sensor APIs are optional/weakly linked, so a metric can be unavailable on a particular firmware or runtime environment.
 
+Disabled or unavailable metric rows are compacted, so later enabled metrics move up instead of leaving blank gaps. When all metrics are disabled, PrefBar sends an empty row to clear previously displayed text.
+
 The current overlay can show:
 
 - FPS, average frametime, and 1% low.
@@ -56,6 +58,9 @@ The current overlay can show:
 - SoC temperature when available.
 - Fan duty as a percentage.
 - RAM and VRAM readings when available.
+- SoC APU power consumption in watts when the kernel API is available.
+
+The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted. Horizontal mode places the compacted rows on one line and reduces the font size when needed to fit the available screen width.
 
 **Fan duty is not fan RPM.** The currently used fan API reports a Q10 duty value, converted to a percentage. The project does not claim that this API supplies tachometer RPM.
 
@@ -63,7 +68,7 @@ The telemetry worker writes human-readable `status.txt` and key/value `status.kv
 
 ### 3. Telemetry and control protocol
 
-`include/prefbar/telemetry_wire.h` defines the C-compatible version-2 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries the text rows, font size, corner/position, text color, overlay visibility, text-shadow state, and touchpad-toggle state.
+`include/prefbar/telemetry_wire.h` defines the C-compatible version-3 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries up to seven text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and the horizontal-layout flag.
 
 The controller sends telemetry to the renderer over UDP loopback on port `39028`. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
 
@@ -89,9 +94,9 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. Changes take effect after restarting PrefBar.
+It does not overwrite an existing file. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
-The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used.
+The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
 All boolean values use `0` (off) or `1` (on).
 
@@ -111,12 +116,14 @@ All boolean values use `0` (off) or `1` (on).
 | `overlay_corner` | Overlay anchor: `0` top-left, `2` bottom-left | `0` or `2`; default `0` |
 | `overlay_x` | Horizontal margin in pixels | `0`–`1800`; default `24` |
 | `overlay_y` | Vertical margin in pixels | `0`–`1000`; default `24` |
+| `overlay_horizontal` | Render telemetry rows as one horizontal bar | `0` or `1`; default `0` |
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
 | `show_fps` | Show the FPS row | `0` or `1`; default `1` |
 | `show_cpu` | Show CPU utilization/temperature | `0` or `1`; default `1` |
 | `show_soc_temp` | Show SoC temperature | `0` or `1`; default `1` |
 | `show_fan_duty` | Show fan-duty percentage | `0` or `1`; default `1` |
 | `show_memory` | Show RAM/VRAM metrics | `0` or `1`; default `1` |
+| `show_power` | Show SoC APU power in watts when available | `0` or `1`; default `1` |
 | `touchpad_toggle` | Enable triple-click overlay visibility control | `0` or `1`; default `1` |
 | `diag` | Enable diagnostic captures | `0` or `1`; default `0` in the embedded PS5 build |
 | `poll_us` | Telemetry polling interval in microseconds | `500`–`20000`; default `2000` |
@@ -143,6 +150,7 @@ overlay_font=26
 overlay_corner=0
 overlay_x=24
 overlay_y=24
+overlay_horizontal=0
 
 [telemetry]
 sensors=1
@@ -151,6 +159,7 @@ show_cpu=1
 show_soc_temp=1
 show_fan_duty=1
 show_memory=1
+show_power=1
 
 [input]
 touchpad_toggle=1

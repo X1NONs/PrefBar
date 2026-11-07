@@ -16,18 +16,19 @@
 #include <stdint.h>
 
 #define PREFBAR_WIRE_MAGIC   0x52414250u   /* bytes 'P','B','A','R' (little endian) */
-#define PREFBAR_WIRE_VERSION 2u
+#define PREFBAR_WIRE_VERSION 3u
 #define PREFBAR_WIRE_PORT    39028u
 #define PREFBAR_CONTROL_PORT     39029u   /* ShellUI -> controller debug/control events */
-#define PREFBAR_ROWS         6
+#define PREFBAR_ROWS         7
 #define PREFBAR_ROW_LEN      96            /* incl. NUL */
 #define PREFBAR_CORNER_TL    0             /* only top-left and bottom-left are  */
 #define PREFBAR_CORNER_BL    2             /* implemented; rows are left aligned */
-#define PREFBAR_WIRE_BYTES   621u
+#define PREFBAR_WIRE_BYTES   717u
 #define PREFBAR_WIRE_FLAG_TEXT_SHADOW       0x01u
 #define PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE   0x02u
 #define PREFBAR_WIRE_FLAG_OVERLAY_ENABLED   0x04u
-#define PREFBAR_WIRE_KNOWN_FLAGS (PREFBAR_WIRE_FLAG_TEXT_SHADOW | PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE | PREFBAR_WIRE_FLAG_OVERLAY_ENABLED)
+#define PREFBAR_WIRE_FLAG_HORIZONTAL        0x08u
+#define PREFBAR_WIRE_KNOWN_FLAGS (PREFBAR_WIRE_FLAG_TEXT_SHADOW | PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE | PREFBAR_WIRE_FLAG_OVERLAY_ENABLED | PREFBAR_WIRE_FLAG_HORIZONTAL)
 
 #pragma pack(push, 1)
 typedef struct prefbar_wire {
