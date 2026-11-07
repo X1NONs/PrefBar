@@ -365,7 +365,8 @@ static void ensure_default_config_file(void)
             (void)unlink(PREFBAR_CONFIG_PATH);
     }
 
-    migrate_config_options();
+    if (access(PREFBAR_CONFIG_PATH, F_OK) == 0)
+        migrate_config_options();
 }
 
 /* caller holds the lock */
