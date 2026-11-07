@@ -188,6 +188,22 @@ static void test_config_file_and_values(void)
     (void)load_config(&cfg);
     CHECK(cfg.overlay == 1 && cfg.text_shadow == 1,
           "default overlay and shadow should be enabled");
+    CHECK(cfg.show_power == 1 && cfg.overlay_horizontal == 0,
+          "new power and horizontal-layout options should have their defaults");
+
+    FILE *defaults_file = fopen(PREFBAR_CONFIG_PATH, "r");
+    char defaults_text[4096] = {0};
+    if (defaults_file)
+    {
+        (void)fread(defaults_text, 1, sizeof(defaults_text) - 1, defaults_file);
+        fclose(defaults_file);
+    }
+    char *overlay_section = strstr(defaults_text, "[overlay]");
+    char *telemetry_section = strstr(defaults_text, "[telemetry]");
+    char *horizontal_option = strstr(defaults_text, "overlay_horizontal=0");
+    CHECK(overlay_section && telemetry_section && horizontal_option &&
+              overlay_section < horizontal_option && horizontal_option < telemetry_section,
+          "overlay_horizontal should be grouped under [overlay]");
     CHECK(cfg.show_fps == 1 && cfg.show_cpu == 1 && cfg.show_soc_temp == 1,
           "default telemetry rows should be enabled");
     CHECK(cfg.notifications == 1 && cfg.touchpad_toggle == 1,
@@ -204,7 +220,24 @@ static void test_config_file_and_values(void)
               f);
         fclose(f);
     }
+    ensure_default_config_file(); /* upgrade migration appends only missing v0.2.1 options */
     (void)load_config(&cfg);
+    CHECK(cfg.overlay == 0 && cfg.show_fps == 0,
+          "config migration should preserve existing user settings");
+    CHECK(cfg.show_power == 1 && cfg.overlay_horizontal == 0,
+          "config migration should add missing options with their defaults");
+
+    f = fopen(PREFBAR_CONFIG_PATH, "w");
+    CHECK(f != NULL, "open config with explicit new options");
+    if (f)
+    {
+        fputs("[overlay]\noverlay_horizontal=1\n[telemetry]\nshow_power=0\n", f);
+        fclose(f);
+    }
+    ensure_default_config_file();
+    (void)load_config(&cfg);
+    CHECK(cfg.show_power == 0 && cfg.overlay_horizontal == 1,
+          "config migration should preserve explicit user values");
     CHECK(cfg.overlay == 0 && cfg.text_shadow == 0,
           "overlay and text shadow settings should parse");
     CHECK(cfg.ov_font == 32 && cfg.ov_corner == PREFBAR_CORNER_BL &&

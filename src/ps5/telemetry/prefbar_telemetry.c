@@ -278,6 +278,31 @@ static int read_config_int(const char *key, int fallback, int min_value, int max
     return (int)parsed;
 }
 
+static void migrate_config_options(void)
+{
+    char value[64];
+    const int add_show_power =
+        !read_config_value("show_power", value, sizeof(value));
+    const int add_overlay_horizontal =
+        !read_config_value("overlay_horizontal", value, sizeof(value));
+
+    if (!add_show_power && !add_overlay_horizontal)
+        return;
+
+    /* Preserve the user's file and values; append only newly introduced keys.
+     * Section labels are organizational because this parser matches keys globally. */
+    FILE *f = fopen(PREFBAR_CONFIG_PATH, "a");
+    if (!f)
+        return;
+
+    if (add_show_power)
+        (void)fputs("\n[telemetry]\nshow_power=1\n", f);
+    if (add_overlay_horizontal)
+        (void)fputs("\n[overlay]\noverlay_horizontal=0\n", f);
+
+    (void)fclose(f);
+}
+
 static void ensure_default_config_file(void)
 {
     static const char defaults[] =
@@ -299,7 +324,8 @@ static void ensure_default_config_file(void)
         "overlay_font=26\n"
         "overlay_corner=0\n"
         "overlay_x=24\n"
-        "overlay_y=24\n\n"
+        "overlay_y=24\n"
+        "overlay_horizontal=0\n\n"
         "[telemetry]\n"
         "sensors=1\n"
         "show_fps=1\n"
@@ -307,8 +333,7 @@ static void ensure_default_config_file(void)
         "show_soc_temp=1\n"
         "show_fan_duty=1\n"
         "show_memory=1\n"
-        "show_power=1\n"
-        "overlay_horizontal=0\n\n"
+        "show_power=1\n\n"
         "[input]\n"
         "touchpad_toggle=1\n\n"
         "[diagnostics]\n"
@@ -316,28 +341,31 @@ static void ensure_default_config_file(void)
         "poll_us=2000\n";
     (void)mkdir(DATA_DIR, 0777);
     int fd = open(PREFBAR_CONFIG_PATH, O_WRONLY | O_CREAT | O_EXCL, 0666);
-    if (fd < 0)
-        return; /* never overwrite an existing user configuration */
-    const size_t len = sizeof(defaults) - 1;
-    const char *cur = defaults;
-    size_t left = len;
-    int failed = 0;
-    while (left)
+    if (fd >= 0)
     {
-        ssize_t n = write(fd, cur, left);
-        if (n < 0 && errno == EINTR)
-            continue;
-        if (n <= 0)
+        const size_t len = sizeof(defaults) - 1;
+        const char *cur = defaults;
+        size_t left = len;
+        int failed = 0;
+        while (left)
         {
-            failed = 1;
-            break;
+            ssize_t n = write(fd, cur, left);
+            if (n < 0 && errno == EINTR)
+                continue;
+            if (n <= 0)
+            {
+                failed = 1;
+                break;
+            }
+            cur += n;
+            left -= (size_t)n;
         }
-        cur += n;
-        left -= (size_t)n;
+        close(fd);
+        if (failed)
+            (void)unlink(PREFBAR_CONFIG_PATH);
     }
-    close(fd);
-    if (failed)
-        (void)unlink(PREFBAR_CONFIG_PATH);
+
+    migrate_config_options();
 }
 
 /* caller holds the lock */
