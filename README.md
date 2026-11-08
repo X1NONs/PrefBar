@@ -30,8 +30,6 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
 - **Quick toggle:** Triple-click the DualSense touchpad to show or hide the overlay. This can be disabled in the configuration.
 
-Metric availability depends on the PS5 firmware and runtime environment. An unavailable sensor is not the same as a reading of zero.
-
 ## How to use it
 
 1. Download `PrefBar-complete_V0.2.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.2.1).
