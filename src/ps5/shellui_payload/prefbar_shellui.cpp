@@ -1136,6 +1136,11 @@ void prefbar_draw_text() {
     const float mx = pkt.margin_x;
     const float my = pkt.margin_y;
     int font_px = pkt.font_size;
+    const std::uint8_t horizontal_gap_mode =
+        pkt.flags & PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK;
+    const float horizontal_gap_scale =
+        horizontal_gap_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_SHORT ? 0.35f :
+        horizontal_gap_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_LONG ? 1.15f : 0.72f;
 
     /* In horizontal mode, estimate text widths and reduce the font only as much as
      * needed to keep all populated rows within the 1920px ShellUI width. */
@@ -1144,7 +1149,7 @@ void prefbar_draw_text() {
         for (int i = 0; i < rows; ++i)
             characters += std::strlen(pkt.text[i]);
         const float gaps = static_cast<float>(rows > 0 ? rows - 1 : 0) *
-                           static_cast<float>(font_px) * 0.72f;
+                           static_cast<float>(font_px) * horizontal_gap_scale;
         const float available = 1920.0f - mx * 2.0f;
         const float estimated = static_cast<float>(characters) *
                                 static_cast<float>(font_px) * 0.62f + gaps;
@@ -1241,7 +1246,7 @@ void prefbar_draw_text() {
     MonoClass* label_class = horizontal
         ? mono_class_from_name_(g_pui_image, "Sce.PlayStation.PUI.UI2", "Label")
         : nullptr;
-    const float horizontal_gap = static_cast<float>(font_px) * 0.72f;
+    const float horizontal_gap = static_cast<float>(font_px) * horizontal_gap_scale;
     for (int i = 0; i < PREFBAR_ROWS; ++i) {
         if (!labels[i])
             continue;

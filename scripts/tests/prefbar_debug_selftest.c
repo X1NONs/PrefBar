@@ -189,7 +189,8 @@ static void test_config_file_and_values(void)
     CHECK(cfg.overlay == 1 && cfg.text_shadow == 1,
           "default overlay and shadow should be enabled");
     CHECK(cfg.show_power == 1 && cfg.show_cpu_clock == 1 &&
-              cfg.show_gpu_clock == 1 && cfg.overlay_horizontal == 0,
+              cfg.show_gpu_clock == 1 && cfg.overlay_horizontal == 0 &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM,
           "new power, clock, and horizontal-layout options should have their defaults");
 
     FILE *defaults_file = fopen(PREFBAR_CONFIG_PATH, "r");
@@ -202,9 +203,12 @@ static void test_config_file_and_values(void)
     char *overlay_section = strstr(defaults_text, "[overlay]");
     char *telemetry_section = strstr(defaults_text, "[telemetry]");
     char *horizontal_option = strstr(defaults_text, "overlay_horizontal=0");
+    char *horizontal_spacing_option = strstr(defaults_text, "overlay_horizontal_spacing=medium");
     CHECK(overlay_section && telemetry_section && horizontal_option &&
-              overlay_section < horizontal_option && horizontal_option < telemetry_section,
-          "overlay_horizontal should be grouped under [overlay]");
+              horizontal_spacing_option && overlay_section < horizontal_option &&
+              horizontal_option < horizontal_spacing_option &&
+              horizontal_spacing_option < telemetry_section,
+          "horizontal mode and spacing should be grouped under [overlay]");
     CHECK(cfg.show_fps == 1 && cfg.show_cpu == 1 && cfg.show_soc_temp == 1 &&
               cfg.show_cpu_clock == 1 && cfg.show_gpu_clock == 1,
           "default telemetry rows and clocks should be enabled");
@@ -226,14 +230,15 @@ static void test_config_file_and_values(void)
     (void)load_config(&cfg);
     CHECK(cfg.overlay == 0 && cfg.show_fps == 0,
           "config migration should preserve existing user settings");
-    CHECK(cfg.show_power == 1 && cfg.overlay_horizontal == 0,
-          "config migration should add missing options with their defaults");
+    CHECK(cfg.show_power == 1 && cfg.overlay_horizontal == 0 &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM,
+          "config migration should add missing options with medium spacing");
 
     f = fopen(PREFBAR_CONFIG_PATH, "w");
     CHECK(f != NULL, "open config with explicit new options");
     if (f)
     {
-        fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\n"
+        fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=long\n"
               "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
               "[telemetry]\nshow_fps=0\nshow_cpu=1\nshow_soc_temp=0\nshow_fan_duty=0\nshow_memory=1\nshow_power=0\nshow_cpu_clock=0\nshow_gpu_clock=0\n"
               "[input]\ntouchpad_toggle=0\n", f);
@@ -241,8 +246,9 @@ static void test_config_file_and_values(void)
     }
     ensure_default_config_file();
     (void)load_config(&cfg);
-    CHECK(cfg.show_power == 0 && cfg.overlay_horizontal == 1,
-          "config migration should preserve explicit user values");
+    CHECK(cfg.show_power == 0 && cfg.overlay_horizontal == 1 &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG,
+          "config migration should preserve explicit user values and long spacing");
     CHECK(cfg.overlay == 0 && cfg.text_shadow == 0,
           "overlay and text shadow settings should parse");
     CHECK(cfg.ov_font == 32 && cfg.ov_corner == PREFBAR_CORNER_BL &&
@@ -273,6 +279,30 @@ static void *hammer(void *arg)
             age_all_slots(); /* racy by design: only moves timestamps back */
     }
     return NULL;
+}
+
+static void test_horizontal_spacing_config(void)
+{
+    config_t cfg;
+    reset("[overlay]\noverlay_horizontal=1\noverlay_horizontal_spacing=short\n");
+    CHECK(load_config(&cfg) == 1, "short spacing config should load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_SHORT,
+          "short spacing token should select the short preset");
+
+    reset("[overlay]\noverlay_horizontal_spacing=medium\n");
+    CHECK(load_config(&cfg) == 1, "medium spacing config should load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM,
+          "medium spacing token should select the medium preset");
+
+    reset("[overlay]\noverlay_horizontal_spacing=long\n");
+    CHECK(load_config(&cfg) == 1, "long spacing config should load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG,
+          "long spacing token should select the long preset");
+
+    reset("[overlay]\noverlay_horizontal_spacing=invalid\n");
+    CHECK(load_config(&cfg) == 1, "invalid spacing config should still load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM,
+          "invalid spacing token should fall back to medium");
 }
 
 static void test_compact_overlay_rows(void)
@@ -524,6 +554,7 @@ int main(void)
     test_levels();
     test_notification_switches();
     test_config_file_and_values();
+    test_horizontal_spacing_config();
     test_compact_overlay_rows();
     test_clock_sensor_and_row();
     test_power_sensor_and_row();

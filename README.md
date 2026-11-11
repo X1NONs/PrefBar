@@ -23,7 +23,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Fan telemetry:** Fan-duty percentage. This is not an RPM reading.
 - **Memory:** RAM and VRAM usage when the relevant system interfaces are available.
 - **SoC power:** APU power consumption displayed in watts when the relevant kernel API is available.
-- **Horizontal overlay:** Display all enabled metrics in one horizontal bar, with automatic font-size adjustment to fit the screen.
+- **Horizontal overlay:** Display all enabled metrics in one horizontal bar, with short, medium, or long spacing between metric groups and automatic font-size adjustment to fit the screen.
 - **Compact metric rows:** Disabled or unavailable metrics are automatically skipped instead of leaving blank spaces.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
 - **Customizable overlay:** Change text color, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
@@ -53,9 +53,14 @@ Configuration changes are automatically reloaded when a new game session starts.
 
 ### Horizontal overlay
 
-Set `overlay_horizontal=1` in your configuration to display the metrics in one horizontal bar.
+Set `overlay_horizontal=1` in your configuration to display the metrics in one horizontal bar. Choose the gap between metric groups with `overlay_horizontal_spacing`:
 
-PrefBar automatically adjusts the font size when necessary to fit the available screen width.
+```ini
+overlay_horizontal=1
+overlay_horizontal_spacing=medium
+```
+
+Accepted spacing values are `short`, `medium`, and `long`. Medium preserves the current default spacing. PrefBar automatically adjusts the font size when necessary to fit the available screen width.
 
 ### Color recommendations
 
@@ -76,6 +81,7 @@ Set the `text_color` value to a six-digit hexadecimal color in `#RRGGBB` format.
 text_color=#00E5FF
 text_shadow=1
 overlay_horizontal=1
+overlay_horizontal_spacing=medium
 ```
 
 The shadow helps keep bright text readable over different game scenes. The color palette is only a set of suggestions; use whichever color is easiest to read in your game.

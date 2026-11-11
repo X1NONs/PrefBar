@@ -85,6 +85,12 @@ extern uint64_t prefbar_game_session_generation(void);
 #define MAX_THREADS 3072
 #define SOC_CLOCK_DOMAINS 32
 
+enum {
+    PREFBAR_HORIZONTAL_SPACING_SHORT = 0,
+    PREFBAR_HORIZONTAL_SPACING_MEDIUM = 1,
+    PREFBAR_HORIZONTAL_SPACING_LONG = 2
+};
+
 /* ------------------------------------------------------------------ time */
 static uint64_t now_ns(void)
 {
@@ -290,9 +296,11 @@ static void migrate_config_options(void)
         !read_config_value("show_gpu_clock", value, sizeof(value));
     const int add_overlay_horizontal =
         !read_config_value("overlay_horizontal", value, sizeof(value));
+    const int add_overlay_horizontal_spacing =
+        !read_config_value("overlay_horizontal_spacing", value, sizeof(value));
 
     if (!add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
-        !add_overlay_horizontal)
+        !add_overlay_horizontal && !add_overlay_horizontal_spacing)
         return;
 
     /* Preserve the user's file and values; append only newly introduced keys.
@@ -311,8 +319,14 @@ static void migrate_config_options(void)
         if (add_show_gpu_clock)
             (void)fputs("show_gpu_clock=1\n", f);
     }
-    if (add_overlay_horizontal)
-        (void)fputs("\n[overlay]\noverlay_horizontal=0\n", f);
+    if (add_overlay_horizontal || add_overlay_horizontal_spacing)
+    {
+        (void)fputs("\n[overlay]\n", f);
+        if (add_overlay_horizontal)
+            (void)fputs("overlay_horizontal=0\n", f);
+        if (add_overlay_horizontal_spacing)
+            (void)fputs("overlay_horizontal_spacing=medium\n", f);
+    }
 
     (void)fclose(f);
 }
@@ -339,7 +353,8 @@ static void ensure_default_config_file(void)
         "overlay_corner=0\n"
         "overlay_x=24\n"
         "overlay_y=24\n"
-        "overlay_horizontal=0\n\n"
+        "overlay_horizontal=0\n"
+        "overlay_horizontal_spacing=medium\n\n"
         "[telemetry]\n"
         "sensors=1\n"
         "show_fps=1\n"
@@ -1388,6 +1403,7 @@ typedef struct
     int text_shadow, show_fps, show_cpu, show_soc_temp, show_fan_duty, show_memory;
     int show_cpu_clock, show_gpu_clock;
     int show_power, overlay_horizontal;
+    int overlay_horizontal_spacing;
     int touchpad_toggle;
     float text_r, text_g, text_b;
 } config_t;
@@ -1596,10 +1612,20 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
     p.sequence = ++seq;
     p.corner = (uint8_t)cfg->ov_corner;
     p.rows = (uint8_t)n;
+    uint8_t horizontal_spacing_flags = 0;
+    if (cfg->overlay_horizontal)
+    {
+        if (cfg->overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_SHORT)
+            horizontal_spacing_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_SHORT;
+        else if (cfg->overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG)
+            horizontal_spacing_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_LONG;
+        /* Medium is zero: it preserves the previous horizontal spacing. */
+    }
     p.flags = (uint8_t)((cfg->text_shadow ? PREFBAR_WIRE_FLAG_TEXT_SHADOW : 0u) |
                         (cfg->touchpad_toggle ? PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE : 0u) |
                         (cfg->overlay ? PREFBAR_WIRE_FLAG_OVERLAY_ENABLED : 0u) |
-                        (cfg->overlay_horizontal ? PREFBAR_WIRE_FLAG_HORIZONTAL : 0u));
+                        (cfg->overlay_horizontal ? PREFBAR_WIRE_FLAG_HORIZONTAL : 0u) |
+                        horizontal_spacing_flags);
     p.font_size = (uint16_t)cfg->ov_font;
     p.margin_x = (float)cfg->ov_x;
     p.margin_y = (float)cfg->ov_y;
@@ -1831,6 +1857,7 @@ static void config_defaults(config_t *c)
     c->show_memory = 1;
     c->show_power = 1;
     c->overlay_horizontal = 0;
+    c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
     c->touchpad_toggle = 1;
     c->text_r = 0.95f;
     c->text_g = 0.95f;
@@ -1909,6 +1936,15 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("show_memory", show_memory, 1, 0, 1)
     CONFIG_INT("show_power", show_power, 1, 0, 1)
     CONFIG_INT("overlay_horizontal", overlay_horizontal, 0, 0, 1)
+    if (strcmp(key, "overlay_horizontal_spacing") == 0)
+    {
+        c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
+        if (strcmp(value, "short") == 0)
+            c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_SHORT;
+        else if (strcmp(value, "long") == 0)
+            c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_LONG;
+        return;
+    }
     CONFIG_INT("touchpad_toggle", touchpad_toggle, 1, 0, 1)
 #undef CONFIG_INT
     if (strcmp(key, "text_color") == 0)

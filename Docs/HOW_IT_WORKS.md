@@ -68,7 +68,7 @@ The telemetry worker writes human-readable `status.txt` and key/value `status.kv
 
 ### 3. Telemetry and control protocol
 
-`include/prefbar/telemetry_wire.h` defines the C-compatible version-3 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries up to seven text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and the horizontal-layout flag.
+`include/prefbar/telemetry_wire.h` defines the C-compatible version-4 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries up to seven text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and horizontal layout. Its horizontal-spacing preset is encoded in reserved flag bits; this extends packet semantics without changing the 717-byte layout.
 
 The controller sends telemetry to the renderer over UDP loopback on port `39028`. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
 
@@ -94,7 +94,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. This migration adds `show_power=1`, `show_cpu_clock=1`, and `show_gpu_clock=1` under `[telemetry]`, plus `overlay_horizontal=0` under `[overlay]`, when they are absent. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. This migration adds `show_power=1`, `show_cpu_clock=1`, and `show_gpu_clock=1` under `[telemetry]`, plus `overlay_horizontal=0` and `overlay_horizontal_spacing=medium` under `[overlay]`, when they are absent. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
@@ -117,6 +117,7 @@ All boolean values use `0` (off) or `1` (on).
 | `overlay_x` | Horizontal margin in pixels | `0`–`1800`; default `24` |
 | `overlay_y` | Vertical margin in pixels | `0`–`1000`; default `24` |
 | `overlay_horizontal` | Render telemetry rows as one horizontal bar | `0` or `1`; default `0` |
+| `overlay_horizontal_spacing` | Gap between metric groups in horizontal mode | `short`, `medium`, or `long`; default `medium` |
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
 | `show_fps` | Show the FPS row | `0` or `1`; default `1` |
 | `show_cpu` | Show CPU utilization/temperature | `0` or `1`; default `1` |
@@ -153,6 +154,7 @@ overlay_corner=0
 overlay_x=24
 overlay_y=24
 overlay_horizontal=0
+overlay_horizontal_spacing=medium
 
 [telemetry]
 sensors=1
