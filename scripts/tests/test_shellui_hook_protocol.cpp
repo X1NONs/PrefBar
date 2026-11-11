@@ -8,15 +8,22 @@ int main() {
     using prefbar::shellui_hook_probe_backend;
     using prefbar::shellui_hook_probe_needs_mdbg_diagnostic;
 
-    for (const std::uint32_t sdk : {0x09050005U, 0x10010000U}) {
+    for (const std::uint32_t sdk : {
+             0x09000000U, 0x09030000U, 0x09050005U, 0x09600000U}) {
         assert(shellui_hook_probe_backend(sdk) == ShellUiHookBackend::Mdbg);
         assert(prefbar::shellui_main_thread_guard_backend(sdk) ==
                ShellUiHookBackend::Mdbg);
         assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));
         assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, EFAULT));
         assert(prefbar::shellui_hook_backend(sdk, false) ==
-               ShellUiHookBackend::Unsupported);
+               ShellUiHookBackend::Mdbg);
+        assert(prefbar::shellui_hook_backend(sdk, true) ==
+               ShellUiHookBackend::Mdbg);
     }
+
+    assert(shellui_hook_probe_backend(0x10010000U) == ShellUiHookBackend::Mdbg);
+    assert(prefbar::shellui_main_thread_guard_backend(0x10010000U) ==
+           ShellUiHookBackend::Mdbg);
 
     for (const std::uint32_t sdk : {0x08300000U, 0x09600000U, 0x10000000U}) {
         assert(shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo);
