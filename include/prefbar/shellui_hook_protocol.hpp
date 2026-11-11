@@ -45,6 +45,7 @@ enum class ShellUiHookAckPhase : std::uint8_t {
 
 inline ShellUiHookBackend shellui_hook_backend(
     std::uint32_t sdk, bool eta_chain) noexcept {
+    (void)eta_chain; // All selected 9.xx firmware now uses the MDBG backend.
     const std::uint32_t family = sdk & 0xffff0000U;
     if ((family >= 0x03000000U && family <= 0x08200000U) ||
         (family >= 0x09000000U && family < 0x0a000000U) ||
