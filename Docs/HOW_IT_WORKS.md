@@ -94,7 +94,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment and per-metric visibility settings. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU temperature; and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new `overlay_format=compact` default, and per-metric visibility settings. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU temperature; and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
@@ -116,7 +116,8 @@ All boolean values use `0` (off) or `1` (on).
 | `overlay_corner` | Overlay anchor: `0` top-left, `2` bottom-left | `0` or `2`; default `0` |
 | `overlay_x` | Horizontal margin in pixels | `0`–`1800`; default `24` |
 | `overlay_y` | Vertical margin in pixels | `0`–`1000`; default `24` |
-| `overlay_horizontal` | Render metrics as one horizontal bar | `0` or `1`; default `0` |
+| `overlay_format` | Metric presentation: related metrics grouped into compact rows or one metric per row | `compact` or `classic`; default `compact` |
+| `overlay_horizontal` | Render metric rows as one horizontal bar | `0` or `1`; default `0` |
 | `overlay_horizontal_spacing` | Gap between metrics in horizontal mode | `short`, `medium`, or `long`; default `medium` |
 | `overlay_horizontal_align` | Horizontal bar alignment | `left`, `center`, or `right`; default `center` |
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
@@ -162,6 +163,7 @@ overlay_x=24
 overlay_y=24
 overlay_horizontal=0
 overlay_horizontal_spacing=medium
+overlay_format=compact
 overlay_horizontal_align=center
 
 [telemetry]

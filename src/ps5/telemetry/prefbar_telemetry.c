@@ -305,6 +305,8 @@ static void migrate_config_options(void)
         !read_config_value("overlay_horizontal_spacing", value, sizeof(value));
     const int add_overlay_horizontal_align =
         !read_config_value("overlay_horizontal_align", value, sizeof(value));
+    const int add_overlay_format =
+        !read_config_value("overlay_format", value, sizeof(value));
 
     const int add_show_frametime =
         !read_config_value("show_frametime", value, sizeof(value));
@@ -328,7 +330,7 @@ static void migrate_config_options(void)
         !read_config_value("show_gpu_clock", value, sizeof(value));
 
     if (!add_overlay_horizontal && !add_overlay_horizontal_spacing &&
-        !add_overlay_horizontal_align && !add_show_frametime &&
+        !add_overlay_horizontal_align && !add_overlay_format && !add_show_frametime &&
         !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
         !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock)
@@ -341,7 +343,7 @@ static void migrate_config_options(void)
         return;
 
     if (add_overlay_horizontal || add_overlay_horizontal_spacing ||
-        add_overlay_horizontal_align)
+        add_overlay_horizontal_align || add_overlay_format)
     {
         (void)fputs("\n[overlay]\n", f);
         if (add_overlay_horizontal)
@@ -350,6 +352,8 @@ static void migrate_config_options(void)
             (void)fputs("overlay_horizontal_spacing=medium\n", f);
         if (add_overlay_horizontal_align)
             (void)fputs("overlay_horizontal_align=center\n", f);
+        if (add_overlay_format)
+            (void)fputs("overlay_format=compact\n", f);
     }
 
     if (add_show_frametime || add_show_1percent_low || add_show_cpu_usage ||
@@ -406,7 +410,8 @@ static void ensure_default_config_file(void)
         "overlay_y=24\n"
         "overlay_horizontal=0\n"
         "overlay_horizontal_spacing=medium\n"
-        "overlay_horizontal_align=center\n\n"
+        "overlay_horizontal_align=center\n"
+        "overlay_format=compact\n\n"
         "[telemetry]\n"
         "sensors=1\n"
         "show_fps=1\n"
@@ -1449,6 +1454,10 @@ static void write_file_atomic(const char *name, const char *text)
     rename(tmp, dst);
 }
 
+/* overlay format values are stable config tokens: compact is the new default. */
+#define PREFBAR_OVERLAY_FORMAT_COMPACT 0
+#define PREFBAR_OVERLAY_FORMAT_CLASSIC 1
+
 /* runtime configuration (loaded from <DATA_DIR>/prefbar.conf) */
 typedef struct
 {
@@ -1462,6 +1471,7 @@ typedef struct
     int show_gpu_temp, show_gpu_clock, show_fan_duty;
     int show_ram, show_vram, show_power;
     int overlay_horizontal, overlay_horizontal_spacing, overlay_horizontal_align;
+    int overlay_format;
     int touchpad_toggle;
     float text_r, text_g, text_b;
 } config_t;
@@ -1544,13 +1554,32 @@ static void append_overlay_row(
     ++*count;
 }
 
+static void append_compact_value(char *values, size_t values_size,
+                                  const char *fmt, ...)
+{
+    char value[48];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(value, sizeof value, fmt, ap);
+    va_end(ap);
+    if (!value[0])
+        return;
+    if (values[0])
+        app(values, values_size, " | ");
+    app(values, values_size, "%s", value);
+}
+
 static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s,
                       char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN])
-{
-    int n = 0;
+{    int n = 0;
     char row[PREFBAR_ROW_LEN];
-
+    char values[PREFBAR_ROW_LEN];
     memset(rows, 0, sizeof(char) * PREFBAR_ROWS * PREFBAR_ROW_LEN);
+
+    if (cfg->overlay_format == PREFBAR_OVERLAY_FORMAT_CLASSIC)
+    {
+        /* Classic retains the previous one-metric-per-row implementation. */
+
 
     /* Frame metrics are independent toggles and independent rows. */
     if (cfg->show_fps)
@@ -1617,6 +1646,63 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
         append_overlay_row(rows, &n, row);
     }
 
+    }
+    else
+    {
+        /* Compact groups related readings; each show_* switch remains independent. */
+        values[0] = '\0';
+        if (cfg->show_fps)
+            append_compact_value(values, sizeof values, r->idle ? "FPS --" : "FPS %.1f", r->fps);
+        if (cfg->show_frametime)
+            append_compact_value(values, sizeof values, r->idle ? "FT --" : "FT %.1fms", r->avg_ms);
+        if (cfg->show_1percent_low)
+            append_compact_value(values, sizeof values, r->idle ? "1%%L --" : "1%%L %.1f", r->low1_fps);
+        if (values[0])
+            append_overlay_row(rows, &n, values);
+
+        values[0] = '\0';
+        if (cfg->sensors && cfg->show_cpu_usage && s->have_cpu)
+            append_compact_value(values, sizeof values, "%.0f%%", s->cpu_avg);
+        if (cfg->sensors && cfg->show_cpu_temp && s->have_cpu_temp)
+            append_compact_value(values, sizeof values, "%dC", s->cpu_temp);
+        if (cfg->sensors && cfg->show_cpu_clock && s->have_cpu_clock)
+            append_compact_value(values, sizeof values, "%dMHz", s->cpu_clock_mhz);
+        if (values[0]) {
+            snprintf(row, sizeof row, "CPU: %s", values);
+            append_overlay_row(rows, &n, row);
+        }
+
+        values[0] = '\0';
+        if (cfg->sensors && cfg->show_gpu_temp && s->have_gpu_temp)
+            append_compact_value(values, sizeof values, "%dC", s->gpu_temp);
+        if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
+            append_compact_value(values, sizeof values, "%dMHz", s->gpu_clock_mhz);
+        if (values[0]) {
+            snprintf(row, sizeof row, "GPU: %s", values);
+            append_overlay_row(rows, &n, row);
+        }
+
+        values[0] = '\0';
+        if (cfg->sensors && cfg->show_ram && s->have_ram)
+            append_compact_value(values, sizeof values, "RAM %d/%dMB", s->ram_used_mb, s->ram_total_mb);
+        if (cfg->sensors && cfg->show_vram && s->have_vram)
+            append_compact_value(values, sizeof values, "VRAM %.0f%%", s->vram_pct);
+        if (values[0]) {
+            snprintf(row, sizeof row, "MEM: %s", values);
+            append_overlay_row(rows, &n, row);
+        }
+
+        values[0] = '\0';
+        if (cfg->sensors && cfg->show_fan_duty && s->have_fan)
+            append_compact_value(values, sizeof values, "FAN %d%%", s->fan);
+        if (cfg->sensors && cfg->show_power && s->have_power)
+            append_compact_value(values, sizeof values, "PWR %.0fW", s->power_w);
+        if (values[0]) {
+            snprintf(row, sizeof row, "SYS: %s", values);
+            append_overlay_row(rows, &n, row);
+        }
+    }
+
     if (cfg->ov_mode == 1 && cfg->sensors)
     {
         if (cfg->show_cpu_usage && s->have_cpu)
@@ -1644,6 +1730,8 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
 
     /* The wire format requires at least one row; send an empty row to clear
      * old text when every metric is disabled or unavailable. */
+    return n > 0 ? n : 1;
+    /* The wire format requires one row to clear old text when all are off. */
     return n > 0 ? n : 1;
 }
 
@@ -1926,6 +2014,7 @@ static void config_defaults(config_t *c)
     c->overlay_horizontal = 0;
     c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
     c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;
+    c->overlay_format = PREFBAR_OVERLAY_FORMAT_COMPACT;
     c->touchpad_toggle = 1;
     c->text_r = 0.95f;
     c->text_g = 0.95f;
@@ -2008,6 +2097,13 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("show_vram", show_vram, 1, 0, 1)
     CONFIG_INT("show_power", show_power, 1, 0, 1)
     CONFIG_INT("overlay_horizontal", overlay_horizontal, 0, 0, 1)
+    if (strcmp(key, "overlay_format") == 0)
+    {
+        c->overlay_format = strcmp(value, "classic") == 0
+                                ? PREFBAR_OVERLAY_FORMAT_CLASSIC
+                                : PREFBAR_OVERLAY_FORMAT_COMPACT;
+        return;
+    }
     if (strcmp(key, "overlay_horizontal_align") == 0)
     {
         c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;

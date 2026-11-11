@@ -352,6 +352,7 @@ static void test_compact_overlay_rows(void)
 {
     config_t cfg;
     config_defaults(&cfg);
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
     report_t report = {0};
     sensors_t sens = {0};
     char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
@@ -443,11 +444,87 @@ static void test_compact_overlay_rows(void)
           "all-disabled overlay must send one empty clearing row (n=%d, text='%s')", n, rows[0]);
 }
 
+static void test_overlay_format_and_compact_groups(void)
+{
+    config_t cfg;
+    report_t report = {0};
+    sensors_t sens = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+
+    reset("overlay_format=compact\n");
+    CHECK(load_config(&cfg) == 1, "compact format config should load");
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_COMPACT,
+          "compact should parse as the default format token");
+
+    report.fps = 60.0;
+    report.avg_ms = 16.7;
+    report.low1_fps = 58.0;
+    sens.have_cpu = sens.have_cpu_temp = sens.have_cpu_clock = 1;
+    sens.cpu_avg = 42.0f;
+    sens.cpu_temp = 65;
+    sens.cpu_clock_mhz = 3500;
+    sens.have_gpu_temp = sens.have_gpu_clock = 1;
+    sens.gpu_temp = 55;
+    sens.gpu_clock_mhz = 2150;
+    sens.have_ram = sens.have_vram = 1;
+    sens.ram_used_mb = 2500;
+    sens.ram_total_mb = 6144;
+    sens.vram_pct = 35.0f;
+    sens.have_fan = sens.have_power = 1;
+    sens.fan = 23;
+    sens.power_w = 150.0f;
+
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 5, "compact format should use five grouped rows, got %d", n);
+    CHECK(strstr(rows[0], "FPS 60.0") && strstr(rows[0], "FT 16.7ms") &&
+              strstr(rows[0], "1%L 58.0"),
+          "frame metrics should share one row: '%s'", rows[0]);
+    CHECK(strstr(rows[1], "CPU: 42% | 65C | 3500MHz"),
+          "CPU metrics should share a labeled row: '%s'", rows[1]);
+    CHECK(strstr(rows[2], "GPU: 55C | 2150MHz"),
+          "GPU metrics should share a labeled row: '%s'", rows[2]);
+    CHECK(strstr(rows[3], "MEM: RAM 2500/6144MB | VRAM 35%"),
+          "memory metrics should share a row: '%s'", rows[3]);
+    CHECK(strstr(rows[4], "SYS: FAN 23% | PWR 150W"),
+          "fan and power should share a system row: '%s'", rows[4]);
+
+    cfg.show_cpu_usage = 0;
+    cfg.show_cpu_clock = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 5 && strcmp(rows[1], "CPU: 65C") == 0,
+          "disabling CPU usage and clock must preserve CPU temperature");
+    cfg.show_cpu_temp = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 4, "an empty CPU group should disappear (n=%d)", n);
+    CHECK(strcmp(rows[1], "GPU: 55C | 2150MHz") == 0,
+          "groups should reflow with no empty row");
+
+    reset("overlay_format=classic\n");
+    CHECK(load_config(&cfg) == 1, "classic format config should load");
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_CLASSIC,
+          "classic token should preserve the old one-metric-per-row layout");
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 12, "classic format should retain all twelve available metric rows, got %d", n);
+
+    reset("overlay_format=invalid\n");
+    CHECK(load_config(&cfg) == 1, "invalid format config should still load");
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_COMPACT,
+          "invalid format should fall back to compact");
+
+    reset("overlay_horizontal=1\n");
+    migrate_config_options();
+    char migrated[32] = "";
+    CHECK(read_config_value("overlay_format", migrated, sizeof migrated) &&
+              strcmp(migrated, "compact") == 0,
+          "upgrade migration should add compact format without replacing the existing config");
+}
+
 static void test_clock_sensor_and_row(void)
 {
     reset("show_cpu_clock=1\nshow_gpu_clock=1\n");
     config_t cfg;
     CHECK(load_config(&cfg) == 1, "clock config should load");
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
 
     sensors_t sens;
     cpuu_t cpuu = {0};
@@ -519,6 +596,7 @@ static void test_power_sensor_and_row(void)
     cfg.show_ram = 0;
     cfg.show_vram = 0;
     cfg.show_power = 1;
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
     report_t report = {0};
     char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
     int n = build_rows(&cfg, &report, &sens, rows);
@@ -530,6 +608,7 @@ static void test_power_sensor_and_row(void)
     CHECK(n == 1 && rows[0][0] == '\0', "disabled PWR should not leave a row");
 
     config_defaults(&cfg);
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
     cfg.sensors = 1;
     cfg.ov_mode = 1;
     report.fps = 60.0;
@@ -634,6 +713,7 @@ int main(void)
     test_horizontal_spacing_config();
     test_horizontal_align_config();
     test_compact_overlay_rows();
+    test_overlay_format_and_compact_groups();
     test_clock_sensor_and_row();
     test_power_sensor_and_row();
     test_reload_config_preserves_last_good();

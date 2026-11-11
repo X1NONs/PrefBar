@@ -25,7 +25,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **SoC power:** APU power consumption displayed in watts when the relevant kernel API is available.
 - **Horizontal overlay:** Display all enabled metrics in one horizontal bar, centered by default, with configurable left/center/right alignment and short, medium, or long spacing.
 - **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, and SoC power separately.
-- **Compact metric rows:** Disabled or unavailable metrics are skipped, and both vertical and horizontal layouts reflow without blank gaps.
+- **Compact and classic metric formats:** Compact groups related metrics; classic preserves the previous one-metric-per-row layout. Disabled or unavailable metrics are omitted in either format.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
 - **Customizable overlay:** Change text color, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
@@ -46,17 +46,22 @@ PrefBar reads its runtime settings from:
 /data/prefbar/prefbar.conf
 ```
 
-The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, and independent visibility switches for every telemetry metric.
+The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, a selectable compact/classic metric format, and independent visibility switches for every telemetry metric.
 
 You can also enable horizontal layout, SoC power monitoring, control the touchpad toggle, and configure notification and diagnostic options.
 
 Configuration changes are automatically reloaded when a new game session starts. You no longer need to restart PrefBar to apply them after v0.2.1.
+
+### Metric format
+
+`overlay_format=compact` is the default. It groups frame metrics, CPU metrics, GPU metrics, memory, and system readings into a small number of labeled rows. Set `overlay_format=classic` to restore the previous one-metric-per-row layout. Every `show_*` switch remains independent in both formats.
 
 ### Horizontal overlay
 
 Set `overlay_horizontal=1` to display the metrics in one horizontal bar. The bar is centered by default; use `overlay_horizontal_align` to choose `left`, `center`, or `right`. Choose the gap between metrics with `overlay_horizontal_spacing`:
 
 ```ini
+overlay_format=compact
 overlay_horizontal=1
 overlay_horizontal_align=center
 overlay_horizontal_spacing=medium
