@@ -25,7 +25,7 @@ int main() {
     assert(prefbar::shellui_main_thread_guard_backend(0x10010000U) ==
            ShellUiHookBackend::Mdbg);
 
-    for (const std::uint32_t sdk : {0x08300000U, 0x09600000U, 0x10000000U}) {
+    for (const std::uint32_t sdk : {0x08300000U, 0x10000000U}) {
         assert(shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo);
               assert(shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));
         assert(shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, EFAULT));
@@ -43,9 +43,9 @@ int main() {
     }
 
     assert(prefbar::shellui_main_thread_guard_backend(0x09600000U) ==
-           ShellUiHookBackend::Unsupported);
+           ShellUiHookBackend::Mdbg);
     assert(prefbar::shellui_hook_backend(0x09600000U, true) ==
-           ShellUiHookBackend::PtraceIo);
+           ShellUiHookBackend::Mdbg);
 
     prefbar::ShellUiHookRequest guard{};
     guard.pid = 58;
