@@ -3,7 +3,7 @@
  *
  * Derived from Common FPS for PS5 / ps5-dualsense-overlay (GPL-3.0-or-later):
  *   Copyright (C) 2026 porhe911, khalifa007 (SimpleFPS), erickdavestech
- * Additions Copyright (C) 2026 the prefbar-overlay authors.
+ * Additions Copyright (C) 2026 the prefbar authors.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * One UDP datagram to 127.0.0.1:39028 (the port the ShellUI renderer already
