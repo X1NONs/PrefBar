@@ -23,8 +23,9 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Fan telemetry:** Fan-duty percentage. This is not an RPM reading.
 - **Memory:** RAM and VRAM usage when the relevant system interfaces are available.
 - **SoC power:** APU power consumption displayed in watts when the relevant kernel API is available.
-- **Horizontal overlay:** Display all enabled metrics in one horizontal bar, with short, medium, or long spacing between metric groups and automatic font-size adjustment to fit the screen.
-- **Compact metric rows:** Disabled or unavailable metrics are automatically skipped instead of leaving blank spaces.
+- **Horizontal overlay:** Display all enabled metrics in one horizontal bar, centered by default, with configurable left/center/right alignment and short, medium, or long spacing.
+- **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, and SoC power separately.
+- **Compact metric rows:** Disabled or unavailable metrics are skipped, and both vertical and horizontal layouts reflow without blank gaps.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
 - **Customizable overlay:** Change text color, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
@@ -34,7 +35,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 
 1. Download `PrefBar-complete_V0.2.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.2.1).
 2. Load the combined ELF on your jailbroken PS5 using your usual payload loader.
-3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The overlay normally appears in the top-left corner.
+3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 4. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
 
 ## Customization and colors
@@ -45,7 +46,7 @@ PrefBar reads its runtime settings from:
 /data/prefbar/prefbar.conf
 ```
 
-The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, and metric-row selection.
+The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, and independent visibility switches for every telemetry metric.
 
 You can also enable horizontal layout, SoC power monitoring, control the touchpad toggle, and configure notification and diagnostic options.
 
@@ -53,14 +54,15 @@ Configuration changes are automatically reloaded when a new game session starts.
 
 ### Horizontal overlay
 
-Set `overlay_horizontal=1` in your configuration to display the metrics in one horizontal bar. Choose the gap between metric groups with `overlay_horizontal_spacing`:
+Set `overlay_horizontal=1` to display the metrics in one horizontal bar. The bar is centered by default; use `overlay_horizontal_align` to choose `left`, `center`, or `right`. Choose the gap between metrics with `overlay_horizontal_spacing`:
 
 ```ini
 overlay_horizontal=1
+overlay_horizontal_align=center
 overlay_horizontal_spacing=medium
 ```
 
-Accepted spacing values are `short`, `medium`, and `long`. Medium preserves the current default spacing. PrefBar automatically adjusts the font size when necessary to fit the available screen width.
+Alignment accepts `left`, `center`, or `right`, and defaults to `center`. Spacing accepts `short`, `medium`, or `long`, and defaults to `medium`. PrefBar compacts enabled metrics, re-centers the resulting bar, and reduces the font size when necessary to fit the screen.
 
 ### Color recommendations
 
@@ -81,6 +83,7 @@ Set the `text_color` value to a six-digit hexadecimal color in `#RRGGBB` format.
 text_color=#00E5FF
 text_shadow=1
 overlay_horizontal=1
+overlay_horizontal_align=center
 overlay_horizontal_spacing=medium
 ```
 

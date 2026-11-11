@@ -16,23 +16,27 @@
 #include <stdint.h>
 
 #define PREFBAR_WIRE_MAGIC   0x52414250u   /* bytes 'P','B','A','R' (little endian) */
-#define PREFBAR_WIRE_VERSION 4u
+#define PREFBAR_WIRE_VERSION 5u
 #define PREFBAR_WIRE_PORT    39028u
 #define PREFBAR_CONTROL_PORT     39029u   /* ShellUI -> controller debug/control events */
-#define PREFBAR_ROWS         7
+#define PREFBAR_ROWS         14
 #define PREFBAR_ROW_LEN      96            /* incl. NUL */
-#define PREFBAR_CORNER_TL    0             /* only top-left and bottom-left are  */
-#define PREFBAR_CORNER_BL    2             /* implemented; rows are left aligned */
-#define PREFBAR_WIRE_BYTES   717u
+#define PREFBAR_CORNER_TL    0             /* vertical anchor: top-left */
+#define PREFBAR_CORNER_BL    2             /* vertical anchor: bottom-left */
+#define PREFBAR_WIRE_BYTES   1389u
 #define PREFBAR_WIRE_FLAG_TEXT_SHADOW       0x01u
 #define PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE   0x02u
 #define PREFBAR_WIRE_FLAG_OVERLAY_ENABLED   0x04u
 #define PREFBAR_WIRE_FLAG_HORIZONTAL        0x08u
-/* Horizontal spacing preset: 00 = medium, 01 = short, 10 = long, 11 = invalid. */
+/* Horizontal spacing: 00 = medium, 01 = short, 10 = long, 11 = invalid. */
 #define PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK  0x30u
 #define PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_SHORT 0x10u
 #define PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_LONG  0x20u
-#define PREFBAR_WIRE_KNOWN_FLAGS (PREFBAR_WIRE_FLAG_TEXT_SHADOW | PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE | PREFBAR_WIRE_FLAG_OVERLAY_ENABLED | PREFBAR_WIRE_FLAG_HORIZONTAL | PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK)
+/* Horizontal alignment: 00 = center, 01 = left, 10 = right, 11 = invalid. */
+#define PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK  0xC0u
+#define PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT  0x40u
+#define PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT 0x80u
+#define PREFBAR_WIRE_KNOWN_FLAGS (PREFBAR_WIRE_FLAG_TEXT_SHADOW | PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE | PREFBAR_WIRE_FLAG_OVERLAY_ENABLED | PREFBAR_WIRE_FLAG_HORIZONTAL | PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK | PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK)
 
 #pragma pack(push, 1)
 typedef struct prefbar_wire {
@@ -68,6 +72,11 @@ static inline int prefbar_wire_valid(const prefbar_wire_t *p, size_t len)
     if (p->flags & (uint8_t)~PREFBAR_WIRE_KNOWN_FLAGS) return 0;
     if ((p->flags & PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK) ==
         PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK) return 0;
+    if ((p->flags & PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK) ==
+        PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK) return 0;
+    if (!(p->flags & PREFBAR_WIRE_FLAG_HORIZONTAL) &&
+        (p->flags & (PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK |
+                     PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK))) return 0;
     if (p->corner != PREFBAR_CORNER_TL && p->corner != PREFBAR_CORNER_BL) return 0;
     if (p->font_size < 10 || p->font_size > 96) return 0;
     if (!(p->margin_x >= 0.0f && p->margin_x <= 1800.0f)) return 0;

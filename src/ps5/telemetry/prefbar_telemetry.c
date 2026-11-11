@@ -91,6 +91,12 @@ enum {
     PREFBAR_HORIZONTAL_SPACING_LONG = 2
 };
 
+enum {
+    PREFBAR_HORIZONTAL_ALIGN_LEFT = 0,
+    PREFBAR_HORIZONTAL_ALIGN_CENTER = 1,
+    PREFBAR_HORIZONTAL_ALIGN_RIGHT = 2
+};
+
 /* ------------------------------------------------------------------ time */
 static uint64_t now_ns(void)
 {
@@ -288,44 +294,89 @@ static int read_config_int(const char *key, int fallback, int min_value, int max
 static void migrate_config_options(void)
 {
     char value[64];
+    const int legacy_show_fps = read_config_int("show_fps", 1, 0, 1);
+    const int legacy_show_cpu = read_config_int("show_cpu", 1, 0, 1);
+    const int legacy_show_gpu_temp = read_config_int("show_soc_temp", 1, 0, 1);
+    const int legacy_show_memory = read_config_int("show_memory", 1, 0, 1);
+
+    const int add_overlay_horizontal =
+        !read_config_value("overlay_horizontal", value, sizeof(value));
+    const int add_overlay_horizontal_spacing =
+        !read_config_value("overlay_horizontal_spacing", value, sizeof(value));
+    const int add_overlay_horizontal_align =
+        !read_config_value("overlay_horizontal_align", value, sizeof(value));
+
+    const int add_show_frametime =
+        !read_config_value("show_frametime", value, sizeof(value));
+    const int add_show_1percent_low =
+        !read_config_value("show_1percent_low", value, sizeof(value));
+    const int add_show_cpu_usage =
+        !read_config_value("show_cpu_usage", value, sizeof(value));
+    const int add_show_cpu_temp =
+        !read_config_value("show_cpu_temp", value, sizeof(value));
+    const int add_show_gpu_temp =
+        !read_config_value("show_gpu_temp", value, sizeof(value));
+    const int add_show_ram =
+        !read_config_value("show_ram", value, sizeof(value));
+    const int add_show_vram =
+        !read_config_value("show_vram", value, sizeof(value));
     const int add_show_power =
         !read_config_value("show_power", value, sizeof(value));
     const int add_show_cpu_clock =
         !read_config_value("show_cpu_clock", value, sizeof(value));
     const int add_show_gpu_clock =
         !read_config_value("show_gpu_clock", value, sizeof(value));
-    const int add_overlay_horizontal =
-        !read_config_value("overlay_horizontal", value, sizeof(value));
-    const int add_overlay_horizontal_spacing =
-        !read_config_value("overlay_horizontal_spacing", value, sizeof(value));
 
-    if (!add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
-        !add_overlay_horizontal && !add_overlay_horizontal_spacing)
+    if (!add_overlay_horizontal && !add_overlay_horizontal_spacing &&
+        !add_overlay_horizontal_align && !add_show_frametime &&
+        !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
+        !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
+        !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock)
         return;
 
-    /* Preserve the user's file and values; append only newly introduced keys.
-     * Section labels are organizational because this parser matches keys globally. */
+    /* Preserve existing options. New individual toggles inherit their former
+     * group toggle once, so an upgrade does not unexpectedly re-enable metrics. */
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "a");
     if (!f)
         return;
 
-    if (add_show_power || add_show_cpu_clock || add_show_gpu_clock)
-    {
-        (void)fputs("\n[telemetry]\n", f);
-        if (add_show_power)
-            (void)fputs("show_power=1\n", f);
-        if (add_show_cpu_clock)
-            (void)fputs("show_cpu_clock=1\n", f);
-        if (add_show_gpu_clock)
-            (void)fputs("show_gpu_clock=1\n", f);
-    }
-    if (add_overlay_horizontal || add_overlay_horizontal_spacing)
+    if (add_overlay_horizontal || add_overlay_horizontal_spacing ||
+        add_overlay_horizontal_align)
     {
         (void)fputs("\n[overlay]\n", f);
         if (add_overlay_horizontal)
             (void)fputs("overlay_horizontal=0\n", f);
         if (add_overlay_horizontal_spacing)
             (void)fputs("overlay_horizontal_spacing=medium\n", f);
+        if (add_overlay_horizontal_align)
+            (void)fputs("overlay_horizontal_align=center\n", f);
+    }
+
+    if (add_show_frametime || add_show_1percent_low || add_show_cpu_usage ||
+        add_show_cpu_temp || add_show_gpu_temp || add_show_ram || add_show_vram ||
+        add_show_power || add_show_cpu_clock || add_show_gpu_clock)
+    {
+        (void)fputs("\n[telemetry]\n", f);
+        if (add_show_frametime)
+            fprintf(f, "show_frametime=%d\n", legacy_show_fps);
+        if (add_show_1percent_low)
+            fprintf(f, "show_1percent_low=%d\n", legacy_show_fps);
+        if (add_show_cpu_usage)
+            fprintf(f, "show_cpu_usage=%d\n", legacy_show_cpu);
+        if (add_show_cpu_temp)
+            fprintf(f, "show_cpu_temp=%d\n", legacy_show_cpu);
+        if (add_show_gpu_temp)
+            fprintf(f, "show_gpu_temp=%d\n", legacy_show_gpu_temp);
+        if (add_show_ram)
+            fprintf(f, "show_ram=%d\n", legacy_show_memory);
+        if (add_show_vram)
+            fprintf(f, "show_vram=%d\n", legacy_show_memory);
+        if (add_show_power)
+            (void)fputs("show_power=1\n", f);
+        if (add_show_cpu_clock)
+            (void)fputs("show_cpu_clock=1\n", f);
+        if (add_show_gpu_clock)
+            (void)fputs("show_gpu_clock=1\n", f);
     }
 
     (void)fclose(f);
@@ -354,16 +405,21 @@ static void ensure_default_config_file(void)
         "overlay_x=24\n"
         "overlay_y=24\n"
         "overlay_horizontal=0\n"
-        "overlay_horizontal_spacing=medium\n\n"
+        "overlay_horizontal_spacing=medium\n"
+        "overlay_horizontal_align=center\n\n"
         "[telemetry]\n"
         "sensors=1\n"
         "show_fps=1\n"
-        "show_cpu=1\n"
+        "show_frametime=1\n"
+        "show_1percent_low=1\n"
+        "show_cpu_usage=1\n"
+        "show_cpu_temp=1\n"
         "show_cpu_clock=1\n"
+        "show_gpu_temp=1\n"
         "show_gpu_clock=1\n"
-        "show_soc_temp=1\n"
         "show_fan_duty=1\n"
-        "show_memory=1\n"
+        "show_ram=1\n"
+        "show_vram=1\n"
         "show_power=1\n\n"
         "[input]\n"
         "touchpad_toggle=1\n\n"
@@ -1400,10 +1456,12 @@ typedef struct
     int overlay, ov_mode, ov_font, ov_corner, ov_x, ov_y;
     int notifications, startup_notification, error_notifications, debug_notifications;
     int debug_notify;
-    int text_shadow, show_fps, show_cpu, show_soc_temp, show_fan_duty, show_memory;
-    int show_cpu_clock, show_gpu_clock;
-    int show_power, overlay_horizontal;
-    int overlay_horizontal_spacing;
+    int text_shadow;
+    int show_fps, show_frametime, show_1percent_low;
+    int show_cpu_usage, show_cpu_temp, show_cpu_clock;
+    int show_gpu_temp, show_gpu_clock, show_fan_duty;
+    int show_ram, show_vram, show_power;
+    int overlay_horizontal, overlay_horizontal_spacing, overlay_horizontal_align;
     int touchpad_toggle;
     float text_r, text_g, text_b;
 } config_t;
@@ -1494,76 +1552,74 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
 
     memset(rows, 0, sizeof(char) * PREFBAR_ROWS * PREFBAR_ROW_LEN);
 
+    /* Frame metrics are independent toggles and independent rows. */
     if (cfg->show_fps)
     {
-        if (r->idle)
-            snprintf(row, sizeof row, "FPS --");
-        else
-            snprintf(row, sizeof row, "FPS %.1f  %.1f ms  1%%L %.1f",
-                     r->fps, r->avg_ms, r->low1_fps);
+        snprintf(row, sizeof row, r->idle ? "FPS --" : "FPS %.1f", r->fps);
         append_overlay_row(rows, &n, row);
     }
-
-    if (cfg->sensors &&
-        (cfg->show_cpu || cfg->show_cpu_clock || cfg->show_soc_temp || cfg->show_gpu_clock))
+    if (cfg->show_frametime)
     {
-        row[0] = '\0';
-        if (cfg->show_cpu && s->have_cpu)
-            snprintf(row, sizeof row, "CPU %.0f%%", s->cpu_avg);
-        else if (cfg->show_cpu && s->have_cpu_temp)
-            snprintf(row, sizeof row, "CPU %dC", s->cpu_temp);
-
-        if (cfg->show_cpu_clock && s->have_cpu_clock)
-        {
-            if (row[0])
-                app(row, sizeof row, " %dMHz", s->cpu_clock_mhz);
-            else
-                snprintf(row, sizeof row, "CPU %dMHz", s->cpu_clock_mhz);
-        }
-        if (cfg->show_cpu && s->have_cpu && s->have_cpu_temp)
-            app(row, sizeof row, " %dC", s->cpu_temp);
-
-        char gpu_row[48] = {0};
-        if (cfg->show_gpu_clock && s->have_gpu_clock)
-            snprintf(gpu_row, sizeof gpu_row, "GPU %dMHz", s->gpu_clock_mhz);
-        if (cfg->show_soc_temp && s->have_gpu_temp)
-            app(gpu_row, sizeof gpu_row, "%s%dC",
-                gpu_row[0] ? " " : "GPU ", s->gpu_temp);
-        if (gpu_row[0])
-            app(row, sizeof row, "%s%s", row[0] ? " | " : "", gpu_row);
-
+        snprintf(row, sizeof row, r->idle ? "FT --" : "FT %.1fms", r->avg_ms);
         append_overlay_row(rows, &n, row);
     }
-
-    if (cfg->sensors && cfg->show_fan_duty)
+    if (cfg->show_1percent_low)
     {
-        if (s->have_fan)
-            snprintf(row, sizeof row, "Fan: %d%%", s->fan);
-        else
-            snprintf(row, sizeof row, "Fan: --");
+        snprintf(row, sizeof row, r->idle ? "1%%L --" : "1%%L %.1f", r->low1_fps);
         append_overlay_row(rows, &n, row);
     }
 
-    if (cfg->sensors && cfg->show_memory)
+    /* Every sensor is appended separately. Disabled or unavailable metrics
+     * do not consume a row, so both layouts naturally stay compact. */
+    if (cfg->sensors && cfg->show_cpu_usage && s->have_cpu)
     {
-        row[0] = '\0';
-        if (s->have_ram)
-            snprintf(row, sizeof row, "RAM %d/%d MB", s->ram_used_mb, s->ram_total_mb);
-        if (s->have_vram)
-            app(row, sizeof row, "%sVRAM %.0f%%",
-                row[0] ? "  " : "", s->vram_pct);
+        snprintf(row, sizeof row, "CPU %.0f%%", s->cpu_avg);
         append_overlay_row(rows, &n, row);
     }
-
+    if (cfg->sensors && cfg->show_cpu_temp && s->have_cpu_temp)
+    {
+        snprintf(row, sizeof row, "CPU %dC", s->cpu_temp);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_cpu_clock && s->have_cpu_clock)
+    {
+        snprintf(row, sizeof row, "CPU %dMHz", s->cpu_clock_mhz);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
+    {
+        snprintf(row, sizeof row, "GPU %dMHz", s->gpu_clock_mhz);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_gpu_temp && s->have_gpu_temp)
+    {
+        snprintf(row, sizeof row, "GPU %dC", s->gpu_temp);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_fan_duty && s->have_fan)
+    {
+        snprintf(row, sizeof row, "FAN %d%%", s->fan);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_ram && s->have_ram)
+    {
+        snprintf(row, sizeof row, "RAM %d/%dMB", s->ram_used_mb, s->ram_total_mb);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_vram && s->have_vram)
+    {
+        snprintf(row, sizeof row, "VRAM %.0f%%", s->vram_pct);
+        append_overlay_row(rows, &n, row);
+    }
     if (cfg->sensors && cfg->show_power && s->have_power)
     {
-        snprintf(row, sizeof row, "PWR %.0f W", s->power_w);
+        snprintf(row, sizeof row, "PWR %.0fW", s->power_w);
         append_overlay_row(rows, &n, row);
     }
 
     if (cfg->ov_mode == 1 && cfg->sensors)
     {
-        if (cfg->show_cpu && s->have_cpu)
+        if (cfg->show_cpu_usage && s->have_cpu)
         {
             row[0] = '\0';
             snprintf(row, sizeof row, "cores:");
@@ -1613,6 +1669,7 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
     p.corner = (uint8_t)cfg->ov_corner;
     p.rows = (uint8_t)n;
     uint8_t horizontal_spacing_flags = 0;
+    uint8_t horizontal_alignment_flags = 0;
     if (cfg->overlay_horizontal)
     {
         if (cfg->overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_SHORT)
@@ -1620,12 +1677,18 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
         else if (cfg->overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG)
             horizontal_spacing_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_LONG;
         /* Medium is zero: it preserves the previous horizontal spacing. */
+
+        if (cfg->overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_LEFT)
+            horizontal_alignment_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT;
+        else if (cfg->overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_RIGHT)
+            horizontal_alignment_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT;
+        /* Center is zero, so it is the default alignment. */
     }
     p.flags = (uint8_t)((cfg->text_shadow ? PREFBAR_WIRE_FLAG_TEXT_SHADOW : 0u) |
                         (cfg->touchpad_toggle ? PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE : 0u) |
                         (cfg->overlay ? PREFBAR_WIRE_FLAG_OVERLAY_ENABLED : 0u) |
                         (cfg->overlay_horizontal ? PREFBAR_WIRE_FLAG_HORIZONTAL : 0u) |
-                        horizontal_spacing_flags);
+                        horizontal_spacing_flags | horizontal_alignment_flags);
     p.font_size = (uint16_t)cfg->ov_font;
     p.margin_x = (float)cfg->ov_x;
     p.margin_y = (float)cfg->ov_y;
@@ -1849,15 +1912,20 @@ static void config_defaults(config_t *c)
     c->debug_notify = 3;
     c->text_shadow = 1;
     c->show_fps = 1;
-    c->show_cpu = 1;
-    c->show_soc_temp = 1;
+    c->show_frametime = 1;
+    c->show_1percent_low = 1;
+    c->show_cpu_usage = 1;
+    c->show_cpu_temp = 1;
     c->show_cpu_clock = 1;
+    c->show_gpu_temp = 1;
     c->show_gpu_clock = 1;
     c->show_fan_duty = 1;
-    c->show_memory = 1;
+    c->show_ram = 1;
+    c->show_vram = 1;
     c->show_power = 1;
     c->overlay_horizontal = 0;
     c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
+    c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;
     c->touchpad_toggle = 1;
     c->text_r = 0.95f;
     c->text_g = 0.95f;
@@ -1928,14 +1996,27 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("debug_notify", debug_notify, 3, 0, DBG_TRACE)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
     CONFIG_INT("show_fps", show_fps, 1, 0, 1)
-    CONFIG_INT("show_cpu", show_cpu, 1, 0, 1)
-    CONFIG_INT("show_soc_temp", show_soc_temp, 1, 0, 1) /* legacy option; displays GPU temperature */
+    CONFIG_INT("show_frametime", show_frametime, 1, 0, 1)
+    CONFIG_INT("show_1percent_low", show_1percent_low, 1, 0, 1)
+    CONFIG_INT("show_cpu_usage", show_cpu_usage, 1, 0, 1)
+    CONFIG_INT("show_cpu_temp", show_cpu_temp, 1, 0, 1)
     CONFIG_INT("show_cpu_clock", show_cpu_clock, 1, 0, 1)
+    CONFIG_INT("show_gpu_temp", show_gpu_temp, 1, 0, 1)
     CONFIG_INT("show_gpu_clock", show_gpu_clock, 1, 0, 1)
     CONFIG_INT("show_fan_duty", show_fan_duty, 1, 0, 1)
-    CONFIG_INT("show_memory", show_memory, 1, 0, 1)
+    CONFIG_INT("show_ram", show_ram, 1, 0, 1)
+    CONFIG_INT("show_vram", show_vram, 1, 0, 1)
     CONFIG_INT("show_power", show_power, 1, 0, 1)
     CONFIG_INT("overlay_horizontal", overlay_horizontal, 0, 0, 1)
+    if (strcmp(key, "overlay_horizontal_align") == 0)
+    {
+        c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;
+        if (strcmp(value, "left") == 0)
+            c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_LEFT;
+        else if (strcmp(value, "right") == 0)
+            c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_RIGHT;
+        return;
+    }
     if (strcmp(key, "overlay_horizontal_spacing") == 0)
     {
         c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;

@@ -49,18 +49,18 @@ The controller waits for stable process observations before starting the rendere
 
 The telemetry worker does not read or write game-process memory. The DCE counter is used as the source for frame statistics. Sensor APIs are optional/weakly linked, so a metric can be unavailable on a particular firmware or runtime environment.
 
-Disabled or unavailable metric rows are compacted, so later enabled metrics move up instead of leaving blank gaps. When all metrics are disabled, PrefBar sends an empty row to clear previously displayed text.
+Disabled or unavailable metrics are compacted, so later enabled metrics move into the next available row instead of leaving blank gaps. Each FPS, frametime, 1% low, CPU usage, CPU temperature, CPU clock, GPU temperature, GPU clock, fan duty, RAM, VRAM, and power metric has its own switch. This compacted sequence is shared by vertical and horizontal layouts. When all metrics are disabled or unavailable, PrefBar sends an empty row to clear previously displayed text.
 
-The current overlay can show:
+The current overlay can show twelve independently selectable metrics:
 
 - FPS, average frametime, and 1% low.
-- CPU utilization and CPU temperature when available.
-- SoC temperature when available.
+- CPU utilization, CPU temperature, and CPU clock.
+- GPU temperature and GPU clock.
 - Fan duty as a percentage.
-- RAM and VRAM readings when available.
+- RAM and VRAM readings.
 - SoC APU power consumption in watts when the kernel API is available.
 
-The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted. Horizontal mode places the compacted rows on one line and reduces the font size when needed to fit the available screen width.
+The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted. Horizontal mode places the compacted metrics on one line. It estimates the complete bar width, then aligns it left, centered, or right. Font size is reduced only when needed to fit within the screen margins.
 
 **Fan duty is not fan RPM.** The currently used fan API reports a Q10 duty value, converted to a percentage. The project does not claim that this API supplies tachometer RPM.
 
@@ -68,7 +68,7 @@ The telemetry worker writes human-readable `status.txt` and key/value `status.kv
 
 ### 3. Telemetry and control protocol
 
-`include/prefbar/telemetry_wire.h` defines the C-compatible version-4 telemetry packet shared by the C telemetry worker and C++ renderer. The current packet carries up to seven text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and horizontal layout. Its horizontal-spacing preset is encoded in reserved flag bits; this extends packet semantics without changing the 717-byte layout.
+`include/prefbar/telemetry_wire.h` defines the C-compatible version-5 telemetry packet shared by the C telemetry worker and C++ renderer. The packet carries up to fourteen compacted text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and horizontal layout. Horizontal spacing and alignment are encoded in the packet flags. The capacity accommodates twelve independent metrics plus two optional diagnostic rows.
 
 The controller sends telemetry to the renderer over UDP loopback on port `39028`. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
 
@@ -94,7 +94,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. This migration adds `show_power=1`, `show_cpu_clock=1`, and `show_gpu_clock=1` under `[telemetry]`, plus `overlay_horizontal=0` and `overlay_horizontal_spacing=medium` under `[overlay]`, when they are absent. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment and per-metric visibility settings. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU temperature; and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
@@ -116,20 +116,27 @@ All boolean values use `0` (off) or `1` (on).
 | `overlay_corner` | Overlay anchor: `0` top-left, `2` bottom-left | `0` or `2`; default `0` |
 | `overlay_x` | Horizontal margin in pixels | `0`–`1800`; default `24` |
 | `overlay_y` | Vertical margin in pixels | `0`–`1000`; default `24` |
-| `overlay_horizontal` | Render telemetry rows as one horizontal bar | `0` or `1`; default `0` |
-| `overlay_horizontal_spacing` | Gap between metric groups in horizontal mode | `short`, `medium`, or `long`; default `medium` |
+| `overlay_horizontal` | Render metrics as one horizontal bar | `0` or `1`; default `0` |
+| `overlay_horizontal_spacing` | Gap between metrics in horizontal mode | `short`, `medium`, or `long`; default `medium` |
+| `overlay_horizontal_align` | Horizontal bar alignment | `left`, `center`, or `right`; default `center` |
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
-| `show_fps` | Show the FPS row | `0` or `1`; default `1` |
-| `show_cpu` | Show CPU utilization/temperature | `0` or `1`; default `1` |
+| `show_fps` | Show FPS | `0` or `1`; default `1` |
+| `show_frametime` | Show average frametime | `0` or `1`; default `1` |
+| `show_1percent_low` | Show 1% low FPS | `0` or `1`; default `1` |
+| `show_cpu_usage` | Show CPU utilization | `0` or `1`; default `1` |
+| `show_cpu_temp` | Show CPU temperature | `0` or `1`; default `1` |
 | `show_cpu_clock` | Show current CPU frequency in MHz | `0` or `1`; default `1` |
+| `show_gpu_temp` | Show GPU temperature from SoC sensor 0 | `0` or `1`; default `1` |
 | `show_gpu_clock` | Show current GPU GFXCLK in MHz | `0` or `1`; default `1` |
-| `show_soc_temp` | Show GPU temperature from SoC sensor 0 (legacy option name retained for existing configs) | `0` or `1`; default `1` |
 | `show_fan_duty` | Show fan-duty percentage | `0` or `1`; default `1` |
-| `show_memory` | Show RAM/VRAM metrics | `0` or `1`; default `1` |
+| `show_ram` | Show RAM usage | `0` or `1`; default `1` |
+| `show_vram` | Show VRAM usage | `0` or `1`; default `1` |
 | `show_power` | Show SoC APU power in watts when available | `0` or `1`; default `1` |
 | `touchpad_toggle` | Enable triple-click overlay visibility control | `0` or `1`; default `1` |
 | `diag` | Enable diagnostic captures | `0` or `1`; default `0` in the embedded PS5 build |
 | `poll_us` | Telemetry polling interval in microseconds | `500`–`20000`; default `2000` |
+
+Legacy keys `show_cpu`, `show_soc_temp`, and `show_memory` are read during migration to seed the new independent switches.
 
 Example configuration:
 
@@ -155,16 +162,21 @@ overlay_x=24
 overlay_y=24
 overlay_horizontal=0
 overlay_horizontal_spacing=medium
+overlay_horizontal_align=center
 
 [telemetry]
 sensors=1
 show_fps=1
-show_cpu=1
+show_frametime=1
+show_1percent_low=1
+show_cpu_usage=1
+show_cpu_temp=1
 show_cpu_clock=1
+show_gpu_temp=1
 show_gpu_clock=1
-show_soc_temp=1
 show_fan_duty=1
-show_memory=1
+show_ram=1
+show_vram=1
 show_power=1
 
 [input]
