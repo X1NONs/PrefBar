@@ -94,7 +94,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. In v0.2.1, this migration adds `show_power=1` under `[telemetry]` and `overlay_horizontal=0` under `[overlay]` when they are absent. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. This migration adds `show_power=1`, `show_cpu_clock=1`, and `show_gpu_clock=1` under `[telemetry]`, plus `overlay_horizontal=0` under `[overlay]`, when they are absent. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
@@ -120,7 +120,9 @@ All boolean values use `0` (off) or `1` (on).
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
 | `show_fps` | Show the FPS row | `0` or `1`; default `1` |
 | `show_cpu` | Show CPU utilization/temperature | `0` or `1`; default `1` |
-| `show_soc_temp` | Show SoC temperature | `0` or `1`; default `1` |
+| `show_cpu_clock` | Show current CPU frequency in MHz | `0` or `1`; default `1` |
+| `show_gpu_clock` | Show current GPU GFXCLK in MHz | `0` or `1`; default `1` |
+| `show_soc_temp` | Show GPU temperature from SoC sensor 0 (legacy option name retained for existing configs) | `0` or `1`; default `1` |
 | `show_fan_duty` | Show fan-duty percentage | `0` or `1`; default `1` |
 | `show_memory` | Show RAM/VRAM metrics | `0` or `1`; default `1` |
 | `show_power` | Show SoC APU power in watts when available | `0` or `1`; default `1` |
@@ -156,6 +158,8 @@ overlay_horizontal=0
 sensors=1
 show_fps=1
 show_cpu=1
+show_cpu_clock=1
+show_gpu_clock=1
 show_soc_temp=1
 show_fan_duty=1
 show_memory=1

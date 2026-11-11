@@ -188,8 +188,9 @@ static void test_config_file_and_values(void)
     (void)load_config(&cfg);
     CHECK(cfg.overlay == 1 && cfg.text_shadow == 1,
           "default overlay and shadow should be enabled");
-    CHECK(cfg.show_power == 1 && cfg.overlay_horizontal == 0,
-          "new power and horizontal-layout options should have their defaults");
+    CHECK(cfg.show_power == 1 && cfg.show_cpu_clock == 1 &&
+              cfg.show_gpu_clock == 1 && cfg.overlay_horizontal == 0,
+          "new power, clock, and horizontal-layout options should have their defaults");
 
     FILE *defaults_file = fopen(PREFBAR_CONFIG_PATH, "r");
     char defaults_text[4096] = {0};
@@ -204,8 +205,9 @@ static void test_config_file_and_values(void)
     CHECK(overlay_section && telemetry_section && horizontal_option &&
               overlay_section < horizontal_option && horizontal_option < telemetry_section,
           "overlay_horizontal should be grouped under [overlay]");
-    CHECK(cfg.show_fps == 1 && cfg.show_cpu == 1 && cfg.show_soc_temp == 1,
-          "default telemetry rows should be enabled");
+    CHECK(cfg.show_fps == 1 && cfg.show_cpu == 1 && cfg.show_soc_temp == 1 &&
+              cfg.show_cpu_clock == 1 && cfg.show_gpu_clock == 1,
+          "default telemetry rows and clocks should be enabled");
     CHECK(cfg.notifications == 1 && cfg.touchpad_toggle == 1,
           "default notifications and touchpad toggle should be enabled");
 
@@ -231,7 +233,10 @@ static void test_config_file_and_values(void)
     CHECK(f != NULL, "open config with explicit new options");
     if (f)
     {
-        fputs("[overlay]\noverlay_horizontal=1\n[telemetry]\nshow_power=0\n", f);
+        fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\n"
+              "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
+              "[telemetry]\nshow_fps=0\nshow_cpu=1\nshow_soc_temp=0\nshow_fan_duty=0\nshow_memory=1\nshow_power=0\nshow_cpu_clock=0\nshow_gpu_clock=0\n"
+              "[input]\ntouchpad_toggle=0\n", f);
         fclose(f);
     }
     ensure_default_config_file();
@@ -251,6 +256,7 @@ static void test_config_file_and_values(void)
               cfg.error_notifications == 0 && cfg.debug_notifications == 0,
           "notification switches should parse");
     CHECK(cfg.show_fps == 0 && cfg.show_cpu == 1 && cfg.show_soc_temp == 0 &&
+              cfg.show_cpu_clock == 0 && cfg.show_gpu_clock == 0 &&
               cfg.show_fan_duty == 0 && cfg.show_memory == 1 && cfg.touchpad_toggle == 0,
           "telemetry and input switches should parse");
 }
@@ -288,8 +294,14 @@ static void test_compact_overlay_rows(void)
     report.low1_fps = 58.0;
     sens.have_cpu = 1;
     sens.cpu_avg = 42.0f;
-    sens.have_soc_temp = 1;
-    sens.soc_temp = 55;
+    sens.have_gpu_temp = 1;
+    sens.gpu_temp = 55;
+    sens.have_cpu_clock = 1;
+    sens.cpu_clock_mhz = 3500;
+    sens.have_gpu_clock = 1;
+    sens.gpu_clock_mhz = 2150;
+    cfg.show_cpu_clock = 1;
+    cfg.show_gpu_clock = 1;
     sens.have_ram = 1;
     sens.ram_used_mb = 2500;
     sens.ram_total_mb = 6144;
@@ -297,14 +309,19 @@ static void test_compact_overlay_rows(void)
     int n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == 3, "disabled fan row should compact; expected 3 rows, got %d", n);
     CHECK(strncmp(rows[0], "FPS ", 4) == 0, "FPS should remain row 0: %s", rows[0]);
-    CHECK(strncmp(rows[1], "CPU ", 4) == 0 && strstr(rows[1], "SoC") != NULL,
-          "CPU and SoC should share row 1: %s", rows[1]);
+    CHECK(strncmp(rows[1], "CPU ", 4) == 0 &&
+              strstr(rows[1], "3500MHz") != NULL &&
+              strstr(rows[1], "GPU 2150MHz") != NULL &&
+              strstr(rows[1], "55C") != NULL,
+          "CPU/GPU clocks and GPU temperature should share row 1: %s", rows[1]);
     CHECK(strncmp(rows[2], "RAM ", 4) == 0,
           "RAM should move into row 2 when fan is disabled: %s", rows[2]);
 
     cfg.show_fps = 0;
     cfg.show_cpu = 0;
     cfg.show_soc_temp = 0;
+    cfg.show_cpu_clock = 0;
+    cfg.show_gpu_clock = 0;
     cfg.show_fan_duty = 1;
     sens.have_fan = 1;
     sens.fan = 23;
@@ -335,6 +352,50 @@ static void test_compact_overlay_rows(void)
           "all-disabled overlay must send one empty clearing row (n=%d, text='%s')", n, rows[0]);
 }
 
+static void test_clock_sensor_and_row(void)
+{
+    reset("show_cpu_clock=1\nshow_gpu_clock=1\n");
+    config_t cfg;
+    CHECK(load_config(&cfg) == 1, "clock config should load");
+    CHECK(cfg.show_cpu_clock == 1 && cfg.show_gpu_clock == 1,
+          "CPU/GPU clock settings should parse as enabled");
+
+    sensors_t sens;
+    cpuu_t cpuu = {0};
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.have_cpu_clock && sens.cpu_clock_mhz == 3500,
+          "simulated CPU frequency should convert to 3500 MHz");
+    CHECK(sens.have_gpu_clock && sens.gpu_clock_mhz == 2150,
+          "SoC clock domain 20 should provide GPU GFXCLK in MHz");
+    CHECK(sens.have_gpu_temp && sens.gpu_temp >= 55,
+          "SoC sensor 0 should be exposed as GPU temperature");
+
+    cfg.sensors = 1;
+    cfg.show_fps = 0;
+    cfg.show_cpu = 1;
+    cfg.show_soc_temp = 1;
+    cfg.show_cpu_clock = 1;
+    cfg.show_gpu_clock = 1;
+    cfg.show_fan_duty = 0;
+    cfg.show_memory = 0;
+    cfg.show_power = 0;
+    report_t report = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && strstr(rows[0], "3500MHz") &&
+              strstr(rows[0], "GPU 2150MHz") && strstr(rows[0], "C"),
+          "clocks and GPU temperature should share one compact row (n=%d, row='%s')",
+          n, rows[0]);
+
+    char kv[1024];
+    format_kv(&report, &sens, kv, sizeof kv);
+    CHECK(strstr(kv, "cpu_clock_mhz=3500\n") &&
+              strstr(kv, "gpu_clock_mhz=2150\n") &&
+              strstr(kv, "gpu_temp_c=") &&
+              strstr(kv, "soc_temp_c="),
+          "status.kv should expose new keys and retain the legacy temperature key");
+}
+
 static void test_power_sensor_and_row(void)
 {
     reset("show_power=1\noverlay_horizontal=1\n");
@@ -354,6 +415,8 @@ static void test_power_sensor_and_row(void)
     cfg.show_fps = 0;
     cfg.show_cpu = 0;
     cfg.show_soc_temp = 0;
+    cfg.show_cpu_clock = 0;
+    cfg.show_gpu_clock = 0;
     cfg.show_fan_duty = 0;
     cfg.show_memory = 0;
     cfg.show_power = 1;
@@ -371,6 +434,8 @@ static void test_power_sensor_and_row(void)
     cfg.show_fps = 1;
     cfg.show_cpu = 1;
     cfg.show_soc_temp = 1;
+    cfg.show_cpu_clock = 1;
+    cfg.show_gpu_clock = 1;
     cfg.show_fan_duty = 1;
     cfg.show_memory = 1;
     cfg.ov_mode = 1;
@@ -460,6 +525,7 @@ int main(void)
     test_notification_switches();
     test_config_file_and_values();
     test_compact_overlay_rows();
+    test_clock_sensor_and_row();
     test_power_sensor_and_row();
     test_reload_config_preserves_last_good();
     test_toast_cap();

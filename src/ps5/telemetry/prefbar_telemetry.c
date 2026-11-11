@@ -4,7 +4,7 @@
  *
  * Reports, once per second:
  *   - FPS, average frametime, 1% low, worst frametime, hitch count
- *   - CPU usage (average + per core), CPU temp, SoC temp, fan duty
+ *   - CPU usage (average + per core), CPU/GPU clocks and temperatures, fan duty
  *   - RAM and VRAM usage
  * to <DATA_DIR>/status.txt (human readable) and <DATA_DIR>/status.kv
  * (key=value, for a future overlay / scripts), plus an optional toast.
@@ -83,6 +83,7 @@ extern uint64_t prefbar_game_session_generation(void);
 #define STALE_NS 2000000000ull /* no counter change for this long = idle */
 #define NCORES 8
 #define MAX_THREADS 3072
+#define SOC_CLOCK_DOMAINS 32
 
 /* ------------------------------------------------------------------ time */
 static uint64_t now_ns(void)
@@ -283,10 +284,15 @@ static void migrate_config_options(void)
     char value[64];
     const int add_show_power =
         !read_config_value("show_power", value, sizeof(value));
+    const int add_show_cpu_clock =
+        !read_config_value("show_cpu_clock", value, sizeof(value));
+    const int add_show_gpu_clock =
+        !read_config_value("show_gpu_clock", value, sizeof(value));
     const int add_overlay_horizontal =
         !read_config_value("overlay_horizontal", value, sizeof(value));
 
-    if (!add_show_power && !add_overlay_horizontal)
+    if (!add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
+        !add_overlay_horizontal)
         return;
 
     /* Preserve the user's file and values; append only newly introduced keys.
@@ -295,8 +301,16 @@ static void migrate_config_options(void)
     if (!f)
         return;
 
-    if (add_show_power)
-        (void)fputs("\n[telemetry]\nshow_power=1\n", f);
+    if (add_show_power || add_show_cpu_clock || add_show_gpu_clock)
+    {
+        (void)fputs("\n[telemetry]\n", f);
+        if (add_show_power)
+            (void)fputs("show_power=1\n", f);
+        if (add_show_cpu_clock)
+            (void)fputs("show_cpu_clock=1\n", f);
+        if (add_show_gpu_clock)
+            (void)fputs("show_gpu_clock=1\n", f);
+    }
     if (add_overlay_horizontal)
         (void)fputs("\n[overlay]\noverlay_horizontal=0\n", f);
 
@@ -330,6 +344,8 @@ static void ensure_default_config_file(void)
         "sensors=1\n"
         "show_fps=1\n"
         "show_cpu=1\n"
+        "show_cpu_clock=1\n"
+        "show_gpu_clock=1\n"
         "show_soc_temp=1\n"
         "show_fan_duty=1\n"
         "show_memory=1\n"
@@ -694,38 +710,84 @@ extern int sceKernelGetCpuTemperature(int *) __attribute__((weak));
 extern int sceKernelGetSocSensorTemperature(int, int *) __attribute__((weak));
 extern int sceKernelGetCurrentFanDuty(uint16_t *, uint64_t *) __attribute__((weak));
 extern int sceKernelGetSocPowerConsumption(void *) __attribute__((weak));
+extern long sceKernelGetCpuFrequency(void) __attribute__((weak));
+extern int sceKernelGetSocClock(uint32_t *) __attribute__((weak));
 extern int sceKernelGetCpuUsage(struct ps_proc_stats *, int32_t *) __attribute__((weak));
 extern int sceKernelGetThreadName(uint32_t, char *) __attribute__((weak));
 extern int get_page_table_stats(int, int, int *, int *) __attribute__((weak));
 #define SYM_PRESENT(f) ((void *)(f) != NULL)
 
 typedef int (*soc_power_api_t)(void *);
+typedef long (*cpu_frequency_api_t)(void);
+typedef int (*soc_clock_api_t)(uint32_t *);
+
 static soc_power_api_t g_soc_power_api;
+static cpu_frequency_api_t g_cpu_frequency_api;
+static soc_clock_api_t g_soc_clock_api;
+
+/* Resolve optional libkernel exports by name, then by NID. The weak import is
+ * preferred; fallbacks cover SDK/import-table combinations that omit a symbol. */
+static intptr_t resolve_kernel_api(const char *name)
+{
+    const pid_t pid = getpid();
+    uint32_t handle = 0;
+
+    if (kernel_dynlib_handle(pid, "libkernel_sys.sprx", &handle) == 0 && handle)
+    {
+        intptr_t address = kernel_dynlib_dlsym(pid, handle, name);
+        if (!address)
+        {
+            char nid[12];
+            if (nid_encode(name, nid))
+                address = kernel_dynlib_resolve(pid, handle, nid);
+        }
+        if (address)
+            return address;
+    }
+
+    /* libkernel.sprx is handle 1 in PrefBar's existing symbol lookup path. */
+    handle = 1;
+    intptr_t address = kernel_dynlib_dlsym(pid, handle, name);
+    if (!address)
+    {
+        char nid[12];
+        if (nid_encode(name, nid))
+            address = kernel_dynlib_resolve(pid, handle, nid);
+    }
+    return address;
+}
 
 static void resolve_soc_power_api(void)
 {
-    /* Prefer a normal weak import when this firmware's import table exposes it. */
-    if (sceKernelGetSocPowerConsumption) {
+    if (sceKernelGetSocPowerConsumption)
+    {
         g_soc_power_api = sceKernelGetSocPowerConsumption;
         return;
     }
-
-    /* Some SDK/import-library combinations do not expose this newer symbol.
-     * Resolve it from the loaded kernel_sys module by name, with NID fallback. */
-    uint32_t handle = 0;
-    const pid_t pid = getpid();
-    if (kernel_dynlib_handle(pid, "libkernel_sys.sprx", &handle) < 0 || !handle)
-        return;
-
-    intptr_t address = kernel_dynlib_dlsym(
-        pid, handle, "sceKernelGetSocPowerConsumption");
-    if (!address) {
-        char nid[12];
-        if (nid_encode("sceKernelGetSocPowerConsumption", nid))
-            address = kernel_dynlib_resolve(pid, handle, nid);
-    }
+    intptr_t address = resolve_kernel_api("sceKernelGetSocPowerConsumption");
     if (address)
         g_soc_power_api = (soc_power_api_t)(uintptr_t)address;
+}
+
+static void resolve_clock_apis(void)
+{
+    if (sceKernelGetCpuFrequency)
+        g_cpu_frequency_api = sceKernelGetCpuFrequency;
+    else
+    {
+        intptr_t address = resolve_kernel_api("sceKernelGetCpuFrequency");
+        if (address)
+            g_cpu_frequency_api = (cpu_frequency_api_t)(uintptr_t)address;
+    }
+
+    if (sceKernelGetSocClock)
+        g_soc_clock_api = sceKernelGetSocClock;
+    else
+    {
+        intptr_t address = resolve_kernel_api("sceKernelGetSocClock");
+        if (address)
+            g_soc_clock_api = (soc_clock_api_t)(uintptr_t)address;
+    }
 }
 
 static int soc_power_api_present(void)
@@ -736,6 +798,26 @@ static int soc_power_api_present(void)
 static int soc_power_read(void *out)
 {
     return g_soc_power_api ? g_soc_power_api(out) : -1;
+}
+
+static int cpu_frequency_api_present(void)
+{
+    return g_cpu_frequency_api != NULL;
+}
+
+static long cpu_frequency_read(void)
+{
+    return g_cpu_frequency_api ? g_cpu_frequency_api() : -1;
+}
+
+static int soc_clock_api_present(void)
+{
+    return g_soc_clock_api != NULL;
+}
+
+static int soc_clock_read(uint32_t *domains)
+{
+    return g_soc_clock_api ? g_soc_clock_api(domains) : -1;
 }
 #else
 #define SYM_PRESENT(f) 1
@@ -777,6 +859,19 @@ static int sceKernelGetSocPowerConsumption(void *out_raw)
 }
 static int soc_power_api_present(void) { return 1; }
 static int soc_power_read(void *out) { return sceKernelGetSocPowerConsumption(out); }
+static long sceKernelGetCpuFrequency(void) { return 3500000000L; }
+static int sceKernelGetSocClock(uint32_t *domains)
+{
+    if (!domains)
+        return -1;
+    memset(domains, 0, sizeof(uint32_t) * SOC_CLOCK_DOMAINS);
+    domains[20] = 2150;
+    return 0;
+}
+static int cpu_frequency_api_present(void) { return 1; }
+static long cpu_frequency_read(void) { return sceKernelGetCpuFrequency(); }
+static int soc_clock_api_present(void) { return 1; }
+static int soc_clock_read(uint32_t *domains) { return sceKernelGetSocClock(domains); }
 static const double SIM_IDLE_FRAC[NCORES] = {0.90, 0.70, 0.50, 0.80, 0.60, 0.95, 0.70, 0.85};
 static int sceKernelGetThreadName(uint32_t id, char *out)
 {
@@ -927,7 +1022,9 @@ static report_t stats_report(stats_t *s, uint64_t count, uint64_t t_ns)
 typedef struct
 {
     int have_cpu_temp, cpu_temp;
-    int have_soc_temp, soc_temp;
+    int have_gpu_temp, gpu_temp;
+    int have_cpu_clock, cpu_clock_mhz;
+    int have_gpu_clock, gpu_clock_mhz;
     int have_fan, fan;
     int have_cpu, ncores_known;
     float core[NCORES], cpu_avg;
@@ -1062,10 +1159,32 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
         s->cpu_temp = v;
     }
     v = 0;
-    if (SYM_PRESENT(sceKernelGetSocSensorTemperature) && sceKernelGetSocSensorTemperature(0, &v) == 0 && v > 0)
+    if (SYM_PRESENT(sceKernelGetSocSensorTemperature) &&
+        sceKernelGetSocSensorTemperature(0, &v) == 0 && v > 0)
     {
-        s->have_soc_temp = 1;
-        s->soc_temp = v;
+        s->have_gpu_temp = 1;
+        s->gpu_temp = v;
+    }
+
+    /* CPU frequency API returns Hz; SoC clock domain 20 reports GPU MHz. */
+    if (cpu_frequency_api_present())
+    {
+        const long cpu_hz = cpu_frequency_read();
+        if (cpu_hz >= 100000000L && cpu_hz <= 10000000000L)
+        {
+            s->cpu_clock_mhz = (int)((cpu_hz + 500000L) / 1000000L);
+            s->have_cpu_clock = 1;
+        }
+    }
+    if (soc_clock_api_present())
+    {
+        uint32_t domains[SOC_CLOCK_DOMAINS] = {0};
+        if (soc_clock_read(domains) == 0 &&
+            domains[20] >= 100u && domains[20] <= 5000u)
+        {
+            s->gpu_clock_mhz = (int)domains[20];
+            s->have_gpu_clock = 1;
+        }
     }
 
     uint16_t duty_q10 = 0;
@@ -1150,21 +1269,24 @@ static void format_sensors(const sensors_t *s, char *buf, size_t n)
 {
     buf[0] = 0;
     const char *sep = "";
-    if (s->have_cpu)
+    if (s->have_cpu || s->have_cpu_clock || s->have_cpu_temp)
     {
-        app(buf, n, "%sCPU %.0f%%", sep, s->cpu_avg);
+        app(buf, n, "%sCPU", sep);
+        if (s->have_cpu)
+            app(buf, n, " %.0f%%", s->cpu_avg);
+        if (s->have_cpu_clock)
+            app(buf, n, " %dMHz", s->cpu_clock_mhz);
         if (s->have_cpu_temp)
             app(buf, n, " %dC", s->cpu_temp);
         sep = " | ";
     }
-    else if (s->have_cpu_temp)
+    if (s->have_gpu_clock || s->have_gpu_temp)
     {
-        app(buf, n, "%sCPU %dC", sep, s->cpu_temp);
-        sep = " | ";
-    }
-    if (s->have_soc_temp)
-    {
-        app(buf, n, "%sSoC %dC", sep, s->soc_temp);
+        app(buf, n, "%sGPU", sep);
+        if (s->have_gpu_clock)
+            app(buf, n, " %dMHz", s->gpu_clock_mhz);
+        if (s->have_gpu_temp)
+            app(buf, n, " %dC", s->gpu_temp);
         sep = " | ";
     }
     if (s->have_power)
@@ -1225,8 +1347,12 @@ static void format_kv(const report_t *r, const sensors_t *s, char *buf, size_t n
     }
     if (s->have_cpu_temp)
         app(buf, n, "cpu_temp_c=%d\n", s->cpu_temp);
-    if (s->have_soc_temp)
-        app(buf, n, "soc_temp_c=%d\n", s->soc_temp);
+    if (s->have_gpu_temp)
+        app(buf, n, "gpu_temp_c=%d\nsoc_temp_c=%d\n", s->gpu_temp, s->gpu_temp);
+    if (s->have_cpu_clock)
+        app(buf, n, "cpu_clock_mhz=%d\n", s->cpu_clock_mhz);
+    if (s->have_gpu_clock)
+        app(buf, n, "gpu_clock_mhz=%d\n", s->gpu_clock_mhz);
     if (s->have_power)
         app(buf, n, "soc_power_w=%.2f\n", s->power_w);
     if (s->have_fan)
@@ -1260,6 +1386,7 @@ typedef struct
     int notifications, startup_notification, error_notifications, debug_notifications;
     int debug_notify;
     int text_shadow, show_fps, show_cpu, show_soc_temp, show_fan_duty, show_memory;
+    int show_cpu_clock, show_gpu_clock;
     int show_power, overlay_horizontal;
     int touchpad_toggle;
     float text_r, text_g, text_b;
@@ -1361,21 +1488,34 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
         append_overlay_row(rows, &n, row);
     }
 
-    if (cfg->sensors && (cfg->show_cpu || cfg->show_soc_temp))
+    if (cfg->sensors &&
+        (cfg->show_cpu || cfg->show_cpu_clock || cfg->show_soc_temp || cfg->show_gpu_clock))
     {
         row[0] = '\0';
         if (cfg->show_cpu && s->have_cpu)
-        {
             snprintf(row, sizeof row, "CPU %.0f%%", s->cpu_avg);
-            if (s->have_cpu_temp)
-                app(row, sizeof row, " %dC", s->cpu_temp);
-        }
         else if (cfg->show_cpu && s->have_cpu_temp)
-        {
             snprintf(row, sizeof row, "CPU %dC", s->cpu_temp);
+
+        if (cfg->show_cpu_clock && s->have_cpu_clock)
+        {
+            if (row[0])
+                app(row, sizeof row, " %dMHz", s->cpu_clock_mhz);
+            else
+                snprintf(row, sizeof row, "CPU %dMHz", s->cpu_clock_mhz);
         }
-        if (cfg->show_soc_temp && s->have_soc_temp)
-            app(row, sizeof row, "%sSoC %dC", row[0] ? "  " : "", s->soc_temp);
+        if (cfg->show_cpu && s->have_cpu && s->have_cpu_temp)
+            app(row, sizeof row, " %dC", s->cpu_temp);
+
+        char gpu_row[48] = {0};
+        if (cfg->show_gpu_clock && s->have_gpu_clock)
+            snprintf(gpu_row, sizeof gpu_row, "GPU %dMHz", s->gpu_clock_mhz);
+        if (cfg->show_soc_temp && s->have_gpu_temp)
+            app(gpu_row, sizeof gpu_row, "%s%dC",
+                gpu_row[0] ? " " : "GPU ", s->gpu_temp);
+        if (gpu_row[0])
+            app(row, sizeof row, "%s%s", row[0] ? " | " : "", gpu_row);
+
         append_overlay_row(rows, &n, row);
     }
 
@@ -1685,6 +1825,8 @@ static void config_defaults(config_t *c)
     c->show_fps = 1;
     c->show_cpu = 1;
     c->show_soc_temp = 1;
+    c->show_cpu_clock = 1;
+    c->show_gpu_clock = 1;
     c->show_fan_duty = 1;
     c->show_memory = 1;
     c->show_power = 1;
@@ -1760,7 +1902,9 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
     CONFIG_INT("show_fps", show_fps, 1, 0, 1)
     CONFIG_INT("show_cpu", show_cpu, 1, 0, 1)
-    CONFIG_INT("show_soc_temp", show_soc_temp, 1, 0, 1)
+    CONFIG_INT("show_soc_temp", show_soc_temp, 1, 0, 1) /* legacy option; displays GPU temperature */
+    CONFIG_INT("show_cpu_clock", show_cpu_clock, 1, 0, 1)
+    CONFIG_INT("show_gpu_clock", show_gpu_clock, 1, 0, 1)
     CONFIG_INT("show_fan_duty", show_fan_duty, 1, 0, 1)
     CONFIG_INT("show_memory", show_memory, 1, 0, 1)
     CONFIG_INT("show_power", show_power, 1, 0, 1)
@@ -1884,9 +2028,14 @@ static int prefbar_run(int install_signals, int lock)
     apply_debug_config(&cfg);
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
     resolve_soc_power_api();
+    resolve_clock_apis();
     dbg_event(DBG_INFO, "sensor.soc_power",
               "sceKernelGetSocPowerConsumption %s",
               soc_power_api_present() ? "resolved" : "unavailable");
+    dbg_event(DBG_INFO, "sensor.clocks",
+              "CPU frequency API %s; GPU SoC clock API %s",
+              cpu_frequency_api_present() ? "resolved" : "unavailable",
+              soc_clock_api_present() ? "resolved" : "unavailable");
     overlay_control_open();
 #endif
 
@@ -2089,9 +2238,13 @@ static int prefbar_run(int install_signals, int lock)
             if (cfg.sensors)
             {
                 if (reports == 2) /* CPU usage needs two samples to exist */
-                    dbg_event(DBG_INFO, "sensors", "sensors: cpu%%=%s cpuT=%s socT=%s fan=%s",
+                    dbg_event(DBG_INFO, "sensors",
+                              "sensors: cpu%%=%s cpuT=%s gpuT=%s cpuClk=%s gpuClk=%s fan=%s",
                               sens.have_cpu ? "y" : "n", sens.have_cpu_temp ? "y" : "n",
-                              sens.have_soc_temp ? "y" : "n", sens.have_fan ? "y" : "n");
+                              sens.have_gpu_temp ? "y" : "n",
+                              sens.have_cpu_clock ? "y" : "n",
+                              sens.have_gpu_clock ? "y" : "n",
+                              sens.have_fan ? "y" : "n");
                 if (reports == 2)
                     dbg_event(DBG_TRACE, "fan.rpm.unavailable",
                               "fan RPM is not exposed by the verified API; overlay shows measured fan-duty percent instead");

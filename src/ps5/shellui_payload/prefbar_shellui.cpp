@@ -1653,8 +1653,7 @@ bool initialize_runtime() {
     }
 
     if (!refresh_game_scene()) {
-        log_line("Game ContainerScene no disponible al iniciar; overlay armado, "
-                 "esperando a que se abra un juego");
+        log_line("Game ContainerScene unavailable at startup; overlay armed and waiting for a game to open");
     }
 
     record_stage("scene_ready");
