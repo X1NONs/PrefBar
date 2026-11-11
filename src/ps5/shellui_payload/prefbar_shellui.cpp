@@ -747,6 +747,8 @@ bool read_float_property(
 }
 
 bool read_widget_dimensions(MonoObject* root, float* width, float* height) {
+    if (!g_pui_image || !mono_class_from_name_)
+        return false;
     MonoClass* widget = mono_class_from_name_(
         g_pui_image, "Sce.PlayStation.PUI.UI2", "Widget");
     return read_float_property(widget, root, "Width", width) &&

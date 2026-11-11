@@ -1571,7 +1571,8 @@ static void append_compact_value(char *values, size_t values_size,
 
 static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s,
                       char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN])
-{    int n = 0;
+{
+    int n = 0;
     char row[PREFBAR_ROW_LEN];
     char values[PREFBAR_ROW_LEN];
     memset(rows, 0, sizeof(char) * PREFBAR_ROWS * PREFBAR_ROW_LEN);
@@ -1730,8 +1731,6 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
 
     /* The wire format requires at least one row; send an empty row to clear
      * old text when every metric is disabled or unavailable. */
-    return n > 0 ? n : 1;
-    /* The wire format requires one row to clear old text when all are off. */
     return n > 0 ? n : 1;
 }
 
