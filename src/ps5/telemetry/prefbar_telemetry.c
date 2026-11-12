@@ -2481,7 +2481,7 @@ static int prefbar_run(int install_signals, int lock)
             {
                 if (reports == 2) /* CPU usage needs two samples to exist */
                     dbg_event(DBG_INFO, "sensors",
-                              "sensors: cpu%%=%s cpuT=%s gpuT=%s cpuClk=%s gpuClk=%s fan=%s",
+                              "sensors: cpu%%=%s cpuT=%s socT=%s cpuClk=%s gpuClk=%s fan=%s",
                               sens.have_cpu ? "y" : "n", sens.have_cpu_temp ? "y" : "n",
                               sens.have_soc_temp ? "y" : "n",
                               sens.have_cpu_clock ? "y" : "n",
