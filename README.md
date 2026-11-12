@@ -19,7 +19,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 ## Features
 
 - **Frame performance:** FPS, average frametime, and 1% lows.
-- **CPU/GPU telemetry:** CPU utilization, CPU frequency, GPU clock, CPU temperature, and GPU temperature from SoC sensor 0 when the relevant system interfaces are available.
+- **CPU/GPU telemetry:** CPU utilization, CPU frequency, GPU clock, CPU temperature, and GPU temperature when the relevant system interfaces are available.
 - **Fan telemetry:** Fan-duty percentage. This is not an RPM reading.
 - **Memory:** RAM and VRAM usage when the relevant system interfaces are available.
 - **SoC power:** APU power consumption displayed in watts when the relevant kernel API is available.
