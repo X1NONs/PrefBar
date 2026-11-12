@@ -152,6 +152,15 @@ else()
         target_link_libraries(prefbar_debug_tests PRIVATE Threads::Threads)
         add_test(NAME prefbar_debug_tests COMMAND prefbar_debug_tests)
 
+        add_executable(prefbar_pool_tests
+            scripts/tests/prefbar_pool_selftest.c)
+        target_include_directories(prefbar_pool_tests PRIVATE include)
+        target_compile_definitions(prefbar_pool_tests PRIVATE
+            PREFBAR_SIM=1 PREFBAR_EMBED=1)
+        target_compile_options(prefbar_pool_tests PRIVATE -Wall -Wextra -UNDEBUG)
+        target_link_libraries(prefbar_pool_tests PRIVATE Threads::Threads)
+        add_test(NAME prefbar_pool_tests COMMAND prefbar_pool_tests)
+
         add_executable(prefbar_touchpad_tests
             scripts/tests/test_touchpad_toggle.cpp)
         target_include_directories(prefbar_touchpad_tests PRIVATE include)
