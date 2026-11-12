@@ -1706,7 +1706,7 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
         }
         else
         {
-            /* Preserve the original combined GPU label for legacy configurations. */
+            /* The default GPU label keeps the original combined, familiar presentation. */
             if (cfg->sensors && cfg->show_gpu_temp && s->have_soc_temp)
                 append_compact_value(values, sizeof values, "%dC", s->soc_temp);
             if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
