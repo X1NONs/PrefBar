@@ -397,8 +397,8 @@ static void test_compact_overlay_rows(void)
     CHECK(strstr(rows[3], "42%") && strstr(rows[4], "65C") &&
               strstr(rows[5], "3500MHz"),
           "CPU usage, temperature, and clock should be independently rendered");
-    CHECK(strstr(rows[6], "GPU 2150MHz") && strstr(rows[7], "GPU 55C"),
-          "GPU clock and temperature should be independently rendered");
+    CHECK(strstr(rows[6], "GPU 2150MHz") && strstr(rows[7], "SoC 55C"),
+          "GPU clock and SoC sensor temperature should be independently rendered");
     CHECK(strncmp(rows[8], "RAM ", 4) == 0 &&
               strncmp(rows[9], "VRAM ", 5) == 0,
           "RAM and VRAM should occupy separate rows");
