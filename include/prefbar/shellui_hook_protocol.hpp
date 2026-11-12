@@ -55,24 +55,15 @@ inline ShellUiHookBackend shellui_hook_backend(
 }
 
 /*
- * The background-PUI path never replaces Application.Update. It changes only
- * the first byte of Diagnostics.CheckRunningOnMainThread to RET while ShellUI
- * is ptrace-stopped. The selected 9.xx family uses MDBG, as do the explicitly
- * supported older and newer families below. Other selected firmware uses
- * ptrace I/O. Unknown future firmware fails closed.
+ * The background-PUI path does not replace Application.Update. It temporarily
+ * changes the first byte of Diagnostics.CheckRunningOnMainThread to RET while
+ * ShellUI is stopped. The backend table below selects MDBG or ptrace I/O for
+ * supported firmware; unknown firmware fails closed.
  */
 inline ShellUiHookBackend shellui_main_thread_guard_backend(
     std::uint32_t sdk) noexcept {
     const std::uint32_t family = sdk & 0xffff0000U;
 
-    /*
-     * MDBG firmware uses the controller's expected-byte-verified guard
-     * transaction. Other selected firmware uses ptrace I/O, which is already
-     * required by the ShellUI loader.
-     *
-     * The 9.xx family uses the same MDBG guard transaction as the other
-     * explicitly selected MDBG families.
-     */
     if ((family >= 0x01000000U && family <= 0x08200000U) ||
         (family >= 0x09000000U && family < 0x0a000000U) ||
         family == 0x10010000U ||

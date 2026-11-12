@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /*
- * PrefBar telemetry engine. Runs as a thread inside the controller payload.
+ * PrefBar telemetry engine. Runs as a thread inside the controller process.
  *
  * Reports, once per second:
  *   - FPS, average frametime, 1% low, worst frametime, hitch count
  *   - CPU usage (average + per core), CPU/GPU clocks and temperatures, fan duty
  *   - RAM and VRAM usage
- * to <DATA_DIR>/status.txt (human readable) and <DATA_DIR>/status.kv
- * (key=value, for a future overlay / scripts), plus an optional toast.
+ * to <DATA_DIR>/status.txt (human-readable) and <DATA_DIR>/status.kv
+ * (key=value for scripts and tools), plus an optional toast. Overlay rows are
+ * also sent to the ShellUI renderer over loopback UDP.
  *
  * Debug events (0.2.1): lifecycle milestones, sensor/display availability and
  * failures are appended to <DATA_DIR>/debug.log and, depending on
@@ -15,8 +16,7 @@
  *
  * What it deliberately does NOT do
  *   - no kernel memory access and no game-process memory writes
- *   - no direct ShellUI interaction; the controller and renderer are separate
- *   - display data is sent only to the local PrefBar renderer over loopback UDP
+ *   - no direct manipulation of ShellUI UI objects; the renderer owns UI updates
  *
  * Provenance (all GPL-3.0, so this file is GPL-3.0-or-later)
  *   FPS source : /dev/dce flip counter - ioctl, arguments and counter offset

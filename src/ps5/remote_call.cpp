@@ -41,8 +41,9 @@ long call_until_breakpoint_on_target_stack(
     /*
      * Do not synthesize RSP/RBP here. The working v1.0.0 pt_call2 changes RIP
      * and the argument registers only, so the short stager borrows the stack
-     * of the already-stopped ShellUI thread until its INT3. Restoring every
-     * original register below makes that temporary use invisible afterwards.
+     * of the already-stopped ShellUI thread until its INT3. Restoring the
+     * original register state returns the traced thread to its pre-call
+     * execution context.
      */
     remote.r_rdi = arg0;
     remote.r_rsi = arg1;

@@ -145,11 +145,11 @@ int g_receiver_fd = -1;
 constexpr const char* kLabelId = "id_prefbar_label";
 constexpr const char* kValueId = "id_prefbar_value";
 
-/* ---- prefbar-overlay: text rows fed over loopback UDP by the separate
- * prefbar payload. State is written by the receiver thread under g_telemetry_mutex
- * and drawn from the update hook (same thread as the rest of the drawing). */
-constexpr std::uint64_t kTelemetryStaleMs = 3000;      /* rows go stale if prefbar goes quiet */
-constexpr bool kShowTelemetryStatus = true;         /* banner when there is no fresh data (test builds) */
+/* ---- PrefBar overlay: rows arrive over loopback UDP from the telemetry
+ * worker inside the controller. The receiver publishes packets under
+ * g_telemetry_mutex; the update hook applies them to the UI. */
+constexpr std::uint64_t kTelemetryStaleMs = 3000;  /* rows go stale when packets stop arriving */
+constexpr bool kShowTelemetryStatus = true;        /* show a banner when telemetry is unavailable */
 bool g_prefbar_overlay_enabled = true;             /* touchpad toggle; sampling stays active */
 std::atomic<bool> g_config_overlay_enabled{true};
 std::atomic<bool> g_touchpad_toggle_enabled{true};
@@ -1157,8 +1157,8 @@ void prefbar_draw_text() {
     const bool overlay_visible = g_prefbar_overlay_enabled &&
         g_config_overlay_enabled.load();
     if (overlay_visible && stale && kShowTelemetryStatus) {
-        banner = have_data ? "prefbar: no data (prefbar.elf stopped?)"
-                           : "prefbar-overlay ready - load prefbar.elf";
+        banner = have_data ? "PrefBar: telemetry data is stale"
+                           : "PrefBar renderer ready - waiting for telemetry";
     }
 
     if (!refresh_game_scene()) {

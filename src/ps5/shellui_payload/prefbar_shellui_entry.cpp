@@ -35,10 +35,10 @@ void write_online_marker() {
     }
 
     /*
-     * Returning an injected ShellUI ELF thread can destabilize the console.
-     * A compatibility or socket failure therefore remains inert and resident
-     * instead of returning through the loader. The V0.2.1 renderer preserves that proven
-     * lifecycle and patches a native hook only while ShellUI is stopped.
+     * Returning an injected ShellUI ELF thread can destabilize the console,
+     * so startup failures park the renderer in place. The renderer publishes
+     * native-hook requests; the controller validates and applies the patch
+     * while ShellUI is stopped.
      */
     for (;;)
         usleep(1000000);
