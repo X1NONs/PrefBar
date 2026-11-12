@@ -33,7 +33,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 
 ## How to use it
 
-1. Download `PrefBar-complete_V0.2.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.2.1).
+1. Download `Prefbar_V0.2.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.2.1).
 2. Load the combined ELF on your jailbroken PS5 using your usual payload loader.
 3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 4. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.

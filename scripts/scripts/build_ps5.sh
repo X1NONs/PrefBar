@@ -88,7 +88,7 @@ else
   echo "WARNING: no objdump-compatible tool found; skipped main/fork disassembly check." >&2
 fi
 
-OUTPUT_NAME="PrefBar-complete_V0.2.1.elf"
+OUTPUT_NAME="Prefbar_V0.2.1.elf"
 DIST="${ROOT}/dist"
 mkdir -p "${DIST}"
 TEMP_OUTPUT="${DIST}/.${OUTPUT_NAME}.tmp"

@@ -18,7 +18,7 @@ The PS5 CMake configuration defines two targets:
 `scripts/tools/embed_binary.py` converts the renderer ELF into a generated C++ byte array under `build-ps5/generated/`. That generated source is linked into the controller. `scripts/tools/verify_release.py` performs static checks on the intermediate artifacts. The build script stages one combined payload:
 
 ```text
-dist/PrefBar-complete_V0.2.1.elf
+dist/Prefbar_V0.2.1.elf
 ```
 
 The renderer ELF and controller ELF under `build-ps5/` are intermediate build outputs, not separate files that users need to load.
@@ -80,7 +80,7 @@ The hook/control request and acknowledgment structures are declared in `include/
 
 `src/ps5/shellui_payload/prefbar_shellui.cpp` is the renderer implementation and `prefbar_shellui_entry.cpp` provides its entry point. The renderer attaches to the ShellUI Mono runtime, uses the PUI UI classes to create text labels, receives telemetry packets, and updates the labels when the packet or visibility state changes.
 
-The renderer is built as an intermediate ELF and embedded in the controller. Users therefore load the combined `PrefBar-complete_V0.2.1.elf`, not a separate renderer ELF.
+The renderer is built as an intermediate ELF and embedded in the controller. Users therefore load the combined `Prefbar_V0.2.1.elf`, not a separate renderer ELF.
 
 The renderer reads the DualSense touchpad-click state. Three distinct touchpad-click press edges within a 1.5-second window toggle the overlay. Hiding the overlay does not stop the telemetry worker.
 

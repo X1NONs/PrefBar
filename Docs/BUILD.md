@@ -43,7 +43,7 @@ The root `Makefile` invokes `scripts/scripts/build_ps5.sh`. That script:
 The release payload is:
 
 ```text
-dist/PrefBar-complete_V0.2.1.elf
+dist/Prefbar_V0.2.1.elf
 ```
 
 The renderer and controller ELFs under `build-ps5/` are intermediate artifacts. The combined payload is the file intended for release distribution. Do not commit generated build outputs or release binaries to the source repository; publish the final payload through GitHub Releases.
