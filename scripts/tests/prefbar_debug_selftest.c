@@ -195,7 +195,7 @@ static void test_config_file_and_values(void)
     CHECK(cfg.show_fps && cfg.show_frametime && cfg.show_1percent_low &&
               cfg.show_cpu_usage && cfg.show_cpu_temp && cfg.show_cpu_clock &&
               cfg.show_gpu_temp && cfg.show_gpu_clock && cfg.show_fan_duty &&
-              cfg.show_ram && cfg.show_vram && cfg.show_power && cfg.gpu_temp_label_soc,
+              cfg.show_ram && cfg.show_vram && cfg.show_power && !cfg.gpu_temp_label_soc,
           "each independent telemetry toggle should default to enabled");
 
     FILE *defaults_file = fopen(PREFBAR_CONFIG_PATH, "r");
@@ -210,7 +210,7 @@ static void test_config_file_and_values(void)
     char *horizontal_option = strstr(defaults_text, "overlay_horizontal=0");
     char *horizontal_spacing_option = strstr(defaults_text, "overlay_horizontal_spacing=medium");
     char *horizontal_align_option = strstr(defaults_text, "overlay_horizontal_align=center");
-    char *gpu_temp_label_option = strstr(defaults_text, "gpu_temp_label=soc");
+    char *gpu_temp_label_option = strstr(defaults_text, "gpu_temp_label=gpu");
     CHECK(overlay_section && telemetry_section && horizontal_option &&
               horizontal_spacing_option && horizontal_align_option && gpu_temp_label_option &&
               overlay_section < horizontal_option &&
@@ -247,8 +247,8 @@ static void test_config_file_and_values(void)
               cfg.show_cpu_clock == 0 && cfg.show_gpu_clock == 0 &&
               cfg.show_fan_duty == 0 && cfg.show_power == 0,
           "legacy group switches should seed all corresponding new controls as disabled");
-    CHECK(cfg.gpu_temp_label_soc == 1,
-          "missing temperature label option should migrate to the accurate SoC label");
+    CHECK(cfg.gpu_temp_label_soc == 0,
+          "missing temperature label option should migrate to the user-facing GPU label");
     CHECK(cfg.overlay_horizontal == 1 &&
               cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG &&
               cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
@@ -260,14 +260,14 @@ static void test_config_file_and_values(void)
     {
         fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=short\noverlay_horizontal_align=right\n"
               "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
-              "[telemetry]\nshow_fps=0\nshow_frametime=1\nshow_1percent_low=0\nshow_cpu_usage=0\nshow_cpu_temp=1\nshow_cpu_clock=0\nshow_gpu_temp=1\ngpu_temp_label=gpu\nshow_gpu_clock=0\nshow_fan_duty=0\nshow_ram=0\nshow_vram=1\nshow_power=0\n"
+              "[telemetry]\nshow_fps=0\nshow_frametime=1\nshow_1percent_low=0\nshow_cpu_usage=0\nshow_cpu_temp=1\nshow_cpu_clock=0\nshow_gpu_temp=1\ngpu_temp_label=soc\nshow_gpu_clock=0\nshow_fan_duty=0\nshow_ram=0\nshow_vram=1\nshow_power=0\n"
               "[input]\ntouchpad_toggle=0\n", f);
         fclose(f);
     }
     ensure_default_config_file();
     (void)load_config(&cfg);
-    CHECK(cfg.gpu_temp_label_soc == 0,
-          "gpu_temp_label=gpu should retain the legacy GPU wording");
+    CHECK(cfg.gpu_temp_label_soc == 1,
+          "gpu_temp_label=soc should restore the old SoC wording");
     CHECK(cfg.show_fps == 0 && cfg.show_frametime == 1 &&
               cfg.show_1percent_low == 0 && cfg.show_cpu_usage == 0 &&
               cfg.show_cpu_temp == 1 && cfg.show_ram == 0 &&
@@ -397,8 +397,8 @@ static void test_compact_overlay_rows(void)
     CHECK(strstr(rows[3], "42%") && strstr(rows[4], "65C") &&
               strstr(rows[5], "3500MHz"),
           "CPU usage, temperature, and clock should be independently rendered");
-    CHECK(strstr(rows[6], "GPU 2150MHz") && strstr(rows[7], "SoC 55C"),
-          "GPU clock and SoC sensor temperature should be independently rendered");
+    CHECK(strstr(rows[6], "GPU 2150MHz") && strstr(rows[7], "GPU 55C"),
+          "GPU clock and the default GPU temperature label should be independently rendered");
     CHECK(strncmp(rows[8], "RAM ", 4) == 0 &&
               strncmp(rows[9], "VRAM ", 5) == 0,
           "RAM and VRAM should occupy separate rows");
@@ -486,8 +486,14 @@ static void test_overlay_format_and_compact_groups(void)
           "frame metrics should share one row: '%s'", rows[0]);
     CHECK(strstr(rows[1], "CPU: 42% | 65C | 3500MHz"),
           "CPU metrics should share a labeled row: '%s'", rows[1]);
-    CHECK(strstr(rows[2], "GPU: 2150MHz | SoC: 55C"),
-          "GPU clock and SoC sensor temperature should share an accurately labeled row: '%s'", rows[2]);
+    CHECK(strstr(rows[2], "GPU: 55C | 2150MHz"),
+          "default compact output should retain the familiar combined GPU row: '%s'", rows[2]);
+    cfg.gpu_temp_label_soc = 1;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 5 && strstr(rows[2], "GPU: 2150MHz | SoC: 55C"),
+          "SoC label option should split the GPU clock and identify the sensor source: '%s'", rows[2]);
+    cfg.gpu_temp_label_soc = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
     CHECK(strstr(rows[3], "MEM: RAM 2500/6144MB | VRAM 35%"),
           "memory metrics should share a row: '%s'", rows[3]);
     CHECK(strstr(rows[4], "SYS: FAN 23% | PWR 150W"),
@@ -501,8 +507,8 @@ static void test_overlay_format_and_compact_groups(void)
     cfg.show_cpu_temp = 0;
     n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == 4, "an empty CPU group should disappear (n=%d)", n);
-    CHECK(strcmp(rows[1], "GPU: 2150MHz | SoC: 55C") == 0,
-          "GPU and SoC sensor readings should reflow with no empty row");
+    CHECK(strcmp(rows[1], "GPU: 55C | 2150MHz") == 0,
+          "GPU readings should reflow with no empty row using the default label");
 
     reset("overlay_format=classic\n");
     CHECK(load_config(&cfg) == 1, "classic format config should load");
@@ -558,18 +564,19 @@ static void test_clock_sensor_and_row(void)
     char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
     int n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == 3 && strstr(rows[0], "3500MHz") &&
-              strstr(rows[1], "GPU 2150MHz") && strstr(rows[2], "SoC 55C"),
-          "CPU clock, GPU clock, and SoC sensor temperature should be independent rows (n=%d)", n);
+              strstr(rows[1], "GPU 2150MHz") && strstr(rows[2], "GPU 55C"),
+          "CPU clock, GPU clock, and default GPU temperature label should be independent rows (n=%d)", n);
 
     char sensor_text[256];
     format_sensors(&sens, cfg.gpu_temp_label_soc, sensor_text, sizeof sensor_text);
-    CHECK(strstr(sensor_text, "GPU 2150MHz | SoC 55C"),
-          "human-readable status should use the SoC label by default: '%s'", sensor_text);
-    cfg.gpu_temp_label_soc = 0;
+    CHECK(strstr(sensor_text, "GPU 55C 2150MHz"),
+          "human-readable status should use the GPU label by default: '%s'", sensor_text);
+    cfg.gpu_temp_label_soc = 1;
     n = build_rows(&cfg, &report, &sens, rows);
     format_sensors(&sens, cfg.gpu_temp_label_soc, sensor_text, sizeof sensor_text);
-    CHECK(n == 3 && strstr(rows[2], "GPU 55C") && strstr(sensor_text, "GPU 55C"),
-          "legacy GPU label option should apply to both overlay and status text");
+    CHECK(n == 3 && strstr(rows[2], "SoC 55C") &&
+              strstr(sensor_text, "GPU 2150MHz | SoC 55C"),
+          "SoC label option should apply to both overlay and status text");
 
     char kv[1024];
     format_kv(&report, &sens, kv, sizeof kv);
