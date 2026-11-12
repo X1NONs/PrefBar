@@ -27,7 +27,7 @@
  *                SceIdleCpu0..7 idle threads via sceKernelGetCpuUsage.
  *   RAM / VRAM : etaHEN shellui/src/prx.cpp - get_page_table_stats(1, type).
  *   Temps      : sceKernelGetCpuTemperature / sceKernelGetSocSensorTemperature
- *                (sensor 0 is labeled "SoC" by default; etaHEN calls it "GPU temp").
+ *                (sensor 0 uses the user-facing "GPU" label by default; see docs).
  *
  * Build
  *   PS5 payload:  make PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk   (see Makefile)
@@ -385,7 +385,7 @@ static void migrate_config_options(void)
         if (add_show_gpu_clock)
             (void)fputs("show_gpu_clock=1\n", f);
         if (add_gpu_temp_label)
-            (void)fputs("gpu_temp_label=soc\n", f);
+            (void)fputs("gpu_temp_label=gpu\n", f);
     }
 
     (void)fclose(f);
@@ -426,7 +426,7 @@ static void ensure_default_config_file(void)
         "show_cpu_temp=1\n"
         "show_cpu_clock=1\n"
         "show_gpu_temp=1\n"
-        "gpu_temp_label=soc\n"
+        "gpu_temp_label=gpu\n"
         "show_gpu_clock=1\n"
         "show_fan_duty=1\n"
         "show_ram=1\n"
@@ -1362,14 +1362,27 @@ static void format_sensors(const sensors_t *s, int gpu_temp_label_soc, char *buf
             app(buf, n, " %dC", s->cpu_temp);
         sep = " | ";
     }
-    if (s->have_gpu_clock)
+    if (gpu_temp_label_soc)
     {
-        app(buf, n, "%sGPU %dMHz", sep, s->gpu_clock_mhz);
-        sep = " | ";
+        if (s->have_gpu_clock)
+        {
+            app(buf, n, "%sGPU %dMHz", sep, s->gpu_clock_mhz);
+            sep = " | ";
+        }
+        if (s->have_soc_temp)
+        {
+            app(buf, n, "%sSoC %dC", sep, s->soc_temp);
+            sep = " | ";
+        }
     }
-    if (s->have_soc_temp)
+    else if (s->have_gpu_clock || s->have_soc_temp)
     {
-        app(buf, n, "%s%s %dC", sep, gpu_temp_label_soc ? "SoC" : "GPU", s->soc_temp);
+        /* User-facing default groups the GPU clock and the commonly named GPU temperature. */
+        app(buf, n, "%sGPU", sep);
+        if (s->have_soc_temp)
+            app(buf, n, " %dC", s->soc_temp);
+        if (s->have_gpu_clock)
+            app(buf, n, " %dMHz", s->gpu_clock_mhz);
         sep = " | ";
     }
     if (s->have_power)
@@ -2026,7 +2039,7 @@ static void config_defaults(config_t *c)
     c->show_cpu_temp = 1;
     c->show_cpu_clock = 1;
     c->show_gpu_temp = 1;
-    c->gpu_temp_label_soc = 1;
+    c->gpu_temp_label_soc = 0;
     c->show_gpu_clock = 1;
     c->show_fan_duty = 1;
     c->show_ram = 1;
