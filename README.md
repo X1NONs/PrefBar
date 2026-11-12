@@ -53,6 +53,8 @@ PrefBar is designed to be a universal payload for jailbroken PS5 consoles. Howev
 | **12.XX**      | ✅ Supported
 | **13.XX**      | ✅ Supported
 
+please [open an issue](https://github.com/X1NONs/PrefBar/issues) with your result so this table can be updated.
+
 ## Customization and colors
 
 PrefBar reads its runtime settings from:
