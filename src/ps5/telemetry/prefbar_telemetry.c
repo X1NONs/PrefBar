@@ -27,7 +27,7 @@
  *                SceIdleCpu0..7 idle threads via sceKernelGetCpuUsage.
  *   RAM / VRAM : etaHEN shellui/src/prx.cpp - get_page_table_stats(1, type).
  *   Temps      : sceKernelGetCpuTemperature / sceKernelGetSocSensorTemperature
- *                (etaHEN labels the SoC sensor "GPU temp").
+ *                (sensor 0 is labeled "SoC" by default; etaHEN calls it "GPU temp").
  *
  * Build
  *   PS5 payload:  make PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk   (see Makefile)
@@ -328,12 +328,15 @@ static void migrate_config_options(void)
         !read_config_value("show_cpu_clock", value, sizeof(value));
     const int add_show_gpu_clock =
         !read_config_value("show_gpu_clock", value, sizeof(value));
+    const int add_gpu_temp_label =
+        !read_config_value("gpu_temp_label", value, sizeof(value));
 
     if (!add_overlay_horizontal && !add_overlay_horizontal_spacing &&
         !add_overlay_horizontal_align && !add_overlay_format && !add_show_frametime &&
         !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
-        !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock)
+        !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
+        !add_gpu_temp_label)
         return;
 
     /* Preserve existing options. New individual toggles inherit their former
@@ -358,7 +361,7 @@ static void migrate_config_options(void)
 
     if (add_show_frametime || add_show_1percent_low || add_show_cpu_usage ||
         add_show_cpu_temp || add_show_gpu_temp || add_show_ram || add_show_vram ||
-        add_show_power || add_show_cpu_clock || add_show_gpu_clock)
+        add_show_power || add_show_cpu_clock || add_show_gpu_clock || add_gpu_temp_label)
     {
         (void)fputs("\n[telemetry]\n", f);
         if (add_show_frametime)
@@ -381,6 +384,8 @@ static void migrate_config_options(void)
             (void)fputs("show_cpu_clock=1\n", f);
         if (add_show_gpu_clock)
             (void)fputs("show_gpu_clock=1\n", f);
+        if (add_gpu_temp_label)
+            (void)fputs("gpu_temp_label=soc\n", f);
     }
 
     (void)fclose(f);
@@ -421,6 +426,7 @@ static void ensure_default_config_file(void)
         "show_cpu_temp=1\n"
         "show_cpu_clock=1\n"
         "show_gpu_temp=1\n"
+        "gpu_temp_label=soc\n"
         "show_gpu_clock=1\n"
         "show_fan_duty=1\n"
         "show_ram=1\n"
@@ -1098,7 +1104,7 @@ static report_t stats_report(stats_t *s, uint64_t count, uint64_t t_ns)
 typedef struct
 {
     int have_cpu_temp, cpu_temp;
-    int have_gpu_temp, gpu_temp;
+    int have_soc_temp, soc_temp;
     int have_cpu_clock, cpu_clock_mhz;
     int have_gpu_clock, gpu_clock_mhz;
     int have_fan, fan;
@@ -1238,8 +1244,8 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
     if (SYM_PRESENT(sceKernelGetSocSensorTemperature) &&
         sceKernelGetSocSensorTemperature(0, &v) == 0 && v > 0)
     {
-        s->have_gpu_temp = 1;
-        s->gpu_temp = v;
+        s->have_soc_temp = 1;
+        s->soc_temp = v;
     }
 
     /* CPU frequency API returns Hz; SoC clock domain 20 reports GPU MHz. */
@@ -1341,7 +1347,7 @@ static void format_perf(const report_t *r, char *buf, size_t n)
             r->fps, r->avg_ms, r->low1_fps, r->max_ms, r->hitches);
 }
 
-static void format_sensors(const sensors_t *s, char *buf, size_t n)
+static void format_sensors(const sensors_t *s, int gpu_temp_label_soc, char *buf, size_t n)
 {
     buf[0] = 0;
     const char *sep = "";
@@ -1356,13 +1362,14 @@ static void format_sensors(const sensors_t *s, char *buf, size_t n)
             app(buf, n, " %dC", s->cpu_temp);
         sep = " | ";
     }
-    if (s->have_gpu_clock || s->have_gpu_temp)
+    if (s->have_gpu_clock)
     {
-        app(buf, n, "%sGPU", sep);
-        if (s->have_gpu_clock)
-            app(buf, n, " %dMHz", s->gpu_clock_mhz);
-        if (s->have_gpu_temp)
-            app(buf, n, " %dC", s->gpu_temp);
+        app(buf, n, "%sGPU %dMHz", sep, s->gpu_clock_mhz);
+        sep = " | ";
+    }
+    if (s->have_soc_temp)
+    {
+        app(buf, n, "%s%s %dC", sep, gpu_temp_label_soc ? "SoC" : "GPU", s->soc_temp);
         sep = " | ";
     }
     if (s->have_power)
@@ -1423,8 +1430,8 @@ static void format_kv(const report_t *r, const sensors_t *s, char *buf, size_t n
     }
     if (s->have_cpu_temp)
         app(buf, n, "cpu_temp_c=%d\n", s->cpu_temp);
-    if (s->have_gpu_temp)
-        app(buf, n, "gpu_temp_c=%d\nsoc_temp_c=%d\n", s->gpu_temp, s->gpu_temp);
+    if (s->have_soc_temp)
+        app(buf, n, "gpu_temp_c=%d\nsoc_temp_c=%d\n", s->soc_temp, s->soc_temp);
     if (s->have_cpu_clock)
         app(buf, n, "cpu_clock_mhz=%d\n", s->cpu_clock_mhz);
     if (s->have_gpu_clock)
@@ -1469,6 +1476,7 @@ typedef struct
     int show_fps, show_frametime, show_1percent_low;
     int show_cpu_usage, show_cpu_temp, show_cpu_clock;
     int show_gpu_temp, show_gpu_clock, show_fan_duty;
+    int gpu_temp_label_soc;
     int show_ram, show_vram, show_power;
     int overlay_horizontal, overlay_horizontal_spacing, overlay_horizontal_align;
     int overlay_format;
@@ -1621,9 +1629,9 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
         snprintf(row, sizeof row, "GPU %dMHz", s->gpu_clock_mhz);
         append_overlay_row(rows, &n, row);
     }
-    if (cfg->sensors && cfg->show_gpu_temp && s->have_gpu_temp)
+    if (cfg->sensors && cfg->show_gpu_temp && s->have_soc_temp)
     {
-        snprintf(row, sizeof row, "GPU %dC", s->gpu_temp);
+        snprintf(row, sizeof row, "%s %dC", cfg->gpu_temp_label_soc ? "SoC" : "GPU", s->soc_temp);
         append_overlay_row(rows, &n, row);
     }
     if (cfg->sensors && cfg->show_fan_duty && s->have_fan)
@@ -1674,13 +1682,26 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
         }
 
         values[0] = '\0';
-        if (cfg->sensors && cfg->show_gpu_temp && s->have_gpu_temp)
-            append_compact_value(values, sizeof values, "%dC", s->gpu_temp);
-        if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
-            append_compact_value(values, sizeof values, "%dMHz", s->gpu_clock_mhz);
-        if (values[0]) {
-            snprintf(row, sizeof row, "GPU: %s", values);
-            append_overlay_row(rows, &n, row);
+        if (cfg->gpu_temp_label_soc)
+        {
+            if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
+                append_compact_value(values, sizeof values, "GPU: %dMHz", s->gpu_clock_mhz);
+            if (cfg->sensors && cfg->show_gpu_temp && s->have_soc_temp)
+                append_compact_value(values, sizeof values, "SoC: %dC", s->soc_temp);
+            if (values[0])
+                append_overlay_row(rows, &n, values);
+        }
+        else
+        {
+            /* Preserve the original combined GPU label for legacy configurations. */
+            if (cfg->sensors && cfg->show_gpu_temp && s->have_soc_temp)
+                append_compact_value(values, sizeof values, "%dC", s->soc_temp);
+            if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
+                append_compact_value(values, sizeof values, "%dMHz", s->gpu_clock_mhz);
+            if (values[0]) {
+                snprintf(row, sizeof row, "GPU: %s", values);
+                append_overlay_row(rows, &n, row);
+            }
         }
 
         values[0] = '\0';
@@ -2005,6 +2026,7 @@ static void config_defaults(config_t *c)
     c->show_cpu_temp = 1;
     c->show_cpu_clock = 1;
     c->show_gpu_temp = 1;
+    c->gpu_temp_label_soc = 1;
     c->show_gpu_clock = 1;
     c->show_fan_duty = 1;
     c->show_ram = 1;
@@ -2090,6 +2112,14 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("show_cpu_temp", show_cpu_temp, 1, 0, 1)
     CONFIG_INT("show_cpu_clock", show_cpu_clock, 1, 0, 1)
     CONFIG_INT("show_gpu_temp", show_gpu_temp, 1, 0, 1)
+    if (strcmp(key, "gpu_temp_label") == 0)
+    {
+        if (strcmp(value, "soc") == 0)
+            c->gpu_temp_label_soc = 1;
+        else if (strcmp(value, "gpu") == 0)
+            c->gpu_temp_label_soc = 0;
+        return;
+    }
     CONFIG_INT("show_gpu_clock", show_gpu_clock, 1, 0, 1)
     CONFIG_INT("show_fan_duty", show_fan_duty, 1, 0, 1)
     CONFIG_INT("show_ram", show_ram, 1, 0, 1)
@@ -2453,7 +2483,7 @@ static int prefbar_run(int install_signals, int lock)
                     dbg_event(DBG_INFO, "sensors",
                               "sensors: cpu%%=%s cpuT=%s gpuT=%s cpuClk=%s gpuClk=%s fan=%s",
                               sens.have_cpu ? "y" : "n", sens.have_cpu_temp ? "y" : "n",
-                              sens.have_gpu_temp ? "y" : "n",
+                              sens.have_soc_temp ? "y" : "n",
                               sens.have_cpu_clock ? "y" : "n",
                               sens.have_gpu_clock ? "y" : "n",
                               sens.have_fan ? "y" : "n");
@@ -2515,7 +2545,7 @@ static int prefbar_run(int install_signals, int lock)
             l2[0] = l3[0] = 0;
             if (cfg.sensors)
             {
-                format_sensors(&sens, l2, sizeof l2);
+                format_sensors(&sens, cfg.gpu_temp_label_soc, l2, sizeof l2);
                 format_cores(&sens, l3, sizeof l3);
             }
             snprintf(txt, sizeof txt, "%s\n", l1);
