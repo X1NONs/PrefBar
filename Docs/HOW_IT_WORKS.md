@@ -49,16 +49,18 @@ The controller waits for stable process observations before starting the rendere
 
 The telemetry worker does not read or write game-process memory. The DCE counter is used as the source for frame statistics. Sensor APIs are optional/weakly linked, so a metric can be unavailable on a particular firmware or runtime environment.
 
-Disabled or unavailable metrics are compacted, so later enabled metrics move into the next available row instead of leaving blank gaps. Each FPS, frametime, 1% low, CPU usage, CPU temperature, CPU clock, GPU temperature, GPU clock, fan duty, RAM, VRAM, and power metric has its own switch. This compacted sequence is shared by vertical and horizontal layouts. When all metrics are disabled or unavailable, PrefBar sends an empty row to clear previously displayed text.
+Disabled or unavailable metrics are compacted, so later enabled metrics move into the next available row instead of leaving blank gaps. Each FPS, frametime, 1% low, CPU usage, CPU temperature, CPU clock, SoC sensor temperature, GPU clock, fan duty, RAM, VRAM, and power metric has its own switch. This compacted sequence is shared by vertical and horizontal layouts. When all metrics are disabled or unavailable, PrefBar sends an empty row to clear previously displayed text.
 
 The current overlay can show twelve independently selectable metrics:
 
 - FPS, average frametime, and 1% low.
 - CPU utilization, CPU temperature, and CPU clock.
-- GPU temperature and GPU clock.
+- SoC sensor 0 temperature and GPU clock.
 - Fan duty as a percentage.
 - RAM and VRAM readings.
 - SoC APU power consumption in watts when the kernel API is available.
+
+The SoC temperature shown by PrefBar is read through `sceKernelGetSocSensorTemperature(0, ...)`. This is a SoC sensor reading, not a separately verified GPU-die or GPU-hotspot temperature. etaHEN labels the same sensor reading "GPU temp"; PrefBar uses the more precise `SoC` label by default. Set `gpu_temp_label=gpu` only to keep the old GPU wording. The key/value status file keeps both `soc_temp_c` (canonical) and `gpu_temp_c` (legacy alias), with both keys containing the same sensor reading; they are not two separate sensors.
 
 The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted. Horizontal mode places the compacted metrics on one line. It estimates the complete bar width, then aligns it left, centered, or right. Font size is reduced only when needed to fit within the screen margins.
 
@@ -94,7 +96,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new `overlay_format=compact` default, and per-metric visibility settings. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU temperature; and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new `overlay_format=compact` default, per-metric visibility settings, and `gpu_temp_label=soc` when the label option is absent. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds the SoC sensor temperature visibility switch (`show_gpu_temp`, retained as a compatibility key); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
@@ -127,7 +129,8 @@ All boolean values use `0` (off) or `1` (on).
 | `show_cpu_usage` | Show CPU utilization | `0` or `1`; default `1` |
 | `show_cpu_temp` | Show CPU temperature | `0` or `1`; default `1` |
 | `show_cpu_clock` | Show current CPU frequency in MHz | `0` or `1`; default `1` |
-| `show_gpu_temp` | Show GPU temperature from SoC sensor 0 | `0` or `1`; default `1` |
+| `show_gpu_temp` | Show the temperature reported by SoC sensor 0 (legacy key name) | `0` or `1`; default `1` |
+| `gpu_temp_label` | Label SoC sensor 0 as `SoC` (recommended) or `GPU` (legacy wording) | `soc` or `gpu`; default `soc` |
 | `show_gpu_clock` | Show current GPU GFXCLK in MHz | `0` or `1`; default `1` |
 | `show_fan_duty` | Show fan-duty percentage | `0` or `1`; default `1` |
 | `show_ram` | Show RAM usage | `0` or `1`; default `1` |
@@ -137,7 +140,7 @@ All boolean values use `0` (off) or `1` (on).
 | `diag` | Enable diagnostic captures | `0` or `1`; default `0` in the embedded PS5 build |
 | `poll_us` | Telemetry polling interval in microseconds | `500`–`20000`; default `2000` |
 
-Legacy keys `show_cpu`, `show_soc_temp`, and `show_memory` are read during migration to seed the new independent switches.
+Legacy keys `show_cpu`, `show_soc_temp`, and `show_memory` are read during migration to seed the new independent switches. `gpu_temp_label` is added as `soc` to existing configurations that do not already define it.
 
 Example configuration:
 
@@ -175,6 +178,7 @@ show_cpu_usage=1
 show_cpu_temp=1
 show_cpu_clock=1
 show_gpu_temp=1
+gpu_temp_label=soc
 show_gpu_clock=1
 show_fan_duty=1
 show_ram=1
