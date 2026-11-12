@@ -35,6 +35,29 @@ The test sources are under `scripts/tests/`; test executables are created under 
 
 ## Runtime architecture
 
+### Runtime flow
+
+The diagram below gives an overview of how the controller, telemetry worker, and ShellUI renderer interact during runtime.
+
+```mermaid
+flowchart TD
+    A["Controller entry"] --> B["Initialize directories and singleton"]
+    B --> C["Start telemetry worker"]
+    C --> D["Monitor ShellUI and game"]
+    D --> E["Wait for stable processes"]
+    E --> F["Inject embedded renderer"]
+    F --> G["Renderer initializes Mono / PUI"]
+    G --> H["Controller handles hook request"]
+    H --> I["ShellUI update hook"]
+    C --> J["Sample telemetry"]
+    J --> K["UDP telemetry packet"]
+    K --> I
+    I --> L["Update overlay labels"]
+    I --> M["Touchpad input"]
+    M --> N["Toggle request over UDP"]
+    N --> C
+```
+
 ### 1. Controller and lifecycle
 
 `src/ps5/prefbar_controller.cpp` is the controller entry point. It creates `/data/prefbar`, starts the embedded telemetry worker, and monitors the running PS5 processes.
