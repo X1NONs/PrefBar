@@ -980,9 +980,16 @@ static int sceKernelGetCpuUsage(struct ps_proc_stats *out, int32_t *n)
     *n = count;
     return 0;
 }
+static int g_sim_pool_force, g_sim_pool_rc, g_sim_pool_total, g_sim_pool_fr;
 static int get_page_table_stats(int vm, int type, int *total, int *fr)
 {
     (void)vm;
+    if (g_sim_pool_force)
+    {
+        *total = g_sim_pool_total;
+        *fr = g_sim_pool_fr;
+        return g_sim_pool_rc;
+    }
     if (type == 1)
     {
         *total = 12288;
@@ -1230,6 +1237,55 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
     c->have_prev = 1;
 }
 
+/* Validate memory-pool readings before displaying them. */
+#define POOL_MAX_MB 20480
+#define POOL_HOLD_TICKS 5
+
+typedef struct
+{
+    int valid, total, fr, bad_run;
+} pool_hold_t;
+
+static pool_hold_t g_pool_ram, g_pool_vram;
+
+static int pool_sane(int total, int fr)
+{
+    return total > 0 && total <= POOL_MAX_MB && fr >= 0 && fr <= total;
+}
+
+static int pool_read(int type, pool_hold_t *h, const char *key, int *total, int *fr)
+{
+    int t = 0, f = 0, rc = -1;
+    if (SYM_PRESENT(get_page_table_stats))
+        rc = get_page_table_stats(1, type, &t, &f);
+
+    if (rc != -1 && pool_sane(t, f))
+    {
+        h->valid = 1;
+        h->total = t;
+        h->fr = f;
+        h->bad_run = 0;
+        *total = t;
+        *fr = f;
+        return 1;
+    }
+
+    if (rc != -1)
+        dbg_event(DBG_WARN, key, "pool read rejected: rc=%d total=%d free=%d (%s)",
+                  rc, t, f,
+                  h->valid && h->bad_run < POOL_HOLD_TICKS ? "holding last good value" : "row hidden");
+
+    if (h->valid && ++h->bad_run <= POOL_HOLD_TICKS)
+    {
+        *total = h->total;
+        *fr = h->fr;
+        return 1;
+    }
+
+    h->valid = 0;
+    return 0;
+}
+
 static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
 {
     memset(s, 0, sizeof *s);
@@ -1307,7 +1363,7 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
     cpu_usage_sample(c, s, t_ns);
 
     int total = 0, fr = 0;
-    if (SYM_PRESENT(get_page_table_stats) && get_page_table_stats(1, 1, &total, &fr) != -1 && total > 0)
+    if (pool_read(1, &g_pool_ram, "sensors.ram.reject", &total, &fr))
     {
         s->have_ram = 1;
         s->ram_total_mb = total;
@@ -1316,7 +1372,7 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
     }
     total = 0;
     fr = 0;
-    if (SYM_PRESENT(get_page_table_stats) && get_page_table_stats(1, 2, &total, &fr) != -1 && total > 0)
+    if (pool_read(2, &g_pool_vram, "sensors.vram.reject", &total, &fr))
     {
         s->have_vram = 1;
         s->vram_total_mb = total;
@@ -2367,6 +2423,8 @@ static int prefbar_run(int install_signals, int lock)
             /* One attempt per confirmed game entry; a failed read leaves the
              * current last known-good settings untouched. */
             applied_config_session_generation = session_generation;
+            memset(&g_pool_ram, 0, sizeof g_pool_ram);
+            memset(&g_pool_vram, 0, sizeof g_pool_vram);
             if (reload_config(&cfg))
             {
                 memset(&cpuu, 0, sizeof cpuu);
