@@ -38,6 +38,21 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 4. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
 
+## Compatibility
+
+PrefBar is designed to be a universal payload for jailbroken PS5 consoles. However, changes Sony makes to kernel APIs and ShellUI across firmware versions may affect its functionality, causing certain things to work differently or become unavailable on some firmware versions:
+
+| Firmware       | Status                          |
+| -------------- | ------------------------------- |
+| **Below 7.XX** | 🟡 Unverified or might not work
+| **7.XX**       | ✅ Supported
+| **8.XX**       | ✅ Supported
+| **9.XX**       | ✅ Supported
+| **10.XX**      | ✅ Supported
+| **11.XX**      | ✅ Supported
+| **12.XX**      | ✅ Supported
+| **13.XX**      | ✅ Supported
+
 ## Customization and colors
 
 PrefBar reads its runtime settings from:
