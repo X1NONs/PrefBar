@@ -330,22 +330,78 @@ static void *hammer(void *arg)
 
 
 
-static void test_config_header_021_upgrade(void)
+static void test_config_header_upgrades_any_release(void)
 {
-    reset("# PrefBar 0.2.1 configuration\n"
-          "[overlay]\noverlay=1\noverlay_format=compact\n"
-          "[telemetry]\nshow_fps=1\n");
-    ensure_default_config_file();
+    static const char *const previous_versions[] = {
+        "0.1.0",
+        "0.2.0",
+        "0.2.1",
+        "0.12.34", /* longer version proves the rewrite is not length-dependent */
+        "0.3.0"    /* current version must remain unchanged */
+    };
+    static const char config_body[] =
+        "# Keep this user comment and every setting below intact.\n"
+        "[overlay]\n"
+        "overlay=1\n"
+        "overlay_horizontal=1\n"
+        "overlay_horizontal_spacing=long\n"
+        "overlay_horizontal_align=center\n"
+        "overlay_format=compact\n"
+        "[telemetry]\n"
+        "sensors=1\n"
+        "show_frametime=1\n"
+        "show_1percent_low=1\n"
+        "show_cpu_usage=1\n"
+        "show_cpu_temp=1\n"
+        "show_gpu_temp=1\n"
+        "show_ram=1\n"
+        "show_vram=1\n"
+        "show_power=1\n"
+        "show_cpu_clock=1\n"
+        "show_gpu_clock=1\n"
+        "gpu_temp_label=gpu\n"
+        "[input]\n"
+        "touchpad_toggle=1\n";
 
-    char header[128] = {0};
-    FILE *f = fopen(PREFBAR_CONFIG_PATH, "r");
-    if (f)
+    for (size_t i = 0; i < sizeof(previous_versions) / sizeof(previous_versions[0]); ++i)
     {
-        (void)fgets(header, sizeof(header), f);
+        char config[2048];
+        const int config_len = snprintf(config, sizeof(config),
+                                        "# PrefBar %s configuration\n%s",
+                                        previous_versions[i], config_body);
+        CHECK(config_len > 0 && (size_t)config_len < sizeof(config),
+              "version %s test config should fit", previous_versions[i]);
+        if (config_len <= 0 || (size_t)config_len >= sizeof(config))
+            continue;
+
+        reset(config);
+        ensure_default_config_file();
+
+        char actual[4096] = {0};
+        FILE *f = fopen(PREFBAR_CONFIG_PATH, "r");
+        CHECK(f != NULL, "version %s config should remain readable", previous_versions[i]);
+        if (!f)
+            continue;
+        const size_t actual_len = fread(actual, 1, sizeof(actual) - 1, f);
+        CHECK(!ferror(f), "version %s config should read without errors", previous_versions[i]);
         fclose(f);
+
+        char expected_header[128];
+        (void)snprintf(expected_header, sizeof(expected_header), "%s\n", PREFBAR_CONFIG_HEADER);
+        CHECK(strncmp(actual, expected_header, strlen(expected_header)) == 0,
+              "version %s config header should become the current release header",
+              previous_versions[i]);
+
+        const char *body = strchr(actual, '\n');
+        CHECK(body != NULL, "version %s config should retain a header newline",
+              previous_versions[i]);
+        if (body)
+            CHECK(strcmp(body + 1, config_body) == 0,
+                  "version %s config body should remain byte-for-byte unchanged",
+                  previous_versions[i]);
+        CHECK(actual_len < sizeof(actual),
+              "version %s config should fit the test read buffer", previous_versions[i]);
     }
-    CHECK(strcmp(header, PREFBAR_CONFIG_HEADER "\n") == 0,
-          "migrating a 0.2.1 config should update its header to 0.3.0");
 }
 
 static void test_duplicate_migration_cleanup(void)
@@ -833,7 +889,7 @@ int main(void)
     test_levels();
     test_notification_switches();
     test_config_file_and_values();
-    test_config_header_021_upgrade();
+    test_config_header_upgrades_any_release();
     test_duplicate_migration_cleanup();
     test_horizontal_spacing_config();
     test_horizontal_align_config();
