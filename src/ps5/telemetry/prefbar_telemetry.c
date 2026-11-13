@@ -190,6 +190,7 @@ static struct
     int notifications_enabled;
     int startup_notification;
     int error_notifications;
+    int warning_notifications;
     int debug_notifications;
     int toasts;
     int nslots;
@@ -340,7 +341,8 @@ enum
 {
     PREFBAR_CONFIG_SECTION_OTHER = 0,
     PREFBAR_CONFIG_SECTION_OVERLAY = 1,
-    PREFBAR_CONFIG_SECTION_TELEMETRY = 2
+    PREFBAR_CONFIG_SECTION_TELEMETRY = 2,
+    PREFBAR_CONFIG_SECTION_NOTIFICATIONS = 3
 };
 
 enum
@@ -375,7 +377,8 @@ static int migration_config_key_index(const char *line)
         "show_power",
         "show_cpu_clock",
         "show_gpu_clock",
-        "gpu_temp_label"
+        "gpu_temp_label",
+        "warning_notifications"
     };
 
     char parsed[PREFBAR_CONFIG_LINE_SIZE];
@@ -400,11 +403,12 @@ static int migration_config_key_index(const char *line)
  * Older migration builds could leave repeated [overlay]/[telemetry] blocks
  * and duplicate option lines behind. Keep the last value for each migrated
  * option (matching the config parser's effective behavior), then fold those
- * blocks into one section each. Unknown options and user comments are kept.
+ * blocks into one section each. The notification block is folded when a newly
+ * migrated notification option is added. Unknown options and comments remain.
  */
 static void deduplicate_migrated_config_options(void)
 {
-    enum { KEY_COUNT = 15 };
+    enum { KEY_COUNT = 16 };
     config_migration_line_t *lines =
         (config_migration_line_t *)calloc(PREFBAR_CONFIG_MAX_LINES, sizeof(*lines));
     if (!lines)
@@ -425,6 +429,7 @@ static void deduplicate_migrated_config_options(void)
     int current_section = PREFBAR_CONFIG_SECTION_OTHER;
     int seen_overlay = 0;
     int seen_telemetry = 0;
+    int seen_notifications = 0;
     int cleanup_needed = 0;
     int input_failed = 0;
     char buffer[PREFBAR_CONFIG_LINE_SIZE];
@@ -468,6 +473,13 @@ static void deduplicate_migrated_config_options(void)
                 entry->section = PREFBAR_CONFIG_SECTION_TELEMETRY;
                 current_section = PREFBAR_CONFIG_SECTION_TELEMETRY;
                 if (seen_telemetry++)
+                    cleanup_needed = 1;
+            }
+            else if (strcmp(normalized, "[notifications]") == 0)
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_NOTIFICATIONS;
+                current_section = PREFBAR_CONFIG_SECTION_NOTIFICATIONS;
+                if (seen_notifications++)
                     cleanup_needed = 1;
             }
             else
@@ -518,15 +530,19 @@ static void deduplicate_migrated_config_options(void)
 
     int emitted_overlay = 0;
     int emitted_telemetry = 0;
+    int emitted_notifications = 0;
     for (int i = 0; i < count; ++i)
     {
         const int section = lines[i].section;
         if (section == PREFBAR_CONFIG_SECTION_OVERLAY ||
-            section == PREFBAR_CONFIG_SECTION_TELEMETRY)
+            section == PREFBAR_CONFIG_SECTION_TELEMETRY ||
+            section == PREFBAR_CONFIG_SECTION_NOTIFICATIONS)
         {
             int *emitted = section == PREFBAR_CONFIG_SECTION_OVERLAY
                                ? &emitted_overlay
-                               : &emitted_telemetry;
+                               : section == PREFBAR_CONFIG_SECTION_TELEMETRY
+                                     ? &emitted_telemetry
+                                     : &emitted_notifications;
             if (lines[i].is_section && !*emitted)
             {
                 if (fputs(lines[i].text, output) == EOF)
@@ -648,8 +664,10 @@ static void migrate_config_options(void)
         !read_config_value("show_gpu_clock", value, sizeof(value));
     const int add_gpu_temp_label =
         !read_config_value("gpu_temp_label", value, sizeof(value));
+    const int add_warning_notifications =
+        !read_config_value("warning_notifications", value, sizeof(value));
 
-    if (!add_overlay_horizontal && !add_overlay_horizontal_spacing &&
+    if (!add_warning_notifications && !add_overlay_horizontal && !add_overlay_horizontal_spacing &&
         !add_overlay_horizontal_align && !add_overlay_format && !add_show_frametime &&
         !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
@@ -665,6 +683,9 @@ static void migrate_config_options(void)
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "a");
     if (!f)
         return;
+
+    if (add_warning_notifications)
+        (void)fputs("\n[notifications]\nwarning_notifications=0\n", f);
 
     if (add_overlay_horizontal || add_overlay_horizontal_spacing ||
         add_overlay_horizontal_align || add_overlay_format)
@@ -712,7 +733,10 @@ static void migrate_config_options(void)
     const int migration_ok = ferror(f) == 0;
     const int close_ok = fclose(f) == 0;
     if (migration_ok && close_ok)
+    {
+        deduplicate_migrated_config_options();
         update_config_header();
+    }
 }
 
 static void ensure_default_config_file(void)
@@ -725,6 +749,7 @@ static void ensure_default_config_file(void)
         "notifications=1\n"
         "startup_notification=1\n"
         "error_notifications=1\n"
+        "warning_notifications=0\n"
         "debug_notifications=1\n"
         "debug_notify=3\n"
         "notify_sec=0\n\n"
@@ -804,6 +829,7 @@ static void dbg_init_locked(void)
     g_dbg.notifications_enabled = read_config_int("notifications", 1, 0, 1);
     g_dbg.startup_notification = read_config_int("startup_notification", 1, 0, 1);
     g_dbg.error_notifications = read_config_int("error_notifications", 1, 0, 1);
+    g_dbg.warning_notifications = read_config_int("warning_notifications", 0, 0, 1);
     g_dbg.debug_notifications = read_config_int("debug_notifications", 1, 0, 1);
 }
 
@@ -909,8 +935,10 @@ static void dbg_vevent(int level, const char *key, const char *fmt, va_list ap)
     }
     dbg_log_locked(t, level, key, msg);
     const int category_enabled = (level == DBG_ERR)
-                                     ? g_dbg.error_notifications
-                                     : g_dbg.debug_notifications;
+                                      ? g_dbg.error_notifications
+                                      : level == DBG_WARN
+                                            ? g_dbg.warning_notifications
+                                            : g_dbg.debug_notifications;
 #if defined(PREFBAR_SIM)
     if (g_dbg.notifications_enabled && category_enabled &&
         level <= g_dbg.notify_level && g_dbg.toasts < DBG_MAX_TOASTS)
@@ -1863,7 +1891,8 @@ typedef struct
 {
     int notify_sec, poll_us, sensors, diag;
     int overlay, ov_mode, ov_font, ov_corner, ov_x, ov_y;
-    int notifications, startup_notification, error_notifications, debug_notifications;
+    int notifications, startup_notification, error_notifications;
+    int warning_notifications, debug_notifications;
     int debug_notify;
     int text_shadow;
     int show_fps, show_frametime, show_1percent_low;
@@ -2409,6 +2438,7 @@ static void config_defaults(config_t *c)
     c->notifications = 1;
     c->startup_notification = 1;
     c->error_notifications = 1;
+    c->warning_notifications = 0;
     c->debug_notifications = 1;
     c->debug_notify = 3;
     c->text_shadow = 1;
@@ -2495,6 +2525,7 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("notifications", notifications, 1, 0, 1)
     CONFIG_INT("startup_notification", startup_notification, 1, 0, 1)
     CONFIG_INT("error_notifications", error_notifications, 1, 0, 1)
+    CONFIG_INT("warning_notifications", warning_notifications, 0, 0, 1)
     CONFIG_INT("debug_notifications", debug_notifications, 1, 0, 1)
     CONFIG_INT("debug_notify", debug_notify, 3, 0, DBG_TRACE)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
@@ -2597,6 +2628,7 @@ static void apply_debug_config(const config_t *cfg)
     g_dbg.notifications_enabled = cfg->notifications;
     g_dbg.startup_notification = cfg->startup_notification;
     g_dbg.error_notifications = cfg->error_notifications;
+    g_dbg.warning_notifications = cfg->warning_notifications;
     g_dbg.debug_notifications = cfg->debug_notifications;
     DBG_UNLOCK();
 }
