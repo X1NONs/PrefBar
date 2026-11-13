@@ -290,9 +290,17 @@ static void test_config_file_and_values(void)
           "migration should preserve existing spacing and default new alignment to center");
     CHECK(cfg.warning_notifications == 0,
           "legacy configs without warning_notifications should migrate to warnings muted");
-    char *notifications_section = strstr(defaults_text, "[notifications]");
-    CHECK(notifications_section != NULL,
-          "migrated config should retain its notifications section");
+    char migrated_text[8192] = {0};
+    f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (f)
+    {
+        (void)fread(migrated_text, 1, sizeof(migrated_text) - 1, f);
+        fclose(f);
+    }
+    CHECK(text_occurrences(migrated_text, "[notifications]") == 1,
+          "migration should merge notification settings into one section");
+    CHECK(text_occurrences(migrated_text, "warning_notifications=0") == 1,
+          "migration should add exactly one disabled warning-notification setting");
 
     char migrated_header[128] = {0};
     f = fopen(PREFBAR_CONFIG_PATH, "r");
