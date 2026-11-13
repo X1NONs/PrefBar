@@ -1902,7 +1902,9 @@ bool initialize_receiver() {
 
 [[noreturn]] void run_receiver_loop() {
     for (;;) {
-        unsigned char buf[1024];
+        /* Keep the receive buffer aligned with the wire struct. The extra byte
+         * lets the exact-size validator reject oversized datagrams as well. */
+        unsigned char buf[sizeof(prefbar_wire_t) + 1U];
         const long n = static_cast<long>(recv(g_receiver_fd, buf, sizeof(buf), 0));
         if (n > 0)
             prefbar_ingest(buf, n);
