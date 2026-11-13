@@ -76,6 +76,10 @@ extern uint64_t prefbar_game_session_generation(void);
 #endif
 
 #define PREFBAR_CONFIG_PATH DATA_DIR "/prefbar.conf"
+#define PREFBAR_CONFIG_HEADER "# PrefBar 0.2.1 configuration"
+#define PREFBAR_CONFIG_HEADER_PREVIOUS "# PrefBar 0.2.0 configuration"
+_Static_assert(sizeof(PREFBAR_CONFIG_HEADER) == sizeof(PREFBAR_CONFIG_HEADER_PREVIOUS),
+               "in-place config header updates require equal-length version labels");
 
 #define HIST 600             /* frametimes kept for avg / 1% low        */
 #define MAX_FLIPS_PER_POLL 8 /* cap if the poll loop was stalled        */
@@ -249,6 +253,28 @@ static void trim_config_text(char *s)
         s[--n] = '\0';
 }
 
+static void update_config_header(void)
+{
+    FILE *f = fopen(PREFBAR_CONFIG_PATH, "r+");
+    if (!f)
+        return;
+
+    char line[128];
+    if (fgets(line, sizeof(line), f))
+    {
+        trim_config_text(line);
+        if (strcmp(line, PREFBAR_CONFIG_HEADER_PREVIOUS) == 0 &&
+            fseek(f, 0, SEEK_SET) == 0)
+        {
+            /* The old and new labels have equal length, so the rest of the
+             * user's existing configuration remains untouched. */
+            (void)fputs(PREFBAR_CONFIG_HEADER "\n", f);
+            (void)fflush(f);
+        }
+    }
+    (void)fclose(f);
+}
+
 static int read_config_value(const char *key, char *out, size_t out_size)
 {
     if (!key || !out || out_size == 0)
@@ -337,7 +363,10 @@ static void migrate_config_options(void)
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
         !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
         !add_gpu_temp_label)
+    {
+        update_config_header();
         return;
+    }
 
     /* Preserve existing options. New individual toggles inherit their former
      * group toggle once, so an upgrade does not unexpectedly re-enable metrics. */
@@ -388,13 +417,16 @@ static void migrate_config_options(void)
             (void)fputs("gpu_temp_label=gpu\n", f);
     }
 
-    (void)fclose(f);
+    const int migration_ok = ferror(f) == 0;
+    const int close_ok = fclose(f) == 0;
+    if (migration_ok && close_ok)
+        update_config_header();
 }
 
 static void ensure_default_config_file(void)
 {
     static const char defaults[] =
-        "# PrefBar 0.2.1 configuration\n"
+        PREFBAR_CONFIG_HEADER "\n"
         "# Values are reloaded once when a new game session starts.\n"
         "# Boolean values: 0 = off, 1 = on. Invalid values use defaults.\n\n"
         "[notifications]\n"

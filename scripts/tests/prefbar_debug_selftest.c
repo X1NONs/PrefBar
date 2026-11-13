@@ -231,7 +231,7 @@ static void test_config_file_and_values(void)
     CHECK(f != NULL, "open legacy custom config");
     if (f)
     {
-        fputs("# legacy config\n[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=long\n"
+        fputs("# PrefBar 0.2.0 configuration\n[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=long\n"
               "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
               "[telemetry]\nshow_fps=0\nshow_cpu=0\nshow_soc_temp=0\nshow_cpu_clock=0\nshow_gpu_clock=0\nshow_fan_duty=0\nshow_memory=0\nshow_power=0\n"
               "[input]\ntouchpad_toggle=0\n", f);
@@ -253,6 +253,16 @@ static void test_config_file_and_values(void)
               cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG &&
               cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
           "migration should preserve existing spacing and default new alignment to center");
+
+    char migrated_header[128] = {0};
+    f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (f)
+    {
+        (void)fgets(migrated_header, sizeof(migrated_header), f);
+        fclose(f);
+    }
+    CHECK(strcmp(migrated_header, PREFBAR_CONFIG_HEADER "\n") == 0,
+          "migrating a 0.2.0 config should update its header to 0.2.1");
 
     f = fopen(PREFBAR_CONFIG_PATH, "w");
     CHECK(f != NULL, "open config with explicit individual settings");
