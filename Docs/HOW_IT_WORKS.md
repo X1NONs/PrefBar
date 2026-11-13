@@ -130,7 +130,8 @@ All boolean values use `0` (off) or `1` (on).
 | `notifications` | Master system-toast switch | `0` or `1`; default `1` |
 | `startup_notification` | Show the delayed startup attribution toast | `0` or `1`; default `1` |
 | `error_notifications` | Allow error toasts | `0` or `1`; default `1` |
-| `debug_notifications` | Allow non-error debug/milestone toasts | `0` or `1`; default `1` |
+| `warning_notifications` | Allow warning toasts independently of other debug notifications; warnings are still written to `debug.log` when disabled | `0` or `1`; default `0` |
+| `debug_notifications` | Allow non-error, non-warning debug/milestone toasts | `0` or `1`; default `1` |
 | `debug_notify` | Maximum toast verbosity: `0` off, `1` errors, `2` warnings, `3` information/milestones, `4` trace | `0`–`4`; default `3` |
 | `notify_sec` | Periodic performance-toast interval; zero disables periodic toasts | `0`–`3600` seconds; default `0` |
 | `overlay` | Show or hide the on-screen overlay | `0` or `1`; default `1` |
@@ -174,6 +175,7 @@ Example configuration:
 notifications=1
 startup_notification=1
 error_notifications=1
+warning_notifications=0
 debug_notifications=1
 debug_notify=3
 notify_sec=0
