@@ -437,9 +437,17 @@ static void test_config_header_upgrades_any_release(void)
         CHECK(body != NULL, "version %s config should retain a header newline",
               previous_versions[i]);
         if (body)
-            CHECK(strcmp(body + 1, config_body) == 0,
-                  "version %s config body should remain byte-for-byte unchanged",
+        {
+            static const char expected_migration[] =
+                "\n[notifications]\nwarning_notifications=0\n";
+            const size_t original_body_len = sizeof(config_body) - 1;
+            CHECK(strncmp(body + 1, config_body, original_body_len) == 0,
+                  "version %s config should preserve all original comments and settings",
                   previous_versions[i]);
+            CHECK(strcmp(body + 1 + original_body_len, expected_migration) == 0,
+                  "version %s config should append only the new default warning setting",
+                  previous_versions[i]);
+        }
         CHECK(actual_len > 0,
               "version %s config should not be empty", previous_versions[i]);
     }
