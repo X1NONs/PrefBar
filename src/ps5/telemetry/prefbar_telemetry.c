@@ -310,7 +310,7 @@ static void update_config_header(void)
         return;
     }
 
-    int output_ok = fprintf(output, "%s\\n", PREFBAR_CONFIG_HEADER) >= 0;
+    int output_ok = fprintf(output, "%s\n", PREFBAR_CONFIG_HEADER) >= 0;
     char buffer[1024];
     while (output_ok && fgets(buffer, sizeof(buffer), input))
         if (fputs(buffer, output) == EOF)
