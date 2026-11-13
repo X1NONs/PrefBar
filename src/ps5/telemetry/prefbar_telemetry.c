@@ -75,13 +75,9 @@ extern uint64_t prefbar_game_session_generation(void);
 #define LOCK_PATH "/system_tmp/prefbar.lock"
 #endif
 
+#define PREFBAR_VERSION "0.3.0"
 #define PREFBAR_CONFIG_PATH DATA_DIR "/prefbar.conf"
-#define PREFBAR_CONFIG_HEADER "# PrefBar 0.3.0 configuration"
-#define PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_0 "# PrefBar 0.2.0 configuration"
-#define PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_1 "# PrefBar 0.2.1 configuration"
-_Static_assert(sizeof(PREFBAR_CONFIG_HEADER) == sizeof(PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_0) &&
-                   sizeof(PREFBAR_CONFIG_HEADER) == sizeof(PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_1),
-               "in-place config header updates require equal-length version labels");
+#define PREFBAR_CONFIG_HEADER "# PrefBar " PREFBAR_VERSION " configuration"
 
 #define HIST 600             /* frametimes kept for avg / 1% low        */
 #define MAX_FLIPS_PER_POLL 8 /* cap if the poll loop was stalled        */
@@ -120,8 +116,6 @@ static uint64_t now_ns(void)
  * toasts per run, so a fault loop can never bury the screen in notifications.
  * Safe to call from the controller thread and the sampler thread at once.
  */
-#define PREFBAR_VERSION "0.3.0"
-
 #define DBG_ERR 1
 #define DBG_WARN 2
 #define DBG_INFO 3
@@ -255,27 +249,89 @@ static void trim_config_text(char *s)
         s[--n] = '\0';
 }
 
+static int is_prefbar_config_header(const char *line)
+{
+    static const char prefix[] = "# PrefBar ";
+    static const char suffix[] = " configuration";
+    const size_t line_len = line ? strlen(line) : 0;
+    const size_t prefix_len = sizeof(prefix) - 1;
+    const size_t suffix_len = sizeof(suffix) - 1;
+
+    if (line_len <= prefix_len + suffix_len ||
+        strncmp(line, prefix, prefix_len) != 0 ||
+        strcmp(line + line_len - suffix_len, suffix) != 0)
+        return 0;
+
+    /* Accept release versions (including prerelease/build suffixes), not
+     * arbitrary comments that merely begin with "# PrefBar ". */
+    const char *version = line + prefix_len;
+    const size_t version_len = line_len - prefix_len - suffix_len;
+    for (size_t i = 0; i < version_len; ++i)
+    {
+        const char ch = version[i];
+        if (!((ch >= '0' && ch <= '9') ||
+              (ch >= 'A' && ch <= 'Z') ||
+              (ch >= 'a' && ch <= 'z') ||
+              ch == '.' || ch == '-' || ch == '+'))
+            return 0;
+    }
+    return 1;
+}
+
 static void update_config_header(void)
 {
-    FILE *f = fopen(PREFBAR_CONFIG_PATH, "r+");
-    if (!f)
+    FILE *input = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (!input)
         return;
 
     char line[128];
-    if (fgets(line, sizeof(line), f))
+    if (!fgets(line, sizeof(line), input))
     {
-        trim_config_text(line);
-        if ((strcmp(line, PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_0) == 0 ||
-             strcmp(line, PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_1) == 0) &&
-            fseek(f, 0, SEEK_SET) == 0)
-        {
-            /* The old and new labels have equal length, so the rest of the
-             * user's existing configuration remains untouched. */
-            (void)fputs(PREFBAR_CONFIG_HEADER "\n", f);
-            (void)fflush(f);
-        }
+        (void)fclose(input);
+        return;
     }
-    (void)fclose(f);
+
+    trim_config_text(line);
+    if (!is_prefbar_config_header(line) || strcmp(line, PREFBAR_CONFIG_HEADER) == 0)
+    {
+        (void)fclose(input);
+        return;
+    }
+
+    struct stat original_stat;
+    const int have_original_stat = fstat(fileno(input), &original_stat) == 0;
+    char temp_path[sizeof(PREFBAR_CONFIG_PATH) + sizeof(".header.tmp")];
+    (void)snprintf(temp_path, sizeof(temp_path), "%s.header.tmp", PREFBAR_CONFIG_PATH);
+
+    FILE *output = fopen(temp_path, "w");
+    if (!output)
+    {
+        (void)fclose(input);
+        return;
+    }
+
+    int output_ok = fprintf(output, "%s\\n", PREFBAR_CONFIG_HEADER) >= 0;
+    char buffer[1024];
+    while (output_ok && fgets(buffer, sizeof(buffer), input))
+        if (fputs(buffer, output) == EOF)
+            output_ok = 0;
+
+    if (ferror(input))
+        output_ok = 0;
+    if (fflush(output) != 0)
+        output_ok = 0;
+    if (fclose(output) != 0)
+        output_ok = 0;
+    if (fclose(input) != 0)
+        output_ok = 0;
+
+    if (output_ok && have_original_stat &&
+        chmod(temp_path, original_stat.st_mode & 0777) != 0)
+        output_ok = 0;
+    if (output_ok && rename(temp_path, PREFBAR_CONFIG_PATH) == 0)
+        return;
+
+    (void)unlink(temp_path);
 }
 
 
