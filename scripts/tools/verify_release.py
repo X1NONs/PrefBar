@@ -47,7 +47,7 @@ def main() -> int:
          "default PrefBar appearance configuration missing"),
         (b"id_prefbar_shadow" in renderer,
          "optional text-shadow renderer path missing"),
-        (b"FAN %d%%" in controller and b"fan_duty=%d\\n" in controller,
+        (b"FAN %d%%" in controller and b"fan_duty=%d\n" in controller,
          "fan-duty overlay/status fields missing"),
         (b"prefbar: rows built" in renderer, "PrefBar telemetry row renderer marker missing"),
         (b"PBCTL1:OVERLAY:ON" in renderer and b"PBCTL1:OVERLAY:OFF" in renderer,
