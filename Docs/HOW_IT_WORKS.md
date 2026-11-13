@@ -168,7 +168,7 @@ Legacy keys `show_cpu`, `show_soc_temp`, and `show_memory` are read during migra
 Example configuration:
 
 ```ini
-# PrefBar 0.2.1 configuration
+# PrefBar 0.3.0 configuration
 
 [notifications]
 notifications=1
