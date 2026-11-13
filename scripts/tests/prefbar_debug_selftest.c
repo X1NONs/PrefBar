@@ -275,7 +275,7 @@ static void test_config_file_and_values(void)
         fclose(f);
     }
     CHECK(strcmp(migrated_header, PREFBAR_CONFIG_HEADER "\n") == 0,
-          "migrating a 0.2.0 config should update its header to 0.2.1");
+          "migrating a 0.2.0 config should update its header to 0.3.0");
 
     f = fopen(PREFBAR_CONFIG_PATH, "w");
     CHECK(f != NULL, "open config with explicit individual settings");
@@ -328,6 +328,25 @@ static void *hammer(void *arg)
     return NULL;
 }
 
+
+
+static void test_config_header_021_upgrade(void)
+{
+    reset("# PrefBar 0.2.1 configuration\n"
+          "[overlay]\noverlay=1\noverlay_format=compact\n"
+          "[telemetry]\nshow_fps=1\n");
+    ensure_default_config_file();
+
+    char header[128] = {0};
+    FILE *f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (f)
+    {
+        (void)fgets(header, sizeof(header), f);
+        fclose(f);
+    }
+    CHECK(strcmp(header, PREFBAR_CONFIG_HEADER "\n") == 0,
+          "migrating a 0.2.1 config should update its header to 0.3.0");
+}
 
 static void test_duplicate_migration_cleanup(void)
 {
@@ -814,6 +833,7 @@ int main(void)
     test_levels();
     test_notification_switches();
     test_config_file_and_values();
+    test_config_header_021_upgrade();
     test_duplicate_migration_cleanup();
     test_horizontal_spacing_config();
     test_horizontal_align_config();

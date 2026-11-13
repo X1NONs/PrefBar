@@ -68,7 +68,7 @@ void* elf_main(void* payload_args) {
 
     if (FILE* fp = std::fopen(kLog, "w")) {
         std::fputs(
-            "PrefBar V0.2.1 renderer\n",
+            "PrefBar V0.3.0 renderer\n",
             fp);
         std::fclose(fp);
     }

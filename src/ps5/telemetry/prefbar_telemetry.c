@@ -76,9 +76,11 @@ extern uint64_t prefbar_game_session_generation(void);
 #endif
 
 #define PREFBAR_CONFIG_PATH DATA_DIR "/prefbar.conf"
-#define PREFBAR_CONFIG_HEADER "# PrefBar 0.2.1 configuration"
-#define PREFBAR_CONFIG_HEADER_PREVIOUS "# PrefBar 0.2.0 configuration"
-_Static_assert(sizeof(PREFBAR_CONFIG_HEADER) == sizeof(PREFBAR_CONFIG_HEADER_PREVIOUS),
+#define PREFBAR_CONFIG_HEADER "# PrefBar 0.3.0 configuration"
+#define PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_0 "# PrefBar 0.2.0 configuration"
+#define PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_1 "# PrefBar 0.2.1 configuration"
+_Static_assert(sizeof(PREFBAR_CONFIG_HEADER) == sizeof(PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_0) &&
+                   sizeof(PREFBAR_CONFIG_HEADER) == sizeof(PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_1),
                "in-place config header updates require equal-length version labels");
 
 #define HIST 600             /* frametimes kept for avg / 1% low        */
@@ -118,7 +120,7 @@ static uint64_t now_ns(void)
  * toasts per run, so a fault loop can never bury the screen in notifications.
  * Safe to call from the controller thread and the sampler thread at once.
  */
-#define PREFBAR_VERSION "0.2.1"
+#define PREFBAR_VERSION "0.3.0"
 
 #define DBG_ERR 1
 #define DBG_WARN 2
@@ -263,7 +265,8 @@ static void update_config_header(void)
     if (fgets(line, sizeof(line), f))
     {
         trim_config_text(line);
-        if (strcmp(line, PREFBAR_CONFIG_HEADER_PREVIOUS) == 0 &&
+        if ((strcmp(line, PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_0) == 0 ||
+             strcmp(line, PREFBAR_CONFIG_HEADER_PREVIOUS_0_2_1) == 0) &&
             fseek(f, 0, SEEK_SET) == 0)
         {
             /* The old and new labels have equal length, so the rest of the

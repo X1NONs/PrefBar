@@ -4,7 +4,7 @@
 
 [![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge)](https://github.com/X1NONs/PrefBar/releases)
 
-**Version 0.2.1**
+**Version 0.3.0**
 (**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
 
 
@@ -35,7 +35,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 
 ## How to use it
 
-1. Download `Prefbar_V0.2.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.2.1).
+1. Download `Prefbar_V0.3.0.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.0).
 2. Load the combined ELF on your jailbroken PS5 using your usual payload loader.
 3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 4. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
@@ -69,7 +69,7 @@ The configuration supports overlay visibility, text color, text shadow, font siz
 
 You can also enable horizontal layout, SoC power monitoring, control the touchpad toggle, and configure notification and diagnostic options.
 
-Configuration changes are automatically reloaded when a new game session starts. You no longer need to restart PrefBar to apply them after v0.2.1.
+Configuration changes are automatically reloaded when a new game session starts. This behavior has been available since v0.2.1.
 
 ### Metric format
 

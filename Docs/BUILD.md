@@ -1,6 +1,6 @@
 # Building PrefBar
 
-This document describes the build workflow for the current 0.2.1 source tree. The PS5 Payload SDK is installed separately from the repository. PrefBar does not vendor or download the SDK during the build; the compatibility sources needed by the project are already present in the source tree.
+This document describes the build workflow for the current 0.3.0 source tree. The PS5 Payload SDK is installed separately from the repository. PrefBar does not vendor or download the SDK during the build; the compatibility sources needed by the project are already present in the source tree.
 
 ## Requirements
 
@@ -43,7 +43,7 @@ The root `Makefile` invokes `scripts/scripts/build_ps5.sh`. That script:
 The release payload is:
 
 ```text
-dist/Prefbar_V0.2.1.elf
+dist/Prefbar_V0.3.0.elf
 ```
 
 The renderer and controller ELFs under `build-ps5/` are intermediate artifacts. The combined payload is the file intended for release distribution. Do not commit generated build outputs or release binaries to the source repository; publish the final payload through GitHub Releases.

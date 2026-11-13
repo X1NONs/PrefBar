@@ -55,8 +55,8 @@ else
 fi
 cmake --build "${ROOT}/build-ps5" -j"${JOBS}"
 
-CONTROLLER="${ROOT}/build-ps5/PrefBar_controller_v0.2.1.elf"
-RENDERER="${ROOT}/build-ps5/PrefBar_ShellUI_v0.2.1.elf"
+CONTROLLER="${ROOT}/build-ps5/PrefBar_controller_v0.3.0.elf"
+RENDERER="${ROOT}/build-ps5/PrefBar_ShellUI_v0.3.0.elf"
 for artifact in "${CONTROLLER}" "${RENDERER}"; do
   if [[ ! -s "${artifact}" ]]; then
     echo "ERROR: expected build artifact is missing or empty: ${artifact}" >&2
@@ -88,7 +88,7 @@ else
   echo "WARNING: no objdump-compatible tool found; skipped main/fork disassembly check." >&2
 fi
 
-OUTPUT_NAME="Prefbar_V0.2.1.elf"
+OUTPUT_NAME="Prefbar_V0.3.0.elf"
 DIST="${ROOT}/dist"
 mkdir -p "${DIST}"
 TEMP_OUTPUT="${DIST}/.${OUTPUT_NAME}.tmp"

@@ -33,7 +33,7 @@ def main() -> int:
         (renderer.startswith(b"\x7fELF"), "ShellUI renderer is not an ELF"),
         (len(renderer) > 4096, "ShellUI renderer ELF is unexpectedly small"),
         (controller.find(renderer) > 0, "exact renderer ELF is not embedded in controller"),
-        (b"PrefBar V0.2.1 controller" in controller, "PrefBar controller identity marker missing"),
+        (b"PrefBar V0.3.0 controller" in controller, "PrefBar controller identity marker missing"),
         (b"/data/prefbar" in controller, "PrefBar runtime data path missing"),
         (b"game.detected" in controller, "game-process lifecycle marker missing"),
         (b"renderer.online" in controller, "renderer lifecycle marker missing"),
