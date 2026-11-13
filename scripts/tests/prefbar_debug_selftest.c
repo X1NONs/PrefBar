@@ -203,6 +203,12 @@ static void test_notification_switches(void)
     prefbar_debug_event(DBG_WARN, "allowed.warning", "warning");
     CHECK(g_sim_toasts == 1, "warning_notifications=1 should enable warning toasts");
 
+    reset("notifications=1\nwarning_notifications=1\ndebug_notifications=0\ndebug_notify=4\n");
+    prefbar_debug_event(DBG_WARN, "independent.warning", "warning");
+    prefbar_debug_event(DBG_INFO, "muted.info", "info");
+    CHECK(g_sim_toasts == 1,
+          "warning_notifications should operate independently of debug_notifications");
+
     reset("notifications=1\nerror_notifications=1\ndebug_notifications=0\ndebug_notify=4\n");
     prefbar_debug_event(DBG_ERR, "allowed.error", "error");
     prefbar_debug_event(DBG_INFO, "muted.info", "info");
