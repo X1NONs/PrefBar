@@ -756,6 +756,12 @@ bool read_widget_dimensions(MonoObject* root, float* width, float* height) {
            *width >= 640.0f && *height >= 480.0f;
 }
 
+bool set_property_object(
+    MonoClass* klass,
+    MonoObject* instance,
+    const char* name,
+    MonoObject* value);
+
 bool set_label_font(MonoClass* label_class, MonoObject* label, MonoObject* font) {
     return label_class && label && font &&
            set_property_object(label_class, label, "Font", font);
