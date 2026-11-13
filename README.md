@@ -67,6 +67,8 @@ PrefBar reads its runtime settings from:
 
 The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, a selectable compact/classic metric format, and independent visibility switches for every telemetry metric.
 
+I recommend using [PS5 Web File Manager](https://github.com/owendswang/ps5-web-file-manager) for changing the config, but any method works too.
+
 You can also enable horizontal layout, SoC power monitoring, control the touchpad toggle, and configure notification and diagnostic options.
 
 Configuration changes are automatically reloaded when a new game session starts. This behavior has been available since v0.2.1.
