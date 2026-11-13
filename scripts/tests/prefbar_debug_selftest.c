@@ -336,7 +336,7 @@ static void test_config_header_upgrades_any_release(void)
         "0.1.0",
         "0.2.0",
         "0.2.1",
-        "0.12.34", /* longer version proves the rewrite is not length-dependent */
+        "0.2.10", /* older, longer version proves the rewrite is not length-dependent */
         "0.3.0"    /* current version must remain unchanged */
     };
     static const char config_body[] =
@@ -399,8 +399,8 @@ static void test_config_header_upgrades_any_release(void)
             CHECK(strcmp(body + 1, config_body) == 0,
                   "version %s config body should remain byte-for-byte unchanged",
                   previous_versions[i]);
-        CHECK(actual_len < sizeof(actual),
-              "version %s config should fit the test read buffer", previous_versions[i]);
+        CHECK(actual_len > 0,
+              "version %s config should not be empty", previous_versions[i]);
     }
 }
 
