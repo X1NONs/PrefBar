@@ -94,14 +94,14 @@ static void test_levels(void)
         int expect;
     } cases[] = {
         {"debug_notify=0\n", 0},
-        {"debug_notify=1\n", 1},
-        {"debug_notify=2\n", 2},
-        {"debug_notify=3\n", 3},
-        {"debug_notify=4\n", 4},
-        {NULL, 3}, /* default */
-        {"debug_notify=9\n", 3},
-        {"debug_notify=-1\n", 3},
-        {"debug_notify=abc\n", 3},
+        {"warning_notifications=1\ndebug_notify=1\n", 1},
+        {"warning_notifications=1\ndebug_notify=2\n", 2},
+        {"warning_notifications=1\ndebug_notify=3\n", 3},
+        {"warning_notifications=1\ndebug_notify=4\n", 4},
+        {NULL, 2}, /* default: errors + information, no warning toasts */
+        {"warning_notifications=1\ndebug_notify=9\n", 3},
+        {"warning_notifications=1\ndebug_notify=-1\n", 3},
+        {"warning_notifications=1\ndebug_notify=abc\n", 3},
     };
     for (unsigned c = 0; c < sizeof cases / sizeof *cases; c++)
     {
@@ -185,6 +185,24 @@ static void test_notification_switches(void)
     prefbar_debug_event(DBG_INFO, "allowed.info", "info");
     CHECK(g_sim_toasts == 1, "error_notifications=0 should suppress only error toasts, got %d", g_sim_toasts);
 
+    reset("notifications=1\nwarning_notifications=0\ndebug_notify=4\n");
+    prefbar_debug_event(DBG_WARN, "muted.warning", "warning");
+    CHECK(g_sim_toasts == 0, "warning_notifications=0 should suppress warning toasts");
+
+    FILE *warning_log = fopen(DATA_DIR "/debug.log", "r");
+    char warning_line[512] = {0};
+    if (warning_log)
+    {
+        (void)fgets(warning_line, sizeof(warning_line), warning_log);
+        fclose(warning_log);
+    }
+    CHECK(strstr(warning_line, "muted.warning") != NULL,
+          "muted warnings must still be written to debug.log");
+
+    reset("notifications=1\nwarning_notifications=1\ndebug_notify=4\n");
+    prefbar_debug_event(DBG_WARN, "allowed.warning", "warning");
+    CHECK(g_sim_toasts == 1, "warning_notifications=1 should enable warning toasts");
+
     reset("notifications=1\nerror_notifications=1\ndebug_notifications=0\ndebug_notify=4\n");
     prefbar_debug_event(DBG_ERR, "allowed.error", "error");
     prefbar_debug_event(DBG_INFO, "muted.info", "info");
@@ -236,8 +254,12 @@ static void test_config_file_and_values(void)
               strstr(defaults_text, "show_ram=1") &&
               strstr(defaults_text, "show_vram=1"),
           "default config should expose separate CPU, RAM, and VRAM controls");
+    CHECK(strstr(defaults_text, "warning_notifications=0") != NULL,
+          "new default config should disable warning toasts explicitly");
     CHECK(cfg.notifications == 1 && cfg.touchpad_toggle == 1,
           "default notifications and touchpad toggle should be enabled");
+    CHECK(cfg.warning_notifications == 0 && cfg.debug_notify == 3,
+          "warnings should be muted by default without lowering information verbosity");
 
     /* An older config's grouped toggles seed the new individual toggles. */
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");
@@ -266,6 +288,11 @@ static void test_config_file_and_values(void)
               cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG &&
               cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
           "migration should preserve existing spacing and default new alignment to center");
+    CHECK(cfg.warning_notifications == 0,
+          "legacy configs without warning_notifications should migrate to warnings muted");
+    char *notifications_section = strstr(defaults_text, "[notifications]");
+    CHECK(notifications_section != NULL,
+          "migrated config should retain its notifications section");
 
     char migrated_header[128] = {0};
     f = fopen(PREFBAR_CONFIG_PATH, "r");
@@ -309,8 +336,8 @@ static void test_config_file_and_values(void)
               cfg.text_b > 0.33f && cfg.text_b < 0.34f,
           "#123456 should parse into normalized RGB values");
     CHECK(cfg.notifications == 0 && cfg.startup_notification == 0 &&
-              cfg.error_notifications == 0 && cfg.debug_notifications == 0 &&
-              cfg.touchpad_toggle == 0,
+              cfg.error_notifications == 0 && cfg.warning_notifications == 0 &&
+              cfg.debug_notifications == 0 && cfg.touchpad_toggle == 0,
           "notification and input switches should parse");
 }
 
