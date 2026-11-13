@@ -145,11 +145,11 @@ int g_receiver_fd = -1;
 constexpr const char* kLabelId = "id_prefbar_label";
 constexpr const char* kValueId = "id_prefbar_value";
 
-/* ---- prefbar-overlay: text rows fed over loopback UDP by the separate
- * prefbar payload. State is written by the receiver thread under g_telemetry_mutex
- * and drawn from the update hook (same thread as the rest of the drawing). */
-constexpr std::uint64_t kTelemetryStaleMs = 3000;      /* rows go stale if prefbar goes quiet */
-constexpr bool kShowTelemetryStatus = true;         /* banner when there is no fresh data (test builds) */
+/* ---- PrefBar overlay: rows arrive over loopback UDP from the telemetry
+ * worker inside the controller. The receiver publishes packets under
+ * g_telemetry_mutex; the update hook applies them to the UI. */
+constexpr std::uint64_t kTelemetryStaleMs = 3000;  /* rows go stale when packets stop arriving */
+constexpr bool kShowTelemetryStatus = true;        /* show a banner when telemetry is unavailable */
 bool g_prefbar_overlay_enabled = true;             /* touchpad toggle; sampling stays active */
 std::atomic<bool> g_config_overlay_enabled{true};
 std::atomic<bool> g_touchpad_toggle_enabled{true};
@@ -164,10 +164,13 @@ std::uint32_t g_telemetry_row_handle[PREFBAR_ROWS]{};
 std::uint32_t g_telemetry_shadow_handle[PREFBAR_ROWS]{};
 struct TelemetryLayout {
     int font;
+    int requested_font;
     int corner;
     int rows;
     float mx;
     float my;
+    float screen_width;
+    float screen_height;
     float r;
     float g;
     float b;
@@ -723,6 +726,54 @@ MonoMethod* property_setter(MonoClass* klass, const char* name) {
     return property ? mono_property_get_set_method_(property) : nullptr;
 }
 
+bool read_float_property(
+    MonoClass* klass,
+    MonoObject* instance,
+    const char* name,
+    float* value) {
+    if (!klass || !instance || !value || !mono_object_unbox_)
+        return false;
+    MonoMethod* getter = property_getter(klass, name);
+    MonoObject* boxed = getter ? invoke(getter, instance) : nullptr;
+    void* raw = boxed ? mono_object_unbox_(boxed) : nullptr;
+    if (!raw)
+        return false;
+    float candidate = 0.0f;
+    std::memcpy(&candidate, raw, sizeof(candidate));
+    if (!(candidate >= 0.0f && candidate <= 16384.0f))
+        return false;
+    *value = candidate;
+    return true;
+}
+
+bool read_widget_dimensions(MonoObject* root, float* width, float* height) {
+    if (!g_pui_image || !mono_class_from_name_)
+        return false;
+    MonoClass* widget = mono_class_from_name_(
+        g_pui_image, "Sce.PlayStation.PUI.UI2", "Widget");
+    return read_float_property(widget, root, "Width", width) &&
+           read_float_property(widget, root, "Height", height) &&
+           *width >= 640.0f && *height >= 480.0f;
+}
+
+bool set_property_object(
+    MonoClass* klass,
+    MonoObject* instance,
+    const char* name,
+    MonoObject* value);
+
+bool set_label_font(MonoClass* label_class, MonoObject* label, MonoObject* font) {
+    return label_class && label && font &&
+           set_property_object(label_class, label, "Font", font);
+}
+
+float estimated_label_width(const char* text, int font_px) {
+    return text
+        ? static_cast<float>(std::strlen(text)) *
+              static_cast<float>(font_px) * 0.62f
+        : 0.0f;
+}
+
 MonoObject* managed_target(std::uint32_t handle) {
     return handle != 0 && mono_gchandle_get_target_
         ? mono_gchandle_get_target_(handle)
@@ -1112,8 +1163,8 @@ void prefbar_draw_text() {
     const bool overlay_visible = g_prefbar_overlay_enabled &&
         g_config_overlay_enabled.load();
     if (overlay_visible && stale && kShowTelemetryStatus) {
-        banner = have_data ? "prefbar: no data (prefbar.elf stopped?)"
-                           : "prefbar-overlay ready - load prefbar.elf";
+        banner = have_data ? "PrefBar: telemetry data is stale"
+                           : "PrefBar renderer ready - waiting for telemetry";
     }
 
     if (!refresh_game_scene()) {
@@ -1133,27 +1184,36 @@ void prefbar_draw_text() {
     const bool horizontal = (pkt.flags & PREFBAR_WIRE_FLAG_HORIZONTAL) != 0;
     const int corner = pkt.corner;
     const int rows = pkt.rows;
-    const float mx = pkt.margin_x;
-    const float my = pkt.margin_y;
-    int font_px = pkt.font_size;
+    const int requested_font = pkt.font_size;
+    int font_px = requested_font;
+    const std::uint8_t horizontal_gap_mode =
+        pkt.flags & PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK;
+    const std::uint8_t horizontal_alignment_mode =
+        pkt.flags & PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK;
+    const float horizontal_gap_scale =
+        horizontal_gap_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_SHORT ? 0.35f :
+        horizontal_gap_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_LONG ? 1.15f : 0.72f;
 
-    /* In horizontal mode, estimate text widths and reduce the font only as much as
-     * needed to keep all populated rows within the 1920px ShellUI width. */
-    if (horizontal) {
-        std::size_t characters = 0;
-        for (int i = 0; i < rows; ++i)
-            characters += std::strlen(pkt.text[i]);
-        const float gaps = static_cast<float>(rows > 0 ? rows - 1 : 0) *
-                           static_cast<float>(font_px) * 0.72f;
-        const float available = 1920.0f - mx * 2.0f;
-        const float estimated = static_cast<float>(characters) *
-                                static_cast<float>(font_px) * 0.62f + gaps;
-        if (estimated > available && characters > 0) {
-            const float scaled = static_cast<float>(font_px) * available / estimated;
-            font_px = static_cast<int>(scaled);
-            if (font_px < 10) font_px = 10;
+    /* PUI root dimensions share the coordinate system used by our labels.
+     * Use live values where exposed; retain a guarded legacy fallback otherwise. */
+    float screen_width = 1920.0f;
+    float screen_height = 1080.0f;
+    static bool geometry_warning_logged = false;
+    if (!read_widget_dimensions(root, &screen_width, &screen_height)) {
+        screen_width = 1920.0f;
+        screen_height = 1080.0f;
+        if (!geometry_warning_logged) {
+            log_line("prefbar: PUI root dimensions unavailable; using 1920x1080 fallback");
+            geometry_warning_logged = true;
         }
+    } else {
+        geometry_warning_logged = false;
     }
+
+    const float mx = pkt.margin_x < screen_width - 10.0f
+        ? pkt.margin_x : screen_width - 10.0f;
+    const float my = pkt.margin_y < screen_height - 10.0f
+        ? pkt.margin_y : screen_height - 10.0f;
 
     /* Bottom anchoring reserves one line in horizontal mode. */
     const int layout_rows = (corner == PREFBAR_CORNER_BL)
@@ -1161,7 +1221,7 @@ void prefbar_draw_text() {
         : 0;
     unsigned why = 0;
     if (!g_telemetry_layout.valid) why |= 1u;
-    if (g_telemetry_layout.font != font_px) why |= 2u;
+    if (g_telemetry_layout.requested_font != requested_font) why |= 2u;
     if (g_telemetry_layout.corner != corner) why |= 4u;
     if (g_telemetry_layout.rows != layout_rows) why |= 8u;
     if (g_telemetry_layout.mx != mx || g_telemetry_layout.my != my) why |= 16u;
@@ -1170,6 +1230,8 @@ void prefbar_draw_text() {
     const bool want_shadow = (pkt.flags & PREFBAR_WIRE_FLAG_TEXT_SHADOW) != 0;
     if (g_telemetry_layout.shadow != want_shadow) why |= 128u;
     if (g_telemetry_layout.horizontal != horizontal) why |= 256u;
+    if (g_telemetry_layout.screen_width != screen_width ||
+        g_telemetry_layout.screen_height != screen_height) why |= 512u;
     MonoObject* labels[PREFBAR_ROWS]{};
     MonoObject* shadows[PREFBAR_ROWS]{};
     if (!why) {
@@ -1197,7 +1259,7 @@ void prefbar_draw_text() {
         }
         const float line_h = static_cast<float>(font_px) * 1.3f;
         const float y0 = (corner == PREFBAR_CORNER_BL)
-            ? 1080.0f - my - line_h * static_cast<float>(layout_rows)
+            ? screen_height - my - line_h * static_cast<float>(layout_rows)
             : my;
         int created = 0;
         for (int i = 0; i < PREFBAR_ROWS; ++i) {
@@ -1232,45 +1294,140 @@ void prefbar_draw_text() {
         log_line("prefbar: rows built #%d why=0x%x created=%d/%d font=%d corner=%d rows=%d",
                  g_row_rebuild_count, why, created, PREFBAR_ROWS, font_px, corner, rows);
         g_telemetry_layout = TelemetryLayout{
-            font_px, corner, layout_rows, mx, my, pkt.r, pkt.g, pkt.b,
+            font_px, requested_font, corner, layout_rows, mx, my,
+            screen_width, screen_height, pkt.r, pkt.g, pkt.b,
             want_shadow, horizontal, created == PREFBAR_ROWS};
     }
 
     int applied = 0;
-    float horizontal_x = mx;
-    MonoClass* label_class = horizontal
-        ? mono_class_from_name_(g_pui_image, "Sce.PlayStation.PUI.UI2", "Label")
-        : nullptr;
-    const float horizontal_gap = static_cast<float>(font_px) * 0.72f;
+    MonoClass* label_class = mono_class_from_name_(
+        g_pui_image, "Sce.PlayStation.PUI.UI2", "Label");
+    const char* row_text[PREFBAR_ROWS]{};
+    float row_width[PREFBAR_ROWS]{};
+    int horizontal_items = 0;
+    float horizontal_text_width = 0.0f;
+    static bool width_warning_logged = false;
+
+    /* FitWidthToText updates Label.Width when Text changes. Measure through
+     * PUI instead of assuming every glyph is 0.62 em wide. */
     for (int i = 0; i < PREFBAR_ROWS; ++i) {
         if (!labels[i])
             continue;
         const char* text = "";
-        if (!overlay_visible)
-            text = "";
-        else if (banner)
+        if (overlay_visible && banner)
             text = (i == 0) ? banner : "";
-        else if (!stale && i < rows)
+        else if (overlay_visible && !stale && i < rows)
             text = pkt.text[i];
-
-        if (horizontal) {
-            if (label_class) {
-                (void)set_property_direct(label_class, labels[i], "X", horizontal_x);
-                if (want_shadow && shadows[i])
-                    (void)set_property_direct(label_class, shadows[i], "X", horizontal_x + 1.5f);
-            }
-            if (text[0]) {
-                const float estimated_width =
-                    static_cast<float>(std::strlen(text)) * static_cast<float>(font_px) * 0.62f;
-                horizontal_x += estimated_width + horizontal_gap;
-            }
-        }
+        row_text[i] = text;
 
         if (want_shadow && shadows[i])
             (void)set_label_text(shadows[i], text);
         if (set_label_text(labels[i], text))
             ++applied;
+
+        if (horizontal && text[0]) {
+            float measured = 0.0f;
+            if (!read_float_property(label_class, labels[i], "Width", &measured) ||
+                measured <= 0.0f) {
+                measured = estimated_label_width(text, g_telemetry_layout.font);
+                if (!width_warning_logged) {
+                    log_line("prefbar: PUI Label.Width unavailable; using guarded width estimate");
+                    width_warning_logged = true;
+                }
+            }
+            row_width[i] = measured;
+            horizontal_text_width += measured;
+            ++horizontal_items;
+        }
     }
+
+    int effective_font = g_telemetry_layout.font > 0
+        ? g_telemetry_layout.font : requested_font;
+    if (horizontal && horizontal_items > 0) {
+        const float current_gap_total =
+            static_cast<float>(horizontal_items - 1) *
+            static_cast<float>(effective_font) * horizontal_gap_scale;
+        const float current_total = horizontal_text_width + current_gap_total;
+        const float requested_total = current_total *
+            static_cast<float>(requested_font) / static_cast<float>(effective_font);
+        const float available_width = screen_width > 2.0f * mx
+            ? screen_width - 2.0f * mx : 0.0f;
+        int fitted_font = requested_font;
+        if (requested_total > available_width && requested_total > 0.0f) {
+            fitted_font = static_cast<int>(
+                static_cast<float>(requested_font) * available_width / requested_total);
+            if (fitted_font < 10)
+                fitted_font = 10;
+        }
+
+        if (fitted_font != effective_font) {
+            MonoObject* fit_font = create_font(fitted_font);
+            if (fit_font && label_class) {
+                bool font_applied = true;
+                for (int i = 0; i < PREFBAR_ROWS; ++i) {
+                    if (labels[i] &&
+                        !set_label_font(label_class, labels[i], fit_font))
+                        font_applied = false;
+                    if (want_shadow && shadows[i] &&
+                        !set_label_font(label_class, shadows[i], fit_font))
+                        font_applied = false;
+                }
+                if (font_applied) {
+                    effective_font = fitted_font;
+                    g_telemetry_layout.font = effective_font;
+                    horizontal_text_width = 0.0f;
+                    for (int i = 0; i < PREFBAR_ROWS; ++i) {
+                        if (!labels[i] || !row_text[i] || !row_text[i][0])
+                            continue;
+                        (void)set_label_text(labels[i], row_text[i]);
+                        float measured = 0.0f;
+                        if (!read_float_property(
+                                label_class, labels[i], "Width", &measured) ||
+                            measured <= 0.0f) {
+                            measured = estimated_label_width(
+                                row_text[i], effective_font);
+                        }
+                        row_width[i] = measured;
+                        horizontal_text_width += measured;
+                    }
+                } else {
+                    log_line("prefbar: could not apply fitted font to every horizontal label");
+                }
+            } else {
+                log_line("prefbar: fitted UIFont creation failed size=%d", fitted_font);
+            }
+        }
+    }
+
+    if (horizontal) {
+        const float horizontal_gap =
+            static_cast<float>(effective_font) * horizontal_gap_scale;
+        const float horizontal_total_width = horizontal_text_width +
+            static_cast<float>(horizontal_items > 0 ? horizontal_items - 1 : 0) *
+                horizontal_gap;
+        float horizontal_x = mx;
+        if (horizontal_alignment_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT) {
+            horizontal_x = screen_width - mx - horizontal_total_width;
+        } else if (horizontal_alignment_mode != PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT) {
+            horizontal_x = (screen_width - horizontal_total_width) * 0.5f;
+        }
+        if (horizontal_x < mx)
+            horizontal_x = mx;
+
+        for (int i = 0; i < PREFBAR_ROWS; ++i) {
+            if (!labels[i])
+                continue;
+            if (label_class) {
+                (void)set_property_direct(label_class, labels[i], "X", horizontal_x);
+                if (want_shadow && shadows[i])
+                    (void)set_property_direct(
+                        label_class, shadows[i], "X", horizontal_x + 1.5f);
+            }
+            if (row_text[i] && row_text[i][0])
+                horizontal_x += row_width[i] + horizontal_gap;
+        }
+    }
+
     static int logged = 0;
     if (logged++ < 5)
         log_line("prefbar: text applied rows=%d/%d count=%llu stale=%d banner=%d",
@@ -1653,8 +1810,7 @@ bool initialize_runtime() {
     }
 
     if (!refresh_game_scene()) {
-        log_line("Game ContainerScene no disponible al iniciar; overlay armado, "
-                 "esperando a que se abra un juego");
+        log_line("Game ContainerScene unavailable at startup; overlay armed and waiting for a game to open");
     }
 
     record_stage("scene_ready");
@@ -1746,7 +1902,9 @@ bool initialize_receiver() {
 
 [[noreturn]] void run_receiver_loop() {
     for (;;) {
-        unsigned char buf[1024];
+        /* Keep the receive buffer aligned with the wire struct. The extra byte
+         * lets the exact-size validator reject oversized datagrams as well. */
+        unsigned char buf[sizeof(prefbar_wire_t) + 1U];
         const long n = static_cast<long>(recv(g_receiver_fd, buf, sizeof(buf), 0));
         if (n > 0)
             prefbar_ingest(buf, n);

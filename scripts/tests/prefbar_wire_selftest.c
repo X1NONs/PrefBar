@@ -21,10 +21,11 @@ static prefbar_wire_t good(void)
 int main(void)
 {
     prefbar_wire_t p;
-    CHECK(sizeof(prefbar_wire_t) == 717);
+    CHECK(sizeof(prefbar_wire_t) == 1389);
     CHECK(offsetof(prefbar_wire_t, text) == 45);
     p = good(); { unsigned char b[4]; memcpy(b, &p.magic, 4); CHECK(!memcmp(b, "PBAR", 4)); }
     p = good(); CHECK(prefbar_wire_valid(&p, sizeof p) == 1);
+    CHECK(offsetof(prefbar_wire_t, text) == 45);
     CHECK(prefbar_wire_valid(NULL, sizeof p) == 0);
     p = good(); CHECK(prefbar_wire_valid(&p, sizeof p - 1) == 0);      /* length mismatch */
     p = good(); p.magic ^= 1;          CHECK(!prefbar_wire_valid(&p, sizeof p));
@@ -34,6 +35,15 @@ int main(void)
     p = good(); p.rows = 0;            CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.rows = PREFBAR_ROWS + 1; CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.flags = PREFBAR_WIRE_FLAG_TEXT_SHADOW | PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE | PREFBAR_WIRE_FLAG_OVERLAY_ENABLED | PREFBAR_WIRE_FLAG_HORIZONTAL; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL | PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_SHORT; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL; CHECK(prefbar_wire_valid(&p, sizeof p)); /* medium */
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL | PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_LONG; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL; CHECK(prefbar_wire_valid(&p, sizeof p)); /* centered default */
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL | PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL | PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT; CHECK(!prefbar_wire_valid(&p, sizeof p)); /* alignment only in horizontal mode */
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL | PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK; CHECK(!prefbar_wire_valid(&p, sizeof p)); /* reserved alignment */
+    p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK; CHECK(!prefbar_wire_valid(&p, sizeof p)); /* reserved 11 */
     p = good(); p.flags = 0x80; CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.rows = PREFBAR_ROWS;    CHECK(prefbar_wire_valid(&p, sizeof p));
     p = good(); p.corner = 1;          CHECK(!prefbar_wire_valid(&p, sizeof p));

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /*
- * PrefBar telemetry engine. Runs as a thread inside the controller payload.
+ * PrefBar telemetry engine. Runs as a thread inside the controller process.
  *
  * Reports, once per second:
  *   - FPS, average frametime, 1% low, worst frametime, hitch count
- *   - CPU usage (average + per core), CPU temp, SoC temp, fan duty
+ *   - CPU usage (average + per core), CPU/GPU clocks and temperatures, fan duty
  *   - RAM and VRAM usage
- * to <DATA_DIR>/status.txt (human readable) and <DATA_DIR>/status.kv
- * (key=value, for a future overlay / scripts), plus an optional toast.
+ * to <DATA_DIR>/status.txt (human-readable) and <DATA_DIR>/status.kv
+ * (key=value for scripts and tools), plus an optional toast. Overlay rows are
+ * also sent to the ShellUI renderer over loopback UDP.
  *
  * Debug events (0.2.1): lifecycle milestones, sensor/display availability and
  * failures are appended to <DATA_DIR>/debug.log and, depending on
@@ -15,8 +16,7 @@
  *
  * What it deliberately does NOT do
  *   - no kernel memory access and no game-process memory writes
- *   - no direct ShellUI interaction; the controller and renderer are separate
- *   - display data is sent only to the local PrefBar renderer over loopback UDP
+ *   - no direct manipulation of ShellUI UI objects; the renderer owns UI updates
  *
  * Provenance (all GPL-3.0, so this file is GPL-3.0-or-later)
  *   FPS source : /dev/dce flip counter - ioctl, arguments and counter offset
@@ -27,7 +27,7 @@
  *                SceIdleCpu0..7 idle threads via sceKernelGetCpuUsage.
  *   RAM / VRAM : etaHEN shellui/src/prx.cpp - get_page_table_stats(1, type).
  *   Temps      : sceKernelGetCpuTemperature / sceKernelGetSocSensorTemperature
- *                (etaHEN labels the SoC sensor "GPU temp").
+ *                (sensor 0 uses the user-facing "GPU" label by default; see docs).
  *
  * Build
  *   PS5 payload:  make PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk   (see Makefile)
@@ -75,7 +75,9 @@ extern uint64_t prefbar_game_session_generation(void);
 #define LOCK_PATH "/system_tmp/prefbar.lock"
 #endif
 
+#define PREFBAR_VERSION "0.3.0"
 #define PREFBAR_CONFIG_PATH DATA_DIR "/prefbar.conf"
+#define PREFBAR_CONFIG_HEADER "# PrefBar " PREFBAR_VERSION " configuration"
 
 #define HIST 600             /* frametimes kept for avg / 1% low        */
 #define MAX_FLIPS_PER_POLL 8 /* cap if the poll loop was stalled        */
@@ -83,6 +85,19 @@ extern uint64_t prefbar_game_session_generation(void);
 #define STALE_NS 2000000000ull /* no counter change for this long = idle */
 #define NCORES 8
 #define MAX_THREADS 3072
+#define SOC_CLOCK_DOMAINS 32
+
+enum {
+    PREFBAR_HORIZONTAL_SPACING_SHORT = 0,
+    PREFBAR_HORIZONTAL_SPACING_MEDIUM = 1,
+    PREFBAR_HORIZONTAL_SPACING_LONG = 2
+};
+
+enum {
+    PREFBAR_HORIZONTAL_ALIGN_LEFT = 0,
+    PREFBAR_HORIZONTAL_ALIGN_CENTER = 1,
+    PREFBAR_HORIZONTAL_ALIGN_RIGHT = 2
+};
 
 /* ------------------------------------------------------------------ time */
 static uint64_t now_ns(void)
@@ -101,8 +116,6 @@ static uint64_t now_ns(void)
  * toasts per run, so a fault loop can never bury the screen in notifications.
  * Safe to call from the controller thread and the sampler thread at once.
  */
-#define PREFBAR_VERSION "0.2.1"
-
 #define DBG_ERR 1
 #define DBG_WARN 2
 #define DBG_INFO 3
@@ -177,6 +190,7 @@ static struct
     int notifications_enabled;
     int startup_notification;
     int error_notifications;
+    int warning_notifications;
     int debug_notifications;
     int toasts;
     int nslots;
@@ -236,6 +250,337 @@ static void trim_config_text(char *s)
         s[--n] = '\0';
 }
 
+static int is_prefbar_config_header(const char *line)
+{
+    static const char prefix[] = "# PrefBar ";
+    static const char suffix[] = " configuration";
+    const size_t line_len = line ? strlen(line) : 0;
+    const size_t prefix_len = sizeof(prefix) - 1;
+    const size_t suffix_len = sizeof(suffix) - 1;
+
+    if (line_len <= prefix_len + suffix_len ||
+        strncmp(line, prefix, prefix_len) != 0 ||
+        strcmp(line + line_len - suffix_len, suffix) != 0)
+        return 0;
+
+    /* Accept release versions (including prerelease/build suffixes), not
+     * arbitrary comments that merely begin with "# PrefBar ". */
+    const char *version = line + prefix_len;
+    const size_t version_len = line_len - prefix_len - suffix_len;
+    for (size_t i = 0; i < version_len; ++i)
+    {
+        const char ch = version[i];
+        if (!((ch >= '0' && ch <= '9') ||
+              (ch >= 'A' && ch <= 'Z') ||
+              (ch >= 'a' && ch <= 'z') ||
+              ch == '.' || ch == '-' || ch == '+'))
+            return 0;
+    }
+    return 1;
+}
+
+static void update_config_header(void)
+{
+    FILE *input = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (!input)
+        return;
+
+    char line[128];
+    if (!fgets(line, sizeof(line), input))
+    {
+        (void)fclose(input);
+        return;
+    }
+
+    trim_config_text(line);
+    if (!is_prefbar_config_header(line) || strcmp(line, PREFBAR_CONFIG_HEADER) == 0)
+    {
+        (void)fclose(input);
+        return;
+    }
+
+    struct stat original_stat;
+    const int have_original_stat = fstat(fileno(input), &original_stat) == 0;
+    char temp_path[sizeof(PREFBAR_CONFIG_PATH) + sizeof(".header.tmp")];
+    (void)snprintf(temp_path, sizeof(temp_path), "%s.header.tmp", PREFBAR_CONFIG_PATH);
+
+    FILE *output = fopen(temp_path, "w");
+    if (!output)
+    {
+        (void)fclose(input);
+        return;
+    }
+
+    int output_ok = fprintf(output, "%s\n", PREFBAR_CONFIG_HEADER) >= 0;
+    char buffer[1024];
+    size_t bytes_read = 0;
+    while (output_ok && (bytes_read = fread(buffer, 1, sizeof(buffer), input)) > 0)
+        if (fwrite(buffer, 1, bytes_read, output) != bytes_read)
+            output_ok = 0;
+
+    if (ferror(input))
+        output_ok = 0;
+    if (fflush(output) != 0)
+        output_ok = 0;
+    if (fclose(output) != 0)
+        output_ok = 0;
+    if (fclose(input) != 0)
+        output_ok = 0;
+
+    if (output_ok && have_original_stat &&
+        chmod(temp_path, original_stat.st_mode & 0777) != 0)
+        output_ok = 0;
+    if (output_ok && rename(temp_path, PREFBAR_CONFIG_PATH) == 0)
+        return;
+
+    (void)unlink(temp_path);
+}
+
+
+enum
+{
+    PREFBAR_CONFIG_SECTION_OTHER = 0,
+    PREFBAR_CONFIG_SECTION_OVERLAY = 1,
+    PREFBAR_CONFIG_SECTION_TELEMETRY = 2,
+    PREFBAR_CONFIG_SECTION_NOTIFICATIONS = 3
+};
+
+enum
+{
+    PREFBAR_CONFIG_MAX_LINES = 256,
+    PREFBAR_CONFIG_LINE_SIZE = 512
+};
+
+typedef struct
+{
+    char text[PREFBAR_CONFIG_LINE_SIZE];
+    int section;
+    int is_section;
+    int key_index;
+    int keep;
+} config_migration_line_t;
+
+static int migration_config_key_index(const char *line)
+{
+    static const char *const keys[] = {
+        "overlay_horizontal",
+        "overlay_horizontal_spacing",
+        "overlay_horizontal_align",
+        "overlay_format",
+        "show_frametime",
+        "show_1percent_low",
+        "show_cpu_usage",
+        "show_cpu_temp",
+        "show_gpu_temp",
+        "show_ram",
+        "show_vram",
+        "show_power",
+        "show_cpu_clock",
+        "show_gpu_clock",
+        "gpu_temp_label",
+        "warning_notifications"
+    };
+
+    char parsed[PREFBAR_CONFIG_LINE_SIZE];
+    snprintf(parsed, sizeof(parsed), "%s", line);
+    trim_config_text(parsed);
+    if (!parsed[0] || parsed[0] == '#' || parsed[0] == ';' || parsed[0] == '[')
+        return -1;
+
+    char *eq = strchr(parsed, '=');
+    if (!eq)
+        return -1;
+    *eq = '\0';
+    trim_config_text(parsed);
+
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i)
+        if (strcmp(parsed, keys[i]) == 0)
+            return (int)i;
+    return -1;
+}
+
+/*
+ * Older migration builds could leave repeated [overlay]/[telemetry] blocks
+ * and duplicate option lines behind. Keep the last value for each migrated
+ * option (matching the config parser's effective behavior), then fold those
+ * blocks into one section each. The notification block is folded when a newly
+ * migrated notification option is added. Unknown options and comments remain.
+ */
+static void deduplicate_migrated_config_options(void)
+{
+    enum { KEY_COUNT = 16 };
+    config_migration_line_t *lines =
+        (config_migration_line_t *)calloc(PREFBAR_CONFIG_MAX_LINES, sizeof(*lines));
+    if (!lines)
+        return;
+
+    int last_key[KEY_COUNT];
+    for (int i = 0; i < KEY_COUNT; ++i)
+        last_key[i] = -1;
+
+    FILE *input = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (!input)
+    {
+        free(lines);
+        return;
+    }
+
+    int count = 0;
+    int current_section = PREFBAR_CONFIG_SECTION_OTHER;
+    int seen_overlay = 0;
+    int seen_telemetry = 0;
+    int seen_notifications = 0;
+    int cleanup_needed = 0;
+    int input_failed = 0;
+    char buffer[PREFBAR_CONFIG_LINE_SIZE];
+
+    while (fgets(buffer, sizeof(buffer), input))
+    {
+        if (count >= PREFBAR_CONFIG_MAX_LINES)
+        {
+            input_failed = 1;
+            break;
+        }
+
+        const size_t length = strlen(buffer);
+        if (length == sizeof(buffer) - 1 && buffer[length - 1] != '\n' && !feof(input))
+        {
+            input_failed = 1;
+            break;
+        }
+
+        config_migration_line_t *entry = &lines[count];
+        snprintf(entry->text, sizeof(entry->text), "%s", buffer);
+        entry->keep = 1;
+        entry->key_index = migration_config_key_index(entry->text);
+
+        char normalized[PREFBAR_CONFIG_LINE_SIZE];
+        snprintf(normalized, sizeof(normalized), "%s", entry->text);
+        trim_config_text(normalized);
+
+        if (normalized[0] == '[')
+        {
+            entry->is_section = 1;
+            if (strcmp(normalized, "[overlay]") == 0)
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_OVERLAY;
+                current_section = PREFBAR_CONFIG_SECTION_OVERLAY;
+                if (seen_overlay++)
+                    cleanup_needed = 1;
+            }
+            else if (strcmp(normalized, "[telemetry]") == 0)
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_TELEMETRY;
+                current_section = PREFBAR_CONFIG_SECTION_TELEMETRY;
+                if (seen_telemetry++)
+                    cleanup_needed = 1;
+            }
+            else if (strcmp(normalized, "[notifications]") == 0)
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_NOTIFICATIONS;
+                current_section = PREFBAR_CONFIG_SECTION_NOTIFICATIONS;
+                if (seen_notifications++)
+                    cleanup_needed = 1;
+            }
+            else
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_OTHER;
+                current_section = PREFBAR_CONFIG_SECTION_OTHER;
+            }
+        }
+        else
+        {
+            entry->section = current_section;
+        }
+
+        if (entry->key_index >= 0)
+        {
+            if (last_key[entry->key_index] >= 0)
+                cleanup_needed = 1;
+            last_key[entry->key_index] = count;
+        }
+        ++count;
+    }
+
+    if (ferror(input))
+        input_failed = 1;
+    (void)fclose(input);
+
+    if (input_failed || !cleanup_needed)
+    {
+        free(lines);
+        return;
+    }
+
+    for (int i = 0; i < count; ++i)
+        if (lines[i].key_index >= 0 && last_key[lines[i].key_index] != i)
+            lines[i].keep = 0;
+
+    struct stat original_stat;
+    const int have_original_stat = stat(PREFBAR_CONFIG_PATH, &original_stat) == 0;
+    char temp_path[sizeof(PREFBAR_CONFIG_PATH) + 5];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", PREFBAR_CONFIG_PATH);
+
+    FILE *output = fopen(temp_path, "w");
+    if (!output)
+    {
+        free(lines);
+        return;
+    }
+
+    int emitted_overlay = 0;
+    int emitted_telemetry = 0;
+    int emitted_notifications = 0;
+    for (int i = 0; i < count; ++i)
+    {
+        const int section = lines[i].section;
+        if (section == PREFBAR_CONFIG_SECTION_OVERLAY ||
+            section == PREFBAR_CONFIG_SECTION_TELEMETRY ||
+            section == PREFBAR_CONFIG_SECTION_NOTIFICATIONS)
+        {
+            int *emitted = section == PREFBAR_CONFIG_SECTION_OVERLAY
+                               ? &emitted_overlay
+                               : section == PREFBAR_CONFIG_SECTION_TELEMETRY
+                                     ? &emitted_telemetry
+                                     : &emitted_notifications;
+            if (lines[i].is_section && !*emitted)
+            {
+                if (fputs(lines[i].text, output) == EOF)
+                    break;
+                *emitted = 1;
+                for (int j = 0; j < count; ++j)
+                {
+                    if (lines[j].section == section && !lines[j].is_section &&
+                        lines[j].keep && fputs(lines[j].text, output) == EOF)
+                        break;
+                }
+            }
+            continue;
+        }
+
+        if (lines[i].keep && fputs(lines[i].text, output) == EOF)
+            break;
+    }
+
+    int output_ok = ferror(output) == 0;
+    if (fclose(output) != 0)
+        output_ok = 0;
+
+    if (output_ok)
+    {
+        if (have_original_stat)
+            (void)chmod(temp_path, original_stat.st_mode & 0777);
+        if (rename(temp_path, PREFBAR_CONFIG_PATH) != 0)
+            (void)unlink(temp_path);
+    }
+    else
+    {
+        (void)unlink(temp_path);
+    }
+
+    free(lines);
+}
+
 static int read_config_value(const char *key, char *out, size_t out_size)
 {
     if (!key || !out || out_size == 0)
@@ -280,39 +625,131 @@ static int read_config_int(const char *key, int fallback, int min_value, int max
 
 static void migrate_config_options(void)
 {
+    deduplicate_migrated_config_options();
+
     char value[64];
-    const int add_show_power =
-        !read_config_value("show_power", value, sizeof(value));
+    const int legacy_show_fps = read_config_int("show_fps", 1, 0, 1);
+    const int legacy_show_cpu = read_config_int("show_cpu", 1, 0, 1);
+    const int legacy_show_gpu_temp = read_config_int("show_soc_temp", 1, 0, 1);
+    const int legacy_show_memory = read_config_int("show_memory", 1, 0, 1);
+
     const int add_overlay_horizontal =
         !read_config_value("overlay_horizontal", value, sizeof(value));
+    const int add_overlay_horizontal_spacing =
+        !read_config_value("overlay_horizontal_spacing", value, sizeof(value));
+    const int add_overlay_horizontal_align =
+        !read_config_value("overlay_horizontal_align", value, sizeof(value));
+    const int add_overlay_format =
+        !read_config_value("overlay_format", value, sizeof(value));
 
-    if (!add_show_power && !add_overlay_horizontal)
+    const int add_show_frametime =
+        !read_config_value("show_frametime", value, sizeof(value));
+    const int add_show_1percent_low =
+        !read_config_value("show_1percent_low", value, sizeof(value));
+    const int add_show_cpu_usage =
+        !read_config_value("show_cpu_usage", value, sizeof(value));
+    const int add_show_cpu_temp =
+        !read_config_value("show_cpu_temp", value, sizeof(value));
+    const int add_show_gpu_temp =
+        !read_config_value("show_gpu_temp", value, sizeof(value));
+    const int add_show_ram =
+        !read_config_value("show_ram", value, sizeof(value));
+    const int add_show_vram =
+        !read_config_value("show_vram", value, sizeof(value));
+    const int add_show_power =
+        !read_config_value("show_power", value, sizeof(value));
+    const int add_show_cpu_clock =
+        !read_config_value("show_cpu_clock", value, sizeof(value));
+    const int add_show_gpu_clock =
+        !read_config_value("show_gpu_clock", value, sizeof(value));
+    const int add_gpu_temp_label =
+        !read_config_value("gpu_temp_label", value, sizeof(value));
+    const int add_warning_notifications =
+        !read_config_value("warning_notifications", value, sizeof(value));
+
+    if (!add_warning_notifications && !add_overlay_horizontal && !add_overlay_horizontal_spacing &&
+        !add_overlay_horizontal_align && !add_overlay_format && !add_show_frametime &&
+        !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
+        !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
+        !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
+        !add_gpu_temp_label)
+    {
+        update_config_header();
         return;
+    }
 
-    /* Preserve the user's file and values; append only newly introduced keys.
-     * Section labels are organizational because this parser matches keys globally. */
+    /* Preserve existing options. New individual toggles inherit their former
+     * group toggle once, so an upgrade does not unexpectedly re-enable metrics. */
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "a");
     if (!f)
         return;
 
-    if (add_show_power)
-        (void)fputs("\n[telemetry]\nshow_power=1\n", f);
-    if (add_overlay_horizontal)
-        (void)fputs("\n[overlay]\noverlay_horizontal=0\n", f);
+    if (add_warning_notifications)
+        (void)fputs("\n[notifications]\nwarning_notifications=0\n", f);
 
-    (void)fclose(f);
+    if (add_overlay_horizontal || add_overlay_horizontal_spacing ||
+        add_overlay_horizontal_align || add_overlay_format)
+    {
+        (void)fputs("\n[overlay]\n", f);
+        if (add_overlay_horizontal)
+            (void)fputs("overlay_horizontal=0\n", f);
+        if (add_overlay_horizontal_spacing)
+            (void)fputs("overlay_horizontal_spacing=medium\n", f);
+        if (add_overlay_horizontal_align)
+            (void)fputs("overlay_horizontal_align=center\n", f);
+        if (add_overlay_format)
+            (void)fputs("overlay_format=compact\n", f);
+    }
+
+    if (add_show_frametime || add_show_1percent_low || add_show_cpu_usage ||
+        add_show_cpu_temp || add_show_gpu_temp || add_show_ram || add_show_vram ||
+        add_show_power || add_show_cpu_clock || add_show_gpu_clock || add_gpu_temp_label)
+    {
+        (void)fputs("\n[telemetry]\n", f);
+        if (add_show_frametime)
+            fprintf(f, "show_frametime=%d\n", legacy_show_fps);
+        if (add_show_1percent_low)
+            fprintf(f, "show_1percent_low=%d\n", legacy_show_fps);
+        if (add_show_cpu_usage)
+            fprintf(f, "show_cpu_usage=%d\n", legacy_show_cpu);
+        if (add_show_cpu_temp)
+            fprintf(f, "show_cpu_temp=%d\n", legacy_show_cpu);
+        if (add_show_gpu_temp)
+            fprintf(f, "show_gpu_temp=%d\n", legacy_show_gpu_temp);
+        if (add_show_ram)
+            fprintf(f, "show_ram=%d\n", legacy_show_memory);
+        if (add_show_vram)
+            fprintf(f, "show_vram=%d\n", legacy_show_memory);
+        if (add_show_power)
+            (void)fputs("show_power=1\n", f);
+        if (add_show_cpu_clock)
+            (void)fputs("show_cpu_clock=1\n", f);
+        if (add_show_gpu_clock)
+            (void)fputs("show_gpu_clock=1\n", f);
+        if (add_gpu_temp_label)
+            (void)fputs("gpu_temp_label=gpu\n", f);
+    }
+
+    const int migration_ok = ferror(f) == 0;
+    const int close_ok = fclose(f) == 0;
+    if (migration_ok && close_ok)
+    {
+        deduplicate_migrated_config_options();
+        update_config_header();
+    }
 }
 
 static void ensure_default_config_file(void)
 {
     static const char defaults[] =
-        "# PrefBar 0.2.1 configuration\n"
+        PREFBAR_CONFIG_HEADER "\n"
         "# Values are reloaded once when a new game session starts.\n"
         "# Boolean values: 0 = off, 1 = on. Invalid values use defaults.\n\n"
         "[notifications]\n"
         "notifications=1\n"
         "startup_notification=1\n"
         "error_notifications=1\n"
+        "warning_notifications=0\n"
         "debug_notifications=1\n"
         "debug_notify=3\n"
         "notify_sec=0\n\n"
@@ -325,14 +762,24 @@ static void ensure_default_config_file(void)
         "overlay_corner=0\n"
         "overlay_x=24\n"
         "overlay_y=24\n"
-        "overlay_horizontal=0\n\n"
+        "overlay_horizontal=0\n"
+        "overlay_horizontal_spacing=medium\n"
+        "overlay_horizontal_align=center\n"
+        "overlay_format=compact\n\n"
         "[telemetry]\n"
         "sensors=1\n"
         "show_fps=1\n"
-        "show_cpu=1\n"
-        "show_soc_temp=1\n"
+        "show_frametime=1\n"
+        "show_1percent_low=1\n"
+        "show_cpu_usage=1\n"
+        "show_cpu_temp=1\n"
+        "show_cpu_clock=1\n"
+        "show_gpu_temp=1\n"
+        "gpu_temp_label=gpu\n"
+        "show_gpu_clock=1\n"
         "show_fan_duty=1\n"
-        "show_memory=1\n"
+        "show_ram=1\n"
+        "show_vram=1\n"
         "show_power=1\n\n"
         "[input]\n"
         "touchpad_toggle=1\n\n"
@@ -382,6 +829,7 @@ static void dbg_init_locked(void)
     g_dbg.notifications_enabled = read_config_int("notifications", 1, 0, 1);
     g_dbg.startup_notification = read_config_int("startup_notification", 1, 0, 1);
     g_dbg.error_notifications = read_config_int("error_notifications", 1, 0, 1);
+    g_dbg.warning_notifications = read_config_int("warning_notifications", 0, 0, 1);
     g_dbg.debug_notifications = read_config_int("debug_notifications", 1, 0, 1);
 }
 
@@ -487,8 +935,10 @@ static void dbg_vevent(int level, const char *key, const char *fmt, va_list ap)
     }
     dbg_log_locked(t, level, key, msg);
     const int category_enabled = (level == DBG_ERR)
-                                     ? g_dbg.error_notifications
-                                     : g_dbg.debug_notifications;
+                                      ? g_dbg.error_notifications
+                                      : level == DBG_WARN
+                                            ? g_dbg.warning_notifications
+                                            : g_dbg.debug_notifications;
 #if defined(PREFBAR_SIM)
     if (g_dbg.notifications_enabled && category_enabled &&
         level <= g_dbg.notify_level && g_dbg.toasts < DBG_MAX_TOASTS)
@@ -694,38 +1144,84 @@ extern int sceKernelGetCpuTemperature(int *) __attribute__((weak));
 extern int sceKernelGetSocSensorTemperature(int, int *) __attribute__((weak));
 extern int sceKernelGetCurrentFanDuty(uint16_t *, uint64_t *) __attribute__((weak));
 extern int sceKernelGetSocPowerConsumption(void *) __attribute__((weak));
+extern long sceKernelGetCpuFrequency(void) __attribute__((weak));
+extern int sceKernelGetSocClock(uint32_t *) __attribute__((weak));
 extern int sceKernelGetCpuUsage(struct ps_proc_stats *, int32_t *) __attribute__((weak));
 extern int sceKernelGetThreadName(uint32_t, char *) __attribute__((weak));
 extern int get_page_table_stats(int, int, int *, int *) __attribute__((weak));
 #define SYM_PRESENT(f) ((void *)(f) != NULL)
 
 typedef int (*soc_power_api_t)(void *);
+typedef long (*cpu_frequency_api_t)(void);
+typedef int (*soc_clock_api_t)(uint32_t *);
+
 static soc_power_api_t g_soc_power_api;
+static cpu_frequency_api_t g_cpu_frequency_api;
+static soc_clock_api_t g_soc_clock_api;
+
+/* Resolve optional libkernel exports by name, then by NID. The weak import is
+ * preferred; fallbacks cover SDK/import-table combinations that omit a symbol. */
+static intptr_t resolve_kernel_api(const char *name)
+{
+    const pid_t pid = getpid();
+    uint32_t handle = 0;
+
+    if (kernel_dynlib_handle(pid, "libkernel_sys.sprx", &handle) == 0 && handle)
+    {
+        intptr_t address = kernel_dynlib_dlsym(pid, handle, name);
+        if (!address)
+        {
+            char nid[12];
+            if (nid_encode(name, nid))
+                address = kernel_dynlib_resolve(pid, handle, nid);
+        }
+        if (address)
+            return address;
+    }
+
+    /* libkernel.sprx is handle 1 in PrefBar's existing symbol lookup path. */
+    handle = 1;
+    intptr_t address = kernel_dynlib_dlsym(pid, handle, name);
+    if (!address)
+    {
+        char nid[12];
+        if (nid_encode(name, nid))
+            address = kernel_dynlib_resolve(pid, handle, nid);
+    }
+    return address;
+}
 
 static void resolve_soc_power_api(void)
 {
-    /* Prefer a normal weak import when this firmware's import table exposes it. */
-    if (sceKernelGetSocPowerConsumption) {
+    if (sceKernelGetSocPowerConsumption)
+    {
         g_soc_power_api = sceKernelGetSocPowerConsumption;
         return;
     }
-
-    /* Some SDK/import-library combinations do not expose this newer symbol.
-     * Resolve it from the loaded kernel_sys module by name, with NID fallback. */
-    uint32_t handle = 0;
-    const pid_t pid = getpid();
-    if (kernel_dynlib_handle(pid, "libkernel_sys.sprx", &handle) < 0 || !handle)
-        return;
-
-    intptr_t address = kernel_dynlib_dlsym(
-        pid, handle, "sceKernelGetSocPowerConsumption");
-    if (!address) {
-        char nid[12];
-        if (nid_encode("sceKernelGetSocPowerConsumption", nid))
-            address = kernel_dynlib_resolve(pid, handle, nid);
-    }
+    intptr_t address = resolve_kernel_api("sceKernelGetSocPowerConsumption");
     if (address)
         g_soc_power_api = (soc_power_api_t)(uintptr_t)address;
+}
+
+static void resolve_clock_apis(void)
+{
+    if (sceKernelGetCpuFrequency)
+        g_cpu_frequency_api = sceKernelGetCpuFrequency;
+    else
+    {
+        intptr_t address = resolve_kernel_api("sceKernelGetCpuFrequency");
+        if (address)
+            g_cpu_frequency_api = (cpu_frequency_api_t)(uintptr_t)address;
+    }
+
+    if (sceKernelGetSocClock)
+        g_soc_clock_api = sceKernelGetSocClock;
+    else
+    {
+        intptr_t address = resolve_kernel_api("sceKernelGetSocClock");
+        if (address)
+            g_soc_clock_api = (soc_clock_api_t)(uintptr_t)address;
+    }
 }
 
 static int soc_power_api_present(void)
@@ -736,6 +1232,26 @@ static int soc_power_api_present(void)
 static int soc_power_read(void *out)
 {
     return g_soc_power_api ? g_soc_power_api(out) : -1;
+}
+
+static int cpu_frequency_api_present(void)
+{
+    return g_cpu_frequency_api != NULL;
+}
+
+static long cpu_frequency_read(void)
+{
+    return g_cpu_frequency_api ? g_cpu_frequency_api() : -1;
+}
+
+static int soc_clock_api_present(void)
+{
+    return g_soc_clock_api != NULL;
+}
+
+static int soc_clock_read(uint32_t *domains)
+{
+    return g_soc_clock_api ? g_soc_clock_api(domains) : -1;
 }
 #else
 #define SYM_PRESENT(f) 1
@@ -777,6 +1293,19 @@ static int sceKernelGetSocPowerConsumption(void *out_raw)
 }
 static int soc_power_api_present(void) { return 1; }
 static int soc_power_read(void *out) { return sceKernelGetSocPowerConsumption(out); }
+static long sceKernelGetCpuFrequency(void) { return 3500000000L; }
+static int sceKernelGetSocClock(uint32_t *domains)
+{
+    if (!domains)
+        return -1;
+    memset(domains, 0, sizeof(uint32_t) * SOC_CLOCK_DOMAINS);
+    domains[20] = 2150;
+    return 0;
+}
+static int cpu_frequency_api_present(void) { return 1; }
+static long cpu_frequency_read(void) { return sceKernelGetCpuFrequency(); }
+static int soc_clock_api_present(void) { return 1; }
+static int soc_clock_read(uint32_t *domains) { return sceKernelGetSocClock(domains); }
 static const double SIM_IDLE_FRAC[NCORES] = {0.90, 0.70, 0.50, 0.80, 0.60, 0.95, 0.70, 0.85};
 static int sceKernelGetThreadName(uint32_t id, char *out)
 {
@@ -803,9 +1332,16 @@ static int sceKernelGetCpuUsage(struct ps_proc_stats *out, int32_t *n)
     *n = count;
     return 0;
 }
+static int g_sim_pool_force, g_sim_pool_rc, g_sim_pool_total, g_sim_pool_fr;
 static int get_page_table_stats(int vm, int type, int *total, int *fr)
 {
     (void)vm;
+    if (g_sim_pool_force)
+    {
+        *total = g_sim_pool_total;
+        *fr = g_sim_pool_fr;
+        return g_sim_pool_rc;
+    }
     if (type == 1)
     {
         *total = 12288;
@@ -928,6 +1464,8 @@ typedef struct
 {
     int have_cpu_temp, cpu_temp;
     int have_soc_temp, soc_temp;
+    int have_cpu_clock, cpu_clock_mhz;
+    int have_gpu_clock, gpu_clock_mhz;
     int have_fan, fan;
     int have_cpu, ncores_known;
     float core[NCORES], cpu_avg;
@@ -1051,6 +1589,55 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
     c->have_prev = 1;
 }
 
+/* Validate memory-pool readings before displaying them. */
+#define POOL_MAX_MB 20480
+#define POOL_HOLD_TICKS 5
+
+typedef struct
+{
+    int valid, total, fr, bad_run;
+} pool_hold_t;
+
+static pool_hold_t g_pool_ram, g_pool_vram;
+
+static int pool_sane(int total, int fr)
+{
+    return total > 0 && total <= POOL_MAX_MB && fr >= 0 && fr <= total;
+}
+
+static int pool_read(int type, pool_hold_t *h, const char *key, int *total, int *fr)
+{
+    int t = 0, f = 0, rc = -1;
+    if (SYM_PRESENT(get_page_table_stats))
+        rc = get_page_table_stats(1, type, &t, &f);
+
+    if (rc != -1 && pool_sane(t, f))
+    {
+        h->valid = 1;
+        h->total = t;
+        h->fr = f;
+        h->bad_run = 0;
+        *total = t;
+        *fr = f;
+        return 1;
+    }
+
+    if (rc != -1)
+        dbg_event(DBG_WARN, key, "pool read rejected: rc=%d total=%d free=%d (%s)",
+                  rc, t, f,
+                  h->valid && h->bad_run < POOL_HOLD_TICKS ? "holding last good value" : "row hidden");
+
+    if (h->valid && ++h->bad_run <= POOL_HOLD_TICKS)
+    {
+        *total = h->total;
+        *fr = h->fr;
+        return 1;
+    }
+
+    h->valid = 0;
+    return 0;
+}
+
 static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
 {
     memset(s, 0, sizeof *s);
@@ -1062,10 +1649,32 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
         s->cpu_temp = v;
     }
     v = 0;
-    if (SYM_PRESENT(sceKernelGetSocSensorTemperature) && sceKernelGetSocSensorTemperature(0, &v) == 0 && v > 0)
+    if (SYM_PRESENT(sceKernelGetSocSensorTemperature) &&
+        sceKernelGetSocSensorTemperature(0, &v) == 0 && v > 0)
     {
         s->have_soc_temp = 1;
         s->soc_temp = v;
+    }
+
+    /* CPU frequency API returns Hz; SoC clock domain 20 reports GPU MHz. */
+    if (cpu_frequency_api_present())
+    {
+        const long cpu_hz = cpu_frequency_read();
+        if (cpu_hz >= 100000000L && cpu_hz <= 10000000000L)
+        {
+            s->cpu_clock_mhz = (int)((cpu_hz + 500000L) / 1000000L);
+            s->have_cpu_clock = 1;
+        }
+    }
+    if (soc_clock_api_present())
+    {
+        uint32_t domains[SOC_CLOCK_DOMAINS] = {0};
+        if (soc_clock_read(domains) == 0 &&
+            domains[20] >= 100u && domains[20] <= 5000u)
+        {
+            s->gpu_clock_mhz = (int)domains[20];
+            s->have_gpu_clock = 1;
+        }
     }
 
     uint16_t duty_q10 = 0;
@@ -1106,7 +1715,7 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
     cpu_usage_sample(c, s, t_ns);
 
     int total = 0, fr = 0;
-    if (SYM_PRESENT(get_page_table_stats) && get_page_table_stats(1, 1, &total, &fr) != -1 && total > 0)
+    if (pool_read(1, &g_pool_ram, "sensors.ram.reject", &total, &fr))
     {
         s->have_ram = 1;
         s->ram_total_mb = total;
@@ -1115,7 +1724,7 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
     }
     total = 0;
     fr = 0;
-    if (SYM_PRESENT(get_page_table_stats) && get_page_table_stats(1, 2, &total, &fr) != -1 && total > 0)
+    if (pool_read(2, &g_pool_vram, "sensors.vram.reject", &total, &fr))
     {
         s->have_vram = 1;
         s->vram_total_mb = total;
@@ -1146,25 +1755,42 @@ static void format_perf(const report_t *r, char *buf, size_t n)
             r->fps, r->avg_ms, r->low1_fps, r->max_ms, r->hitches);
 }
 
-static void format_sensors(const sensors_t *s, char *buf, size_t n)
+static void format_sensors(const sensors_t *s, int gpu_temp_label_soc, char *buf, size_t n)
 {
     buf[0] = 0;
     const char *sep = "";
-    if (s->have_cpu)
+    if (s->have_cpu || s->have_cpu_clock || s->have_cpu_temp)
     {
-        app(buf, n, "%sCPU %.0f%%", sep, s->cpu_avg);
+        app(buf, n, "%sCPU", sep);
+        if (s->have_cpu)
+            app(buf, n, " %.0f%%", s->cpu_avg);
+        if (s->have_cpu_clock)
+            app(buf, n, " %dMHz", s->cpu_clock_mhz);
         if (s->have_cpu_temp)
             app(buf, n, " %dC", s->cpu_temp);
         sep = " | ";
     }
-    else if (s->have_cpu_temp)
+    if (gpu_temp_label_soc)
     {
-        app(buf, n, "%sCPU %dC", sep, s->cpu_temp);
-        sep = " | ";
+        if (s->have_gpu_clock)
+        {
+            app(buf, n, "%sGPU %dMHz", sep, s->gpu_clock_mhz);
+            sep = " | ";
+        }
+        if (s->have_soc_temp)
+        {
+            app(buf, n, "%sSoC %dC", sep, s->soc_temp);
+            sep = " | ";
+        }
     }
-    if (s->have_soc_temp)
+    else if (s->have_gpu_clock || s->have_soc_temp)
     {
-        app(buf, n, "%sSoC %dC", sep, s->soc_temp);
+        /* User-facing default groups the GPU clock and the commonly named GPU temperature. */
+        app(buf, n, "%sGPU", sep);
+        if (s->have_soc_temp)
+            app(buf, n, " %dC", s->soc_temp);
+        if (s->have_gpu_clock)
+            app(buf, n, " %dMHz", s->gpu_clock_mhz);
         sep = " | ";
     }
     if (s->have_power)
@@ -1226,7 +1852,11 @@ static void format_kv(const report_t *r, const sensors_t *s, char *buf, size_t n
     if (s->have_cpu_temp)
         app(buf, n, "cpu_temp_c=%d\n", s->cpu_temp);
     if (s->have_soc_temp)
-        app(buf, n, "soc_temp_c=%d\n", s->soc_temp);
+        app(buf, n, "gpu_temp_c=%d\nsoc_temp_c=%d\n", s->soc_temp, s->soc_temp);
+    if (s->have_cpu_clock)
+        app(buf, n, "cpu_clock_mhz=%d\n", s->cpu_clock_mhz);
+    if (s->have_gpu_clock)
+        app(buf, n, "gpu_clock_mhz=%d\n", s->gpu_clock_mhz);
     if (s->have_power)
         app(buf, n, "soc_power_w=%.2f\n", s->power_w);
     if (s->have_fan)
@@ -1252,15 +1882,26 @@ static void write_file_atomic(const char *name, const char *text)
     rename(tmp, dst);
 }
 
+/* overlay format values are stable config tokens: compact is the new default. */
+#define PREFBAR_OVERLAY_FORMAT_COMPACT 0
+#define PREFBAR_OVERLAY_FORMAT_CLASSIC 1
+
 /* runtime configuration (loaded from <DATA_DIR>/prefbar.conf) */
 typedef struct
 {
     int notify_sec, poll_us, sensors, diag;
     int overlay, ov_mode, ov_font, ov_corner, ov_x, ov_y;
-    int notifications, startup_notification, error_notifications, debug_notifications;
+    int notifications, startup_notification, error_notifications;
+    int warning_notifications, debug_notifications;
     int debug_notify;
-    int text_shadow, show_fps, show_cpu, show_soc_temp, show_fan_duty, show_memory;
-    int show_power, overlay_horizontal;
+    int text_shadow;
+    int show_fps, show_frametime, show_1percent_low;
+    int show_cpu_usage, show_cpu_temp, show_cpu_clock;
+    int show_gpu_temp, show_gpu_clock, show_fan_duty;
+    int gpu_temp_label_soc;
+    int show_ram, show_vram, show_power;
+    int overlay_horizontal, overlay_horizontal_spacing, overlay_horizontal_align;
+    int overlay_format;
     int touchpad_toggle;
     float text_r, text_g, text_b;
 } config_t;
@@ -1343,71 +1984,172 @@ static void append_overlay_row(
     ++*count;
 }
 
+static void append_compact_value(char *values, size_t values_size,
+                                  const char *fmt, ...)
+{
+    char value[48];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(value, sizeof value, fmt, ap);
+    va_end(ap);
+    if (!value[0])
+        return;
+    if (values[0])
+        app(values, values_size, " | ");
+    app(values, values_size, "%s", value);
+}
+
 static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s,
                       char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN])
 {
     int n = 0;
     char row[PREFBAR_ROW_LEN];
-
+    char values[PREFBAR_ROW_LEN];
     memset(rows, 0, sizeof(char) * PREFBAR_ROWS * PREFBAR_ROW_LEN);
 
+    if (cfg->overlay_format == PREFBAR_OVERLAY_FORMAT_CLASSIC)
+    {
+        /* Classic retains the previous one-metric-per-row implementation. */
+
+
+    /* Frame metrics are independent toggles and independent rows. */
     if (cfg->show_fps)
     {
-        if (r->idle)
-            snprintf(row, sizeof row, "FPS --");
-        else
-            snprintf(row, sizeof row, "FPS %.1f  %.1f ms  1%%L %.1f",
-                     r->fps, r->avg_ms, r->low1_fps);
+        snprintf(row, sizeof row, r->idle ? "FPS --" : "FPS %.1f", r->fps);
         append_overlay_row(rows, &n, row);
     }
-
-    if (cfg->sensors && (cfg->show_cpu || cfg->show_soc_temp))
+    if (cfg->show_frametime)
     {
-        row[0] = '\0';
-        if (cfg->show_cpu && s->have_cpu)
-        {
-            snprintf(row, sizeof row, "CPU %.0f%%", s->cpu_avg);
-            if (s->have_cpu_temp)
-                app(row, sizeof row, " %dC", s->cpu_temp);
-        }
-        else if (cfg->show_cpu && s->have_cpu_temp)
-        {
-            snprintf(row, sizeof row, "CPU %dC", s->cpu_temp);
-        }
-        if (cfg->show_soc_temp && s->have_soc_temp)
-            app(row, sizeof row, "%sSoC %dC", row[0] ? "  " : "", s->soc_temp);
+        snprintf(row, sizeof row, r->idle ? "FT --" : "FT %.1fms", r->avg_ms);
         append_overlay_row(rows, &n, row);
     }
-
-    if (cfg->sensors && cfg->show_fan_duty)
+    if (cfg->show_1percent_low)
     {
-        if (s->have_fan)
-            snprintf(row, sizeof row, "Fan: %d%%", s->fan);
-        else
-            snprintf(row, sizeof row, "Fan: --");
+        snprintf(row, sizeof row, r->idle ? "1%%L --" : "1%%L %.1f", r->low1_fps);
         append_overlay_row(rows, &n, row);
     }
 
-    if (cfg->sensors && cfg->show_memory)
+    /* Every sensor is appended separately. Disabled or unavailable metrics
+     * do not consume a row, so both layouts naturally stay compact. */
+    if (cfg->sensors && cfg->show_cpu_usage && s->have_cpu)
     {
-        row[0] = '\0';
-        if (s->have_ram)
-            snprintf(row, sizeof row, "RAM %d/%d MB", s->ram_used_mb, s->ram_total_mb);
-        if (s->have_vram)
-            app(row, sizeof row, "%sVRAM %.0f%%",
-                row[0] ? "  " : "", s->vram_pct);
+        snprintf(row, sizeof row, "CPU %.0f%%", s->cpu_avg);
         append_overlay_row(rows, &n, row);
     }
-
+    if (cfg->sensors && cfg->show_cpu_temp && s->have_cpu_temp)
+    {
+        snprintf(row, sizeof row, "CPU %dC", s->cpu_temp);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_cpu_clock && s->have_cpu_clock)
+    {
+        snprintf(row, sizeof row, "CPU %dMHz", s->cpu_clock_mhz);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
+    {
+        snprintf(row, sizeof row, "GPU %dMHz", s->gpu_clock_mhz);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_gpu_temp && s->have_soc_temp)
+    {
+        snprintf(row, sizeof row, "%s %dC", cfg->gpu_temp_label_soc ? "SoC" : "GPU", s->soc_temp);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_fan_duty && s->have_fan)
+    {
+        snprintf(row, sizeof row, "FAN %d%%", s->fan);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_ram && s->have_ram)
+    {
+        snprintf(row, sizeof row, "RAM %d/%dMB", s->ram_used_mb, s->ram_total_mb);
+        append_overlay_row(rows, &n, row);
+    }
+    if (cfg->sensors && cfg->show_vram && s->have_vram)
+    {
+        snprintf(row, sizeof row, "VRAM %.0f%%", s->vram_pct);
+        append_overlay_row(rows, &n, row);
+    }
     if (cfg->sensors && cfg->show_power && s->have_power)
     {
-        snprintf(row, sizeof row, "PWR %.0f W", s->power_w);
+        snprintf(row, sizeof row, "PWR %.0fW", s->power_w);
         append_overlay_row(rows, &n, row);
+    }
+
+    }
+    else
+    {
+        /* Compact groups related readings; each show_* switch remains independent. */
+        values[0] = '\0';
+        if (cfg->show_fps)
+            append_compact_value(values, sizeof values, r->idle ? "FPS --" : "FPS %.1f", r->fps);
+        if (cfg->show_frametime)
+            append_compact_value(values, sizeof values, r->idle ? "FT --" : "FT %.1fms", r->avg_ms);
+        if (cfg->show_1percent_low)
+            append_compact_value(values, sizeof values, r->idle ? "1%%L --" : "1%%L %.1f", r->low1_fps);
+        if (values[0])
+            append_overlay_row(rows, &n, values);
+
+        values[0] = '\0';
+        if (cfg->sensors && cfg->show_cpu_usage && s->have_cpu)
+            append_compact_value(values, sizeof values, "%.0f%%", s->cpu_avg);
+        if (cfg->sensors && cfg->show_cpu_temp && s->have_cpu_temp)
+            append_compact_value(values, sizeof values, "%dC", s->cpu_temp);
+        if (cfg->sensors && cfg->show_cpu_clock && s->have_cpu_clock)
+            append_compact_value(values, sizeof values, "%dMHz", s->cpu_clock_mhz);
+        if (values[0]) {
+            snprintf(row, sizeof row, "CPU: %s", values);
+            append_overlay_row(rows, &n, row);
+        }
+
+        values[0] = '\0';
+        if (cfg->gpu_temp_label_soc)
+        {
+            if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
+                append_compact_value(values, sizeof values, "GPU: %dMHz", s->gpu_clock_mhz);
+            if (cfg->sensors && cfg->show_gpu_temp && s->have_soc_temp)
+                append_compact_value(values, sizeof values, "SoC: %dC", s->soc_temp);
+            if (values[0])
+                append_overlay_row(rows, &n, values);
+        }
+        else
+        {
+            /* The default GPU label keeps the original combined, familiar presentation. */
+            if (cfg->sensors && cfg->show_gpu_temp && s->have_soc_temp)
+                append_compact_value(values, sizeof values, "%dC", s->soc_temp);
+            if (cfg->sensors && cfg->show_gpu_clock && s->have_gpu_clock)
+                append_compact_value(values, sizeof values, "%dMHz", s->gpu_clock_mhz);
+            if (values[0]) {
+                snprintf(row, sizeof row, "GPU: %s", values);
+                append_overlay_row(rows, &n, row);
+            }
+        }
+
+        values[0] = '\0';
+        if (cfg->sensors && cfg->show_ram && s->have_ram)
+            append_compact_value(values, sizeof values, "RAM %d/%dMB", s->ram_used_mb, s->ram_total_mb);
+        if (cfg->sensors && cfg->show_vram && s->have_vram)
+            append_compact_value(values, sizeof values, "VRAM %.0f%%", s->vram_pct);
+        if (values[0]) {
+            snprintf(row, sizeof row, "MEM: %s", values);
+            append_overlay_row(rows, &n, row);
+        }
+
+        values[0] = '\0';
+        if (cfg->sensors && cfg->show_fan_duty && s->have_fan)
+            append_compact_value(values, sizeof values, "FAN %d%%", s->fan);
+        if (cfg->sensors && cfg->show_power && s->have_power)
+            append_compact_value(values, sizeof values, "PWR %.0fW", s->power_w);
+        if (values[0]) {
+            snprintf(row, sizeof row, "SYS: %s", values);
+            append_overlay_row(rows, &n, row);
+        }
     }
 
     if (cfg->ov_mode == 1 && cfg->sensors)
     {
-        if (cfg->show_cpu && s->have_cpu)
+        if (cfg->show_cpu_usage && s->have_cpu)
         {
             row[0] = '\0';
             snprintf(row, sizeof row, "cores:");
@@ -1456,10 +2198,27 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
     p.sequence = ++seq;
     p.corner = (uint8_t)cfg->ov_corner;
     p.rows = (uint8_t)n;
+    uint8_t horizontal_spacing_flags = 0;
+    uint8_t horizontal_alignment_flags = 0;
+    if (cfg->overlay_horizontal)
+    {
+        if (cfg->overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_SHORT)
+            horizontal_spacing_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_SHORT;
+        else if (cfg->overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG)
+            horizontal_spacing_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_LONG;
+        /* Medium is zero: it preserves the previous horizontal spacing. */
+
+        if (cfg->overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_LEFT)
+            horizontal_alignment_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT;
+        else if (cfg->overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_RIGHT)
+            horizontal_alignment_flags = PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT;
+        /* Center is zero, so it is the default alignment. */
+    }
     p.flags = (uint8_t)((cfg->text_shadow ? PREFBAR_WIRE_FLAG_TEXT_SHADOW : 0u) |
                         (cfg->touchpad_toggle ? PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE : 0u) |
                         (cfg->overlay ? PREFBAR_WIRE_FLAG_OVERLAY_ENABLED : 0u) |
-                        (cfg->overlay_horizontal ? PREFBAR_WIRE_FLAG_HORIZONTAL : 0u));
+                        (cfg->overlay_horizontal ? PREFBAR_WIRE_FLAG_HORIZONTAL : 0u) |
+                        horizontal_spacing_flags | horizontal_alignment_flags);
     p.font_size = (uint16_t)cfg->ov_font;
     p.margin_x = (float)cfg->ov_x;
     p.margin_y = (float)cfg->ov_y;
@@ -1679,16 +2438,27 @@ static void config_defaults(config_t *c)
     c->notifications = 1;
     c->startup_notification = 1;
     c->error_notifications = 1;
+    c->warning_notifications = 0;
     c->debug_notifications = 1;
     c->debug_notify = 3;
     c->text_shadow = 1;
     c->show_fps = 1;
-    c->show_cpu = 1;
-    c->show_soc_temp = 1;
+    c->show_frametime = 1;
+    c->show_1percent_low = 1;
+    c->show_cpu_usage = 1;
+    c->show_cpu_temp = 1;
+    c->show_cpu_clock = 1;
+    c->show_gpu_temp = 1;
+    c->gpu_temp_label_soc = 0;
+    c->show_gpu_clock = 1;
     c->show_fan_duty = 1;
-    c->show_memory = 1;
+    c->show_ram = 1;
+    c->show_vram = 1;
     c->show_power = 1;
     c->overlay_horizontal = 0;
+    c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
+    c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;
+    c->overlay_format = PREFBAR_OVERLAY_FORMAT_COMPACT;
     c->touchpad_toggle = 1;
     c->text_r = 0.95f;
     c->text_g = 0.95f;
@@ -1755,16 +2525,56 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("notifications", notifications, 1, 0, 1)
     CONFIG_INT("startup_notification", startup_notification, 1, 0, 1)
     CONFIG_INT("error_notifications", error_notifications, 1, 0, 1)
+    CONFIG_INT("warning_notifications", warning_notifications, 0, 0, 1)
     CONFIG_INT("debug_notifications", debug_notifications, 1, 0, 1)
     CONFIG_INT("debug_notify", debug_notify, 3, 0, DBG_TRACE)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
     CONFIG_INT("show_fps", show_fps, 1, 0, 1)
-    CONFIG_INT("show_cpu", show_cpu, 1, 0, 1)
-    CONFIG_INT("show_soc_temp", show_soc_temp, 1, 0, 1)
+    CONFIG_INT("show_frametime", show_frametime, 1, 0, 1)
+    CONFIG_INT("show_1percent_low", show_1percent_low, 1, 0, 1)
+    CONFIG_INT("show_cpu_usage", show_cpu_usage, 1, 0, 1)
+    CONFIG_INT("show_cpu_temp", show_cpu_temp, 1, 0, 1)
+    CONFIG_INT("show_cpu_clock", show_cpu_clock, 1, 0, 1)
+    CONFIG_INT("show_gpu_temp", show_gpu_temp, 1, 0, 1)
+    if (strcmp(key, "gpu_temp_label") == 0)
+    {
+        if (strcmp(value, "soc") == 0)
+            c->gpu_temp_label_soc = 1;
+        else if (strcmp(value, "gpu") == 0)
+            c->gpu_temp_label_soc = 0;
+        return;
+    }
+    CONFIG_INT("show_gpu_clock", show_gpu_clock, 1, 0, 1)
     CONFIG_INT("show_fan_duty", show_fan_duty, 1, 0, 1)
-    CONFIG_INT("show_memory", show_memory, 1, 0, 1)
+    CONFIG_INT("show_ram", show_ram, 1, 0, 1)
+    CONFIG_INT("show_vram", show_vram, 1, 0, 1)
     CONFIG_INT("show_power", show_power, 1, 0, 1)
     CONFIG_INT("overlay_horizontal", overlay_horizontal, 0, 0, 1)
+    if (strcmp(key, "overlay_format") == 0)
+    {
+        c->overlay_format = strcmp(value, "classic") == 0
+                                ? PREFBAR_OVERLAY_FORMAT_CLASSIC
+                                : PREFBAR_OVERLAY_FORMAT_COMPACT;
+        return;
+    }
+    if (strcmp(key, "overlay_horizontal_align") == 0)
+    {
+        c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;
+        if (strcmp(value, "left") == 0)
+            c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_LEFT;
+        else if (strcmp(value, "right") == 0)
+            c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_RIGHT;
+        return;
+    }
+    if (strcmp(key, "overlay_horizontal_spacing") == 0)
+    {
+        c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
+        if (strcmp(value, "short") == 0)
+            c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_SHORT;
+        else if (strcmp(value, "long") == 0)
+            c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_LONG;
+        return;
+    }
     CONFIG_INT("touchpad_toggle", touchpad_toggle, 1, 0, 1)
 #undef CONFIG_INT
     if (strcmp(key, "text_color") == 0)
@@ -1818,6 +2628,7 @@ static void apply_debug_config(const config_t *cfg)
     g_dbg.notifications_enabled = cfg->notifications;
     g_dbg.startup_notification = cfg->startup_notification;
     g_dbg.error_notifications = cfg->error_notifications;
+    g_dbg.warning_notifications = cfg->warning_notifications;
     g_dbg.debug_notifications = cfg->debug_notifications;
     DBG_UNLOCK();
 }
@@ -1884,9 +2695,14 @@ static int prefbar_run(int install_signals, int lock)
     apply_debug_config(&cfg);
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
     resolve_soc_power_api();
+    resolve_clock_apis();
     dbg_event(DBG_INFO, "sensor.soc_power",
               "sceKernelGetSocPowerConsumption %s",
               soc_power_api_present() ? "resolved" : "unavailable");
+    dbg_event(DBG_INFO, "sensor.clocks",
+              "CPU frequency API %s; GPU SoC clock API %s",
+              cpu_frequency_api_present() ? "resolved" : "unavailable",
+              soc_clock_api_present() ? "resolved" : "unavailable");
     overlay_control_open();
 #endif
 
@@ -1963,6 +2779,8 @@ static int prefbar_run(int install_signals, int lock)
             /* One attempt per confirmed game entry; a failed read leaves the
              * current last known-good settings untouched. */
             applied_config_session_generation = session_generation;
+            memset(&g_pool_ram, 0, sizeof g_pool_ram);
+            memset(&g_pool_vram, 0, sizeof g_pool_vram);
             if (reload_config(&cfg))
             {
                 memset(&cpuu, 0, sizeof cpuu);
@@ -2089,9 +2907,13 @@ static int prefbar_run(int install_signals, int lock)
             if (cfg.sensors)
             {
                 if (reports == 2) /* CPU usage needs two samples to exist */
-                    dbg_event(DBG_INFO, "sensors", "sensors: cpu%%=%s cpuT=%s socT=%s fan=%s",
+                    dbg_event(DBG_INFO, "sensors",
+                              "sensors: cpu%%=%s cpuT=%s socT=%s cpuClk=%s gpuClk=%s fan=%s",
                               sens.have_cpu ? "y" : "n", sens.have_cpu_temp ? "y" : "n",
-                              sens.have_soc_temp ? "y" : "n", sens.have_fan ? "y" : "n");
+                              sens.have_soc_temp ? "y" : "n",
+                              sens.have_cpu_clock ? "y" : "n",
+                              sens.have_gpu_clock ? "y" : "n",
+                              sens.have_fan ? "y" : "n");
                 if (reports == 2)
                     dbg_event(DBG_TRACE, "fan.rpm.unavailable",
                               "fan RPM is not exposed by the verified API; overlay shows measured fan-duty percent instead");
@@ -2150,7 +2972,7 @@ static int prefbar_run(int install_signals, int lock)
             l2[0] = l3[0] = 0;
             if (cfg.sensors)
             {
-                format_sensors(&sens, l2, sizeof l2);
+                format_sensors(&sens, cfg.gpu_temp_label_soc, l2, sizeof l2);
                 format_cores(&sens, l3, sizeof l3);
             }
             snprintf(txt, sizeof txt, "%s\n", l1);

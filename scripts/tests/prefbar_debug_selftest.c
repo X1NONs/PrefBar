@@ -43,6 +43,19 @@ static long file_size(const char *path)
     return stat(path, &st) == 0 ? (long)st.st_size : -1;
 }
 
+
+static int text_occurrences(const char *text, const char *needle)
+{
+    int count = 0;
+    size_t needle_len = strlen(needle);
+    while ((text = strstr(text, needle)) != NULL)
+    {
+        ++count;
+        text += needle_len;
+    }
+    return count;
+}
+
 static void age_all_slots(void) /* pretend 60 s passed */
 {
     for (int i = 0; i < g_dbg.nslots; i++)
@@ -81,14 +94,14 @@ static void test_levels(void)
         int expect;
     } cases[] = {
         {"debug_notify=0\n", 0},
-        {"debug_notify=1\n", 1},
-        {"debug_notify=2\n", 2},
-        {"debug_notify=3\n", 3},
-        {"debug_notify=4\n", 4},
-        {NULL, 3}, /* default */
-        {"debug_notify=9\n", 3},
-        {"debug_notify=-1\n", 3},
-        {"debug_notify=abc\n", 3},
+        {"warning_notifications=1\ndebug_notify=1\n", 1},
+        {"warning_notifications=1\ndebug_notify=2\n", 2},
+        {"warning_notifications=1\ndebug_notify=3\n", 3},
+        {"warning_notifications=1\ndebug_notify=4\n", 4},
+        {NULL, 2}, /* default: errors + information, no warning toasts */
+        {"warning_notifications=1\ndebug_notify=9\n", 3},
+        {"warning_notifications=1\ndebug_notify=-1\n", 3},
+        {"warning_notifications=1\ndebug_notify=abc\n", 3},
     };
     for (unsigned c = 0; c < sizeof cases / sizeof *cases; c++)
     {
@@ -172,6 +185,30 @@ static void test_notification_switches(void)
     prefbar_debug_event(DBG_INFO, "allowed.info", "info");
     CHECK(g_sim_toasts == 1, "error_notifications=0 should suppress only error toasts, got %d", g_sim_toasts);
 
+    reset("notifications=1\nwarning_notifications=0\ndebug_notify=4\n");
+    prefbar_debug_event(DBG_WARN, "muted.warning", "warning");
+    CHECK(g_sim_toasts == 0, "warning_notifications=0 should suppress warning toasts");
+
+    FILE *warning_log = fopen(DATA_DIR "/debug.log", "r");
+    char warning_line[512] = {0};
+    if (warning_log)
+    {
+        (void)fgets(warning_line, sizeof(warning_line), warning_log);
+        fclose(warning_log);
+    }
+    CHECK(strstr(warning_line, "muted.warning") != NULL,
+          "muted warnings must still be written to debug.log");
+
+    reset("notifications=1\nwarning_notifications=1\ndebug_notify=4\n");
+    prefbar_debug_event(DBG_WARN, "allowed.warning", "warning");
+    CHECK(g_sim_toasts == 1, "warning_notifications=1 should enable warning toasts");
+
+    reset("notifications=1\nwarning_notifications=1\ndebug_notifications=0\ndebug_notify=4\n");
+    prefbar_debug_event(DBG_WARN, "independent.warning", "warning");
+    prefbar_debug_event(DBG_INFO, "muted.info", "info");
+    CHECK(g_sim_toasts == 1,
+          "warning_notifications should operate independently of debug_notifications");
+
     reset("notifications=1\nerror_notifications=1\ndebug_notifications=0\ndebug_notify=4\n");
     prefbar_debug_event(DBG_ERR, "allowed.error", "error");
     prefbar_debug_event(DBG_INFO, "muted.info", "info");
@@ -188,11 +225,18 @@ static void test_config_file_and_values(void)
     (void)load_config(&cfg);
     CHECK(cfg.overlay == 1 && cfg.text_shadow == 1,
           "default overlay and shadow should be enabled");
-    CHECK(cfg.show_power == 1 && cfg.overlay_horizontal == 0,
-          "new power and horizontal-layout options should have their defaults");
+    CHECK(cfg.overlay_horizontal == 0 &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM &&
+              cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
+          "horizontal layout should default to medium spacing and centered alignment");
+    CHECK(cfg.show_fps && cfg.show_frametime && cfg.show_1percent_low &&
+              cfg.show_cpu_usage && cfg.show_cpu_temp && cfg.show_cpu_clock &&
+              cfg.show_gpu_temp && cfg.show_gpu_clock && cfg.show_fan_duty &&
+              cfg.show_ram && cfg.show_vram && cfg.show_power && !cfg.gpu_temp_label_soc,
+          "each independent telemetry toggle should default to enabled");
 
     FILE *defaults_file = fopen(PREFBAR_CONFIG_PATH, "r");
-    char defaults_text[4096] = {0};
+    char defaults_text[8192] = {0};
     if (defaults_file)
     {
         (void)fread(defaults_text, 1, sizeof(defaults_text) - 1, defaults_file);
@@ -201,43 +245,101 @@ static void test_config_file_and_values(void)
     char *overlay_section = strstr(defaults_text, "[overlay]");
     char *telemetry_section = strstr(defaults_text, "[telemetry]");
     char *horizontal_option = strstr(defaults_text, "overlay_horizontal=0");
+    char *horizontal_spacing_option = strstr(defaults_text, "overlay_horizontal_spacing=medium");
+    char *horizontal_align_option = strstr(defaults_text, "overlay_horizontal_align=center");
+    char *gpu_temp_label_option = strstr(defaults_text, "gpu_temp_label=gpu");
     CHECK(overlay_section && telemetry_section && horizontal_option &&
-              overlay_section < horizontal_option && horizontal_option < telemetry_section,
-          "overlay_horizontal should be grouped under [overlay]");
-    CHECK(cfg.show_fps == 1 && cfg.show_cpu == 1 && cfg.show_soc_temp == 1,
-          "default telemetry rows should be enabled");
+              horizontal_spacing_option && horizontal_align_option && gpu_temp_label_option &&
+              overlay_section < horizontal_option &&
+              horizontal_option < horizontal_spacing_option &&
+              horizontal_spacing_option < horizontal_align_option &&
+              horizontal_align_option < telemetry_section,
+          "horizontal mode, spacing, and alignment should be grouped under [overlay]");
+    CHECK(strstr(defaults_text, "show_cpu_usage=1") &&
+              strstr(defaults_text, "show_cpu_temp=1") &&
+              strstr(defaults_text, "show_ram=1") &&
+              strstr(defaults_text, "show_vram=1"),
+          "default config should expose separate CPU, RAM, and VRAM controls");
+    CHECK(strstr(defaults_text, "warning_notifications=0") != NULL,
+          "new default config should disable warning toasts explicitly");
     CHECK(cfg.notifications == 1 && cfg.touchpad_toggle == 1,
           "default notifications and touchpad toggle should be enabled");
+    CHECK(cfg.warning_notifications == 0 && cfg.debug_notify == 3,
+          "warnings should be muted by default without lowering information verbosity");
 
+    /* An older config's grouped toggles seed the new individual toggles. */
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");
-    CHECK(f != NULL, "open custom config");
+    CHECK(f != NULL, "open legacy custom config");
     if (f)
     {
-        fputs("# custom config\n[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\n"
+        fputs("# PrefBar 0.2.0 configuration\n[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=long\n"
               "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
-              "[telemetry]\nshow_fps=0\nshow_cpu=1\nshow_soc_temp=0\nshow_fan_duty=0\nshow_memory=1\n"
-              "[input]\ntouchpad_toggle=0\n",
-              f);
-        fclose(f);
-    }
-    ensure_default_config_file(); /* upgrade migration appends only missing v0.2.1 options */
-    (void)load_config(&cfg);
-    CHECK(cfg.overlay == 0 && cfg.show_fps == 0,
-          "config migration should preserve existing user settings");
-    CHECK(cfg.show_power == 1 && cfg.overlay_horizontal == 0,
-          "config migration should add missing options with their defaults");
-
-    f = fopen(PREFBAR_CONFIG_PATH, "w");
-    CHECK(f != NULL, "open config with explicit new options");
-    if (f)
-    {
-        fputs("[overlay]\noverlay_horizontal=1\n[telemetry]\nshow_power=0\n", f);
+              "[telemetry]\nshow_fps=0\nshow_cpu=0\nshow_soc_temp=0\nshow_cpu_clock=0\nshow_gpu_clock=0\nshow_fan_duty=0\nshow_memory=0\nshow_power=0\n"
+              "[input]\ntouchpad_toggle=0\n", f);
         fclose(f);
     }
     ensure_default_config_file();
     (void)load_config(&cfg);
-    CHECK(cfg.show_power == 0 && cfg.overlay_horizontal == 1,
-          "config migration should preserve explicit user values");
+    CHECK(cfg.overlay == 0 && cfg.show_fps == 0,
+          "migration should preserve existing overlay and FPS settings");
+    CHECK(cfg.show_frametime == 0 && cfg.show_1percent_low == 0 &&
+              cfg.show_cpu_usage == 0 && cfg.show_cpu_temp == 0 &&
+              cfg.show_gpu_temp == 0 && cfg.show_ram == 0 && cfg.show_vram == 0 &&
+              cfg.show_cpu_clock == 0 && cfg.show_gpu_clock == 0 &&
+              cfg.show_fan_duty == 0 && cfg.show_power == 0,
+          "legacy group switches should seed all corresponding new controls as disabled");
+    CHECK(cfg.gpu_temp_label_soc == 0,
+          "missing temperature label option should migrate to the user-facing GPU label");
+    CHECK(cfg.overlay_horizontal == 1 &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG &&
+              cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
+          "migration should preserve existing spacing and default new alignment to center");
+    CHECK(cfg.warning_notifications == 0,
+          "legacy configs without warning_notifications should migrate to warnings muted");
+    char migrated_text[8192] = {0};
+    f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (f)
+    {
+        (void)fread(migrated_text, 1, sizeof(migrated_text) - 1, f);
+        fclose(f);
+    }
+    CHECK(text_occurrences(migrated_text, "[notifications]") == 1,
+          "migration should merge notification settings into one section");
+    CHECK(text_occurrences(migrated_text, "warning_notifications=0") == 1,
+          "migration should add exactly one disabled warning-notification setting");
+
+    char migrated_header[128] = {0};
+    f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (f)
+    {
+        (void)fgets(migrated_header, sizeof(migrated_header), f);
+        fclose(f);
+    }
+    CHECK(strcmp(migrated_header, PREFBAR_CONFIG_HEADER "\n") == 0,
+          "migrating a 0.2.0 config should update its header to 0.3.0");
+
+    f = fopen(PREFBAR_CONFIG_PATH, "w");
+    CHECK(f != NULL, "open config with explicit individual settings");
+    if (f)
+    {
+        fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=short\noverlay_horizontal_align=right\n"
+              "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
+              "[telemetry]\nshow_fps=0\nshow_frametime=1\nshow_1percent_low=0\nshow_cpu_usage=0\nshow_cpu_temp=1\nshow_cpu_clock=0\nshow_gpu_temp=1\ngpu_temp_label=soc\nshow_gpu_clock=0\nshow_fan_duty=0\nshow_ram=0\nshow_vram=1\nshow_power=0\n"
+              "[input]\ntouchpad_toggle=0\n", f);
+        fclose(f);
+    }
+    ensure_default_config_file();
+    (void)load_config(&cfg);
+    CHECK(cfg.gpu_temp_label_soc == 1,
+          "gpu_temp_label=soc should restore the old SoC wording");
+    CHECK(cfg.show_fps == 0 && cfg.show_frametime == 1 &&
+              cfg.show_1percent_low == 0 && cfg.show_cpu_usage == 0 &&
+              cfg.show_cpu_temp == 1 && cfg.show_ram == 0 &&
+              cfg.show_vram == 1 && cfg.show_power == 0,
+          "explicit independent metric values should be parsed without being overwritten");
+    CHECK(cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_RIGHT &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_SHORT,
+          "explicit horizontal alignment and spacing should be parsed");
     CHECK(cfg.overlay == 0 && cfg.text_shadow == 0,
           "overlay and text shadow settings should parse");
     CHECK(cfg.ov_font == 32 && cfg.ov_corner == PREFBAR_CORNER_BL &&
@@ -248,11 +350,9 @@ static void test_config_file_and_values(void)
               cfg.text_b > 0.33f && cfg.text_b < 0.34f,
           "#123456 should parse into normalized RGB values");
     CHECK(cfg.notifications == 0 && cfg.startup_notification == 0 &&
-              cfg.error_notifications == 0 && cfg.debug_notifications == 0,
-          "notification switches should parse");
-    CHECK(cfg.show_fps == 0 && cfg.show_cpu == 1 && cfg.show_soc_temp == 0 &&
-              cfg.show_fan_duty == 0 && cfg.show_memory == 1 && cfg.touchpad_toggle == 0,
-          "telemetry and input switches should parse");
+              cfg.error_notifications == 0 && cfg.warning_notifications == 0 &&
+              cfg.debug_notifications == 0 && cfg.touchpad_toggle == 0,
+          "notification and input switches should parse");
 }
 
 static void *hammer(void *arg)
@@ -269,54 +369,272 @@ static void *hammer(void *arg)
     return NULL;
 }
 
+
+
+static void test_config_header_upgrades_any_release(void)
+{
+    static const char *const previous_versions[] = {
+        "0.1.0",
+        "0.2.0",
+        "0.2.1",
+        "0.2.10", /* older, longer version proves the rewrite is not length-dependent */
+        "0.3.0"    /* current version must remain unchanged */
+    };
+    static const char config_body[] =
+        "# Keep this user comment and every setting below intact.\n"
+        "[overlay]\n"
+        "overlay=1\n"
+        "overlay_horizontal=1\n"
+        "overlay_horizontal_spacing=long\n"
+        "overlay_horizontal_align=center\n"
+        "overlay_format=compact\n"
+        "[telemetry]\n"
+        "sensors=1\n"
+        "show_frametime=1\n"
+        "show_1percent_low=1\n"
+        "show_cpu_usage=1\n"
+        "show_cpu_temp=1\n"
+        "show_gpu_temp=1\n"
+        "show_ram=1\n"
+        "show_vram=1\n"
+        "show_power=1\n"
+        "show_cpu_clock=1\n"
+        "show_gpu_clock=1\n"
+        "gpu_temp_label=gpu\n"
+        "[input]\n"
+        "touchpad_toggle=1\n";
+
+    for (size_t i = 0; i < sizeof(previous_versions) / sizeof(previous_versions[0]); ++i)
+    {
+        char config[2048];
+        const int config_len = snprintf(config, sizeof(config),
+                                        "# PrefBar %s configuration\n%s",
+                                        previous_versions[i], config_body);
+        CHECK(config_len > 0 && (size_t)config_len < sizeof(config),
+              "version %s test config should fit", previous_versions[i]);
+        if (config_len <= 0 || (size_t)config_len >= sizeof(config))
+            continue;
+
+        reset(config);
+        ensure_default_config_file();
+
+        char actual[4096] = {0};
+        FILE *f = fopen(PREFBAR_CONFIG_PATH, "r");
+        CHECK(f != NULL, "version %s config should remain readable", previous_versions[i]);
+        if (!f)
+            continue;
+        const size_t actual_len = fread(actual, 1, sizeof(actual) - 1, f);
+        CHECK(!ferror(f), "version %s config should read without errors", previous_versions[i]);
+        fclose(f);
+
+        char expected_header[128];
+        (void)snprintf(expected_header, sizeof(expected_header), "%s\n", PREFBAR_CONFIG_HEADER);
+        CHECK(strncmp(actual, expected_header, strlen(expected_header)) == 0,
+              "version %s config header should become the current release header",
+              previous_versions[i]);
+
+        const char *body = strchr(actual, '\n');
+        CHECK(body != NULL, "version %s config should retain a header newline",
+              previous_versions[i]);
+        if (body)
+        {
+            static const char expected_migration[] =
+                "\n[notifications]\nwarning_notifications=0\n";
+            const size_t original_body_len = sizeof(config_body) - 1;
+            CHECK(strncmp(body + 1, config_body, original_body_len) == 0,
+                  "version %s config should preserve all original comments and settings",
+                  previous_versions[i]);
+            CHECK(strcmp(body + 1 + original_body_len, expected_migration) == 0,
+                  "version %s config should append only the new default warning setting",
+                  previous_versions[i]);
+        }
+        CHECK(actual_len > 0,
+              "version %s config should not be empty", previous_versions[i]);
+    }
+}
+
+static void test_duplicate_migration_cleanup(void)
+{
+    reset(NULL);
+    FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");
+    CHECK(f != NULL, "open duplicate migration config");
+    if (f)
+    {
+        fputs("# PrefBar 0.2.0 configuration\n"
+              "[notifications]\nnotifications=1\n"
+              "[overlay]\noverlay=1\noverlay_horizontal=1\n"
+              "overlay_horizontal_spacing=long\noverlay_horizontal_align=center\n"
+              "overlay_format=long\n"
+              "[telemetry]\nsensors=1\nshow_fps=1\nshow_frametime=1\n"
+              "show_1percent_low=1\nshow_cpu_usage=1\nshow_cpu_temp=1\n"
+              "show_gpu_temp=1\nshow_fan_duty=1\nshow_ram=1\nshow_vram=1\n"
+              "show_power=1\nshow_cpu_clock=1\nshow_gpu_clock=1\ngpu_temp_label=soc\n"
+              "[input]\ntouchpad_toggle=1\n"
+              "[overlay]\noverlay_horizontal_spacing=long \n"
+              "overlay_horizontal_align=center\noverlay_format=compact\n"
+              "[telemetry]\nshow_frametime=1\nshow_1percent_low=1\n"
+              "show_cpu_usage=1\nshow_cpu_temp=1\nshow_gpu_temp=1\n"
+              "show_ram=1\nshow_vram=1\nshow_power=1\nshow_cpu_clock=1\n"
+              "show_gpu_clock=1\ngpu_temp_label=gpu\n", f);
+        fclose(f);
+    }
+
+    ensure_default_config_file();
+
+    char config_text[8192] = {0};
+    f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (f)
+    {
+        (void)fread(config_text, 1, sizeof(config_text) - 1, f);
+        fclose(f);
+    }
+
+    CHECK(text_occurrences(config_text, "[overlay]") == 1 &&
+              text_occurrences(config_text, "[telemetry]") == 1,
+          "repeated overlay and telemetry sections should be consolidated");
+    CHECK(text_occurrences(config_text, "overlay_horizontal_spacing=") == 1 &&
+              text_occurrences(config_text, "overlay_format=") == 1 &&
+              text_occurrences(config_text, "show_frametime=") == 1 &&
+              text_occurrences(config_text, "gpu_temp_label=") == 1,
+          "repeated migrated options should appear only once");
+    CHECK(strstr(config_text, "overlay_format=compact\n") != NULL &&
+              strstr(config_text, "overlay_format=long") == NULL,
+          "the last overlay format value should be preserved");
+    CHECK(strstr(config_text, "# PrefBar 0.3.0 configuration\n") == config_text,
+          "duplicate cleanup should also update the old config header");
+
+    config_t cfg;
+    (void)load_config(&cfg);
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_COMPACT &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG &&
+              cfg.gpu_temp_label_soc == 0,
+          "cleanup should preserve the effective last values from duplicate blocks");
+}
+
+static void test_horizontal_spacing_config(void)
+{
+    config_t cfg;
+    reset("[overlay]\noverlay_horizontal=1\noverlay_horizontal_spacing=short\n");
+    CHECK(load_config(&cfg) == 1, "short spacing config should load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_SHORT,
+          "short spacing token should select the short preset");
+
+    reset("[overlay]\noverlay_horizontal_spacing=medium\n");
+    CHECK(load_config(&cfg) == 1, "medium spacing config should load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM,
+          "medium spacing token should select the medium preset");
+
+    reset("[overlay]\noverlay_horizontal_spacing=long\n");
+    CHECK(load_config(&cfg) == 1, "long spacing config should load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG,
+          "long spacing token should select the long preset");
+
+    reset("[overlay]\noverlay_horizontal_spacing=invalid\n");
+    CHECK(load_config(&cfg) == 1, "invalid spacing config should still load");
+    CHECK(cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM,
+          "invalid spacing token should fall back to medium");
+}
+
+static void test_horizontal_align_config(void)
+{
+    config_t cfg;
+    reset("[overlay]\noverlay_horizontal_align=left\n");
+    CHECK(load_config(&cfg) == 1, "left alignment config should load");
+    CHECK(cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_LEFT,
+          "left token should select left alignment");
+
+    reset("[overlay]\noverlay_horizontal_align=center\n");
+    CHECK(load_config(&cfg) == 1, "center alignment config should load");
+    CHECK(cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
+          "center token should select center alignment");
+
+    reset("[overlay]\noverlay_horizontal_align=right\n");
+    CHECK(load_config(&cfg) == 1, "right alignment config should load");
+    CHECK(cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_RIGHT,
+          "right token should select right alignment");
+
+    reset("[overlay]\noverlay_horizontal_align=invalid\n");
+    CHECK(load_config(&cfg) == 1, "invalid alignment config should still load");
+    CHECK(cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
+          "invalid alignment should fall back to center");
+}
+
 static void test_compact_overlay_rows(void)
 {
-    config_t cfg = {0};
+    config_t cfg;
+    config_defaults(&cfg);
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
     report_t report = {0};
     sensors_t sens = {0};
     char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
 
     cfg.sensors = 1;
-    cfg.show_fps = 1;
-    cfg.show_cpu = 1;
-    cfg.show_soc_temp = 1;
-    cfg.show_fan_duty = 0;
-    cfg.show_memory = 1;
-    cfg.show_power = 0;
     report.fps = 60.0;
     report.avg_ms = 16.7;
     report.low1_fps = 58.0;
     sens.have_cpu = 1;
     sens.cpu_avg = 42.0f;
+    sens.have_cpu_temp = 1;
+    sens.cpu_temp = 65;
     sens.have_soc_temp = 1;
     sens.soc_temp = 55;
+    sens.have_cpu_clock = 1;
+    sens.cpu_clock_mhz = 3500;
+    sens.have_gpu_clock = 1;
+    sens.gpu_clock_mhz = 2150;
     sens.have_ram = 1;
     sens.ram_used_mb = 2500;
     sens.ram_total_mb = 6144;
-
-    int n = build_rows(&cfg, &report, &sens, rows);
-    CHECK(n == 3, "disabled fan row should compact; expected 3 rows, got %d", n);
-    CHECK(strncmp(rows[0], "FPS ", 4) == 0, "FPS should remain row 0: %s", rows[0]);
-    CHECK(strncmp(rows[1], "CPU ", 4) == 0 && strstr(rows[1], "SoC") != NULL,
-          "CPU and SoC should share row 1: %s", rows[1]);
-    CHECK(strncmp(rows[2], "RAM ", 4) == 0,
-          "RAM should move into row 2 when fan is disabled: %s", rows[2]);
-
-    cfg.show_fps = 0;
-    cfg.show_cpu = 0;
-    cfg.show_soc_temp = 0;
-    cfg.show_fan_duty = 1;
+    sens.have_vram = 1;
+    sens.vram_pct = 35.0f;
     sens.have_fan = 1;
     sens.fan = 23;
-    n = build_rows(&cfg, &report, &sens, rows);
-    CHECK(n == 2, "disabled FPS/CPU should compact; expected 2 rows, got %d", n);
-    CHECK(strncmp(rows[0], "Fan: ", 5) == 0, "fan should become row 0: %s", rows[0]);
-    CHECK(strncmp(rows[1], "RAM ", 4) == 0, "RAM should become row 1: %s", rows[1]);
+    sens.have_power = 1;
+    sens.power_w = 150.0f;
 
-    cfg.ov_mode = 1;
-    cfg.show_cpu = 1;
     cfg.show_fan_duty = 0;
-    sens.have_cpu = 1;
+    cfg.show_power = 0;
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 10, "disabled fan and power should compact; expected 10 rows, got %d", n);
+    CHECK(strncmp(rows[0], "FPS ", 4) == 0 &&
+              strncmp(rows[1], "FT ", 3) == 0 &&
+              strncmp(rows[2], "1%L ", 4) == 0,
+          "FPS, frametime, and 1%% low should occupy independent rows");
+    CHECK(strstr(rows[3], "42%") && strstr(rows[4], "65C") &&
+              strstr(rows[5], "3500MHz"),
+          "CPU usage, temperature, and clock should be independently rendered");
+    CHECK(strstr(rows[6], "GPU 2150MHz") && strstr(rows[7], "GPU 55C"),
+          "GPU clock and the default GPU temperature label should be independently rendered");
+    CHECK(strncmp(rows[8], "RAM ", 4) == 0 &&
+              strncmp(rows[9], "VRAM ", 5) == 0,
+          "RAM and VRAM should occupy separate rows");
+
+    cfg.show_fps = 0;
+    cfg.show_frametime = 0;
+    cfg.show_1percent_low = 0;
+    cfg.show_cpu_usage = 0;
+    cfg.show_cpu_temp = 0;
+    cfg.show_cpu_clock = 0;
+    cfg.show_gpu_clock = 0;
+    cfg.show_gpu_temp = 0;
+    cfg.show_fan_duty = 1;
+    cfg.show_ram = 1;
+    cfg.show_vram = 1;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 3 && strncmp(rows[0], "FAN ", 4) == 0 &&
+              strncmp(rows[1], "RAM ", 4) == 0 &&
+              strncmp(rows[2], "VRAM ", 5) == 0,
+          "remaining enabled metrics should reflow with no gaps (n=%d)", n);
+
+    cfg.show_ram = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 2 && strncmp(rows[0], "FAN ", 4) == 0 &&
+              strncmp(rows[1], "VRAM ", 5) == 0,
+          "disabling RAM should not disable VRAM or leave an empty slot");
+
+    cfg.show_cpu_usage = 1;
+    cfg.show_fan_duty = 0;
+    cfg.ov_mode = 1;
     sens.dbg_have = 1;
     for (int i = 0; i < NCORES; ++i) {
         sens.core_ok[i] = 1;
@@ -324,15 +642,155 @@ static void test_compact_overlay_rows(void)
         sens.dbg_ratio[i] = 0.5f;
     }
     n = build_rows(&cfg, &report, &sens, rows);
-    CHECK(n == 4, "advanced rows should append only populated rows; expected 4, got %d", n);
-    CHECK(strncmp(rows[2], "cores:", 6) == 0, "core row should follow active metrics: %s", rows[2]);
-    CHECK(strncmp(rows[3], "idle/dt:", 8) == 0, "diagnostic row should follow core row: %s", rows[3]);
+    CHECK(n == 4 && strncmp(rows[0], "CPU ", 4) == 0 &&
+              strncmp(rows[1], "VRAM ", 5) == 0 &&
+              strncmp(rows[2], "cores:", 6) == 0 &&
+              strncmp(rows[3], "idle/dt:", 8) == 0,
+          "advanced diagnostics should follow enabled metrics in compacted order");
 
     cfg.sensors = 0;
     cfg.show_fps = 0;
     n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == 1 && rows[0][0] == '\0',
           "all-disabled overlay must send one empty clearing row (n=%d, text='%s')", n, rows[0]);
+}
+
+static void test_overlay_format_and_compact_groups(void)
+{
+    config_t cfg;
+    report_t report = {0};
+    sensors_t sens = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+
+    reset("overlay_format=compact\n");
+    CHECK(load_config(&cfg) == 1, "compact format config should load");
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_COMPACT,
+          "compact should parse as the default format token");
+
+    report.fps = 60.0;
+    report.avg_ms = 16.7;
+    report.low1_fps = 58.0;
+    sens.have_cpu = sens.have_cpu_temp = sens.have_cpu_clock = 1;
+    sens.cpu_avg = 42.0f;
+    sens.cpu_temp = 65;
+    sens.cpu_clock_mhz = 3500;
+    sens.have_soc_temp = sens.have_gpu_clock = 1;
+    sens.soc_temp = 55;
+    sens.gpu_clock_mhz = 2150;
+    sens.have_ram = sens.have_vram = 1;
+    sens.ram_used_mb = 2500;
+    sens.ram_total_mb = 6144;
+    sens.vram_pct = 35.0f;
+    sens.have_fan = sens.have_power = 1;
+    sens.fan = 23;
+    sens.power_w = 150.0f;
+
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 5, "compact format should use five grouped rows, got %d", n);
+    CHECK(strstr(rows[0], "FPS 60.0") && strstr(rows[0], "FT 16.7ms") &&
+              strstr(rows[0], "1%L 58.0"),
+          "frame metrics should share one row: '%s'", rows[0]);
+    CHECK(strstr(rows[1], "CPU: 42% | 65C | 3500MHz"),
+          "CPU metrics should share a labeled row: '%s'", rows[1]);
+    CHECK(strstr(rows[2], "GPU: 55C | 2150MHz"),
+          "default compact output should retain the familiar combined GPU row: '%s'", rows[2]);
+    cfg.gpu_temp_label_soc = 1;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 5 && strstr(rows[2], "GPU: 2150MHz | SoC: 55C"),
+          "SoC label option should split the GPU clock and identify the sensor source: '%s'", rows[2]);
+    cfg.gpu_temp_label_soc = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(strstr(rows[3], "MEM: RAM 2500/6144MB | VRAM 35%"),
+          "memory metrics should share a row: '%s'", rows[3]);
+    CHECK(strstr(rows[4], "SYS: FAN 23% | PWR 150W"),
+          "fan and power should share a system row: '%s'", rows[4]);
+
+    cfg.show_cpu_usage = 0;
+    cfg.show_cpu_clock = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 5 && strcmp(rows[1], "CPU: 65C") == 0,
+          "disabling CPU usage and clock must preserve CPU temperature");
+    cfg.show_cpu_temp = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 4, "an empty CPU group should disappear (n=%d)", n);
+    CHECK(strcmp(rows[1], "GPU: 55C | 2150MHz") == 0,
+          "GPU readings should reflow with no empty row using the default label");
+
+    reset("overlay_format=classic\n");
+    CHECK(load_config(&cfg) == 1, "classic format config should load");
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_CLASSIC,
+          "classic token should preserve the old one-metric-per-row layout");
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 12, "classic format should retain all twelve available metric rows, got %d", n);
+
+    reset("overlay_format=invalid\n");
+    CHECK(load_config(&cfg) == 1, "invalid format config should still load");
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_COMPACT,
+          "invalid format should fall back to compact");
+
+    reset("overlay_horizontal=1\n");
+    migrate_config_options();
+    char migrated[32] = "";
+    CHECK(read_config_value("overlay_format", migrated, sizeof migrated) &&
+              strcmp(migrated, "compact") == 0,
+          "upgrade migration should add compact format without replacing the existing config");
+}
+
+static void test_clock_sensor_and_row(void)
+{
+    reset("show_cpu_clock=1\nshow_gpu_clock=1\n");
+    config_t cfg;
+    CHECK(load_config(&cfg) == 1, "clock config should load");
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
+
+    sensors_t sens;
+    cpuu_t cpuu = {0};
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.have_cpu_clock && sens.cpu_clock_mhz == 3500,
+          "simulated CPU frequency should convert to 3500 MHz");
+    CHECK(sens.have_gpu_clock && sens.gpu_clock_mhz == 2150,
+          "SoC clock domain 20 should provide GPU GFXCLK in MHz");
+    CHECK(sens.have_soc_temp && sens.soc_temp >= 55,
+          "SoC sensor 0 should be exposed as SoC sensor temperature");
+
+    cfg.sensors = 1;
+    cfg.show_fps = 0;
+    cfg.show_frametime = 0;
+    cfg.show_1percent_low = 0;
+    cfg.show_cpu_usage = 0;
+    cfg.show_cpu_temp = 0;
+    cfg.show_cpu_clock = 1;
+    cfg.show_gpu_clock = 1;
+    cfg.show_gpu_temp = 1;
+    cfg.show_fan_duty = 0;
+    cfg.show_ram = 0;
+    cfg.show_vram = 0;
+    cfg.show_power = 0;
+    report_t report = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 3 && strstr(rows[0], "3500MHz") &&
+              strstr(rows[1], "GPU 2150MHz") && strstr(rows[2], "GPU 55C"),
+          "CPU clock, GPU clock, and default GPU temperature label should be independent rows (n=%d)", n);
+
+    char sensor_text[256];
+    format_sensors(&sens, cfg.gpu_temp_label_soc, sensor_text, sizeof sensor_text);
+    CHECK(strstr(sensor_text, "GPU 55C 2150MHz"),
+          "human-readable status should use the GPU label by default: '%s'", sensor_text);
+    cfg.gpu_temp_label_soc = 1;
+    n = build_rows(&cfg, &report, &sens, rows);
+    format_sensors(&sens, cfg.gpu_temp_label_soc, sensor_text, sizeof sensor_text);
+    CHECK(n == 3 && strstr(rows[2], "SoC 55C") &&
+              strstr(sensor_text, "GPU 2150MHz | SoC 55C"),
+          "SoC label option should apply to both overlay and status text");
+
+    char kv[1024];
+    format_kv(&report, &sens, kv, sizeof kv);
+    CHECK(strstr(kv, "cpu_clock_mhz=3500\n") &&
+              strstr(kv, "gpu_clock_mhz=2150\n") &&
+              strstr(kv, "gpu_temp_c=55\n") &&
+              strstr(kv, "soc_temp_c=55\n"),
+          "status.kv should expose new keys and retain the legacy temperature key");
 }
 
 static void test_power_sensor_and_row(void)
@@ -342,6 +800,8 @@ static void test_power_sensor_and_row(void)
     CHECK(load_config(&cfg) == 1, "power config should load");
     CHECK(cfg.show_power == 1, "show_power should be enabled by config");
     CHECK(cfg.overlay_horizontal == 1, "overlay_horizontal should parse as enabled");
+    CHECK(cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
+          "horizontal alignment should default to center");
 
     sensors_t sens;
     cpuu_t cpuu = {0};
@@ -350,37 +810,48 @@ static void test_power_sensor_and_row(void)
     CHECK(sens.power_w > 100.0f && sens.power_w < 300.0f,
           "power should be converted from milliwatts to watts (got %.2f W)", sens.power_w);
 
+    config_defaults(&cfg);
     cfg.sensors = 1;
     cfg.show_fps = 0;
-    cfg.show_cpu = 0;
-    cfg.show_soc_temp = 0;
+    cfg.show_frametime = 0;
+    cfg.show_1percent_low = 0;
+    cfg.show_cpu_usage = 0;
+    cfg.show_cpu_temp = 0;
+    cfg.show_cpu_clock = 0;
+    cfg.show_gpu_temp = 0;
+    cfg.show_gpu_clock = 0;
     cfg.show_fan_duty = 0;
-    cfg.show_memory = 0;
+    cfg.show_ram = 0;
+    cfg.show_vram = 0;
     cfg.show_power = 1;
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
     report_t report = {0};
     char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
     int n = build_rows(&cfg, &report, &sens, rows);
-    CHECK(n == 1 && strncmp(rows[0], "PWR ", 4) == 0 && strstr(rows[0], " W") != NULL,
-          "PWR should be emitted as a compact standalone row (n=%d, row='%s')", n, rows[0]);
+    CHECK(n == 1 && strncmp(rows[0], "PWR ", 4) == 0 && strstr(rows[0], "W") != NULL,
+          "PWR should remain independently controllable (n=%d, row='%s')", n, rows[0]);
 
     cfg.show_power = 0;
     n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == 1 && rows[0][0] == '\0', "disabled PWR should not leave a row");
 
-    cfg.show_power = 1;
-    cfg.show_fps = 1;
-    cfg.show_cpu = 1;
-    cfg.show_soc_temp = 1;
-    cfg.show_fan_duty = 1;
-    cfg.show_memory = 1;
+    config_defaults(&cfg);
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
+    cfg.sensors = 1;
     cfg.ov_mode = 1;
+    report.fps = 60.0;
+    report.avg_ms = 16.7;
+    report.low1_fps = 58.0;
     sens.have_cpu = 1;
-    sens.dbg_have = 1;
-    for (int i = 0; i < NCORES; ++i) {
-        sens.core_ok[i] = 1;
-        sens.core[i] = 30.0f;
-        sens.dbg_ratio[i] = 0.5f;
-    }
+    sens.cpu_avg = 30.0f;
+    sens.have_cpu_temp = 1;
+    sens.cpu_temp = 60;
+    sens.have_cpu_clock = 1;
+    sens.cpu_clock_mhz = 3500;
+    sens.have_gpu_clock = 1;
+    sens.gpu_clock_mhz = 2150;
+    sens.have_soc_temp = 1;
+    sens.soc_temp = 55;
     sens.have_fan = 1;
     sens.fan = 23;
     sens.have_ram = 1;
@@ -388,9 +859,17 @@ static void test_power_sensor_and_row(void)
     sens.ram_total_mb = 6144;
     sens.have_vram = 1;
     sens.vram_pct = 25.0f;
+    sens.have_power = 1;
+    sens.power_w = 150.0f;
+    sens.dbg_have = 1;
+    for (int i = 0; i < NCORES; ++i) {
+        sens.core_ok[i] = 1;
+        sens.core[i] = 30.0f;
+        sens.dbg_ratio[i] = 0.5f;
+    }
     n = build_rows(&cfg, &report, &sens, rows);
-    CHECK(n <= PREFBAR_ROWS, "all advanced metrics must fit the wire row capacity (%d/%d)", n, PREFBAR_ROWS);
-    CHECK(n == PREFBAR_ROWS, "all seven rows should be available in the fully populated advanced layout (got %d)", n);
+    CHECK(n == PREFBAR_ROWS,
+          "all 12 independent metrics plus two diagnostics should fit (%d/%d)", n, PREFBAR_ROWS);
 }
 
 static void test_reload_config_preserves_last_good(void)
@@ -459,7 +938,13 @@ int main(void)
     test_levels();
     test_notification_switches();
     test_config_file_and_values();
+    test_config_header_upgrades_any_release();
+    test_duplicate_migration_cleanup();
+    test_horizontal_spacing_config();
+    test_horizontal_align_config();
     test_compact_overlay_rows();
+    test_overlay_format_and_compact_groups();
+    test_clock_sensor_and_row();
     test_power_sensor_and_row();
     test_reload_config_preserves_last_good();
     test_toast_cap();

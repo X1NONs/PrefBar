@@ -159,8 +159,8 @@ ShellUiHookPollResult poll_and_apply_shellui_hook(
     const bool high_family =
         firmware_family >= 0x11000000U && firmware_family <= 0x13ff0000U;
     const bool fw_needs_mprotect =
-        (firmware_family == 0x09000000U ||
-         firmware_family == 0x09050000U ||
+        ((firmware_family >= 0x09000000U &&
+          firmware_family < 0x0a000000U) ||
          firmware_family == 0x10010000U || high_family) &&
         backend == ShellUiHookBackend::Mdbg;
 

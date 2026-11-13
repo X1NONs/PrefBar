@@ -4,7 +4,9 @@
 
 [![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge)](https://github.com/X1NONs/PrefBar/releases)
 
-**Version 0.2.1**
+**Version 0.3.0**
+(**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
+
 
 A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games, without requiring a separate renderer payload.
 
@@ -19,12 +21,13 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 ## Features
 
 - **Frame performance:** FPS, average frametime, and 1% lows.
-- **CPU and temperatures:** CPU utilization and temperature, plus SoC temperature when the relevant system interfaces are available.
+- **CPU/GPU telemetry:** CPU utilization, CPU frequency, GPU clock, CPU temperature, and GPU temperature when the relevant system interfaces are available.
 - **Fan telemetry:** Fan-duty percentage. This is not an RPM reading.
 - **Memory:** RAM and VRAM usage when the relevant system interfaces are available.
 - **SoC power:** APU power consumption displayed in watts when the relevant kernel API is available.
-- **Horizontal overlay:** Display all enabled metrics in one horizontal bar, with automatic font-size adjustment to fit the screen.
-- **Compact metric rows:** Disabled or unavailable metrics are automatically skipped instead of leaving blank spaces.
+- **Horizontal overlay:** Display all enabled metrics in one horizontal bar, centered by default, with configurable left/center/right alignment and short, medium, or long spacing.
+- **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, and SoC power separately. The GPU temperature label defaults to the familiar "GPU" wording; set `gpu_temp_label=soc` to use the previous SoC label.
+- **Compact and classic metric formats:** Compact groups related metrics; classic preserves the previous one-metric-per-row layout. Disabled or unavailable metrics are omitted in either format.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
 - **Customizable overlay:** Change text color, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
@@ -32,10 +35,27 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 
 ## How to use it
 
-1. Download `PrefBar-complete_V0.2.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.2.1).
+1. Download `Prefbar_V0.3.0.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.0).
 2. Load the combined ELF on your jailbroken PS5 using your usual payload loader.
-3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The overlay normally appears in the top-left corner.
+3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 4. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
+
+## Compatibility
+
+PrefBar is designed to be a universal payload for jailbroken PS5 consoles. However, changes Sony makes to kernel APIs and ShellUI across firmware versions may affect its functionality, causing certain things to work differently or become unavailable on some firmware versions:
+
+| Firmware       | Status                          |
+| -------------- | ------------------------------- |
+| **Below 7.XX** | 🟡 Unverified or might not work
+| **7.XX**       | ✅ Supported
+| **8.XX**       | ✅ Supported
+| **9.XX**       | ✅ Supported
+| **10.XX**      | ✅ Supported
+| **11.XX**      | ✅ Supported
+| **12.XX**      | ✅ Supported
+| **13.XX**      | ✅ Supported
+
+please [open an issue](https://github.com/X1NONs/PrefBar/issues) with your result so this table can be updated.
 
 ## Customization and colors
 
@@ -45,17 +65,28 @@ PrefBar reads its runtime settings from:
 /data/prefbar/prefbar.conf
 ```
 
-The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, and metric-row selection.
+The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, a selectable compact/classic metric format, and independent visibility switches for every telemetry metric.
 
 You can also enable horizontal layout, SoC power monitoring, control the touchpad toggle, and configure notification and diagnostic options.
 
-Configuration changes are automatically reloaded when a new game session starts. You no longer need to restart PrefBar to apply them after v0.2.1.
+Configuration changes are automatically reloaded when a new game session starts. This behavior has been available since v0.2.1.
+
+### Metric format
+
+`overlay_format=compact` is the default. It groups frame metrics, CPU metrics, GPU metrics, memory, and system readings into a small number of labeled rows. Set `overlay_format=classic` to restore the previous one-metric-per-row layout. Every `show_*` switch remains independent in both formats.
 
 ### Horizontal overlay
 
-Set `overlay_horizontal=1` in your configuration to display the metrics in one horizontal bar.
+Set `overlay_horizontal=1` to display the metrics in one horizontal bar. The bar is centered by default; use `overlay_horizontal_align` to choose `left`, `center`, or `right`. Choose the gap between metrics with `overlay_horizontal_spacing`:
 
-PrefBar automatically adjusts the font size when necessary to fit the available screen width.
+```ini
+overlay_format=compact
+overlay_horizontal=1
+overlay_horizontal_align=center
+overlay_horizontal_spacing=medium
+```
+
+Alignment accepts `left`, `center`, or `right`, and defaults to `center`. Spacing accepts `short`, `medium`, or `long`, and defaults to `medium`. PrefBar compacts enabled metrics, re-centers the resulting bar, and reduces the font size when necessary to fit the screen.
 
 ### Color recommendations
 
@@ -76,6 +107,8 @@ Set the `text_color` value to a six-digit hexadecimal color in `#RRGGBB` format.
 text_color=#00E5FF
 text_shadow=1
 overlay_horizontal=1
+overlay_horizontal_align=center
+overlay_horizontal_spacing=medium
 ```
 
 The shadow helps keep bright text readable over different game scenes. The color palette is only a set of suggestions; use whichever color is easiest to read in your game.
