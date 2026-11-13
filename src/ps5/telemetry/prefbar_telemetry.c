@@ -312,8 +312,9 @@ static void update_config_header(void)
 
     int output_ok = fprintf(output, "%s\n", PREFBAR_CONFIG_HEADER) >= 0;
     char buffer[1024];
-    while (output_ok && fgets(buffer, sizeof(buffer), input))
-        if (fputs(buffer, output) == EOF)
+    size_t bytes_read = 0;
+    while (output_ok && (bytes_read = fread(buffer, 1, sizeof(buffer), input)) > 0)
+        if (fwrite(buffer, 1, bytes_read, output) != bytes_read)
             output_ok = 0;
 
     if (ferror(input))
