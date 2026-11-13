@@ -275,6 +275,236 @@ static void update_config_header(void)
     (void)fclose(f);
 }
 
+
+enum
+{
+    PREFBAR_CONFIG_SECTION_OTHER = 0,
+    PREFBAR_CONFIG_SECTION_OVERLAY = 1,
+    PREFBAR_CONFIG_SECTION_TELEMETRY = 2
+};
+
+enum
+{
+    PREFBAR_CONFIG_MAX_LINES = 256,
+    PREFBAR_CONFIG_LINE_SIZE = 512
+};
+
+typedef struct
+{
+    char text[PREFBAR_CONFIG_LINE_SIZE];
+    int section;
+    int is_section;
+    int key_index;
+    int keep;
+} config_migration_line_t;
+
+static int migration_config_key_index(const char *line)
+{
+    static const char *const keys[] = {
+        "overlay_horizontal",
+        "overlay_horizontal_spacing",
+        "overlay_horizontal_align",
+        "overlay_format",
+        "show_frametime",
+        "show_1percent_low",
+        "show_cpu_usage",
+        "show_cpu_temp",
+        "show_gpu_temp",
+        "show_ram",
+        "show_vram",
+        "show_power",
+        "show_cpu_clock",
+        "show_gpu_clock",
+        "gpu_temp_label"
+    };
+
+    char parsed[PREFBAR_CONFIG_LINE_SIZE];
+    snprintf(parsed, sizeof(parsed), "%s", line);
+    trim_config_text(parsed);
+    if (!parsed[0] || parsed[0] == '#' || parsed[0] == ';' || parsed[0] == '[')
+        return -1;
+
+    char *eq = strchr(parsed, '=');
+    if (!eq)
+        return -1;
+    *eq = '\0';
+    trim_config_text(parsed);
+
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i)
+        if (strcmp(parsed, keys[i]) == 0)
+            return (int)i;
+    return -1;
+}
+
+/*
+ * Older migration builds could leave repeated [overlay]/[telemetry] blocks
+ * and duplicate option lines behind. Keep the last value for each migrated
+ * option (matching the config parser's effective behavior), then fold those
+ * blocks into one section each. Unknown options and user comments are kept.
+ */
+static void deduplicate_migrated_config_options(void)
+{
+    enum { KEY_COUNT = 15 };
+    config_migration_line_t *lines =
+        (config_migration_line_t *)calloc(PREFBAR_CONFIG_MAX_LINES, sizeof(*lines));
+    if (!lines)
+        return;
+
+    int last_key[KEY_COUNT];
+    for (int i = 0; i < KEY_COUNT; ++i)
+        last_key[i] = -1;
+
+    FILE *input = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (!input)
+    {
+        free(lines);
+        return;
+    }
+
+    int count = 0;
+    int current_section = PREFBAR_CONFIG_SECTION_OTHER;
+    int seen_overlay = 0;
+    int seen_telemetry = 0;
+    int cleanup_needed = 0;
+    int input_failed = 0;
+    char buffer[PREFBAR_CONFIG_LINE_SIZE];
+
+    while (fgets(buffer, sizeof(buffer), input))
+    {
+        if (count >= PREFBAR_CONFIG_MAX_LINES)
+        {
+            input_failed = 1;
+            break;
+        }
+
+        const size_t length = strlen(buffer);
+        if (length == sizeof(buffer) - 1 && buffer[length - 1] != '\n' && !feof(input))
+        {
+            input_failed = 1;
+            break;
+        }
+
+        config_migration_line_t *entry = &lines[count];
+        snprintf(entry->text, sizeof(entry->text), "%s", buffer);
+        entry->keep = 1;
+        entry->key_index = migration_config_key_index(entry->text);
+
+        char normalized[PREFBAR_CONFIG_LINE_SIZE];
+        snprintf(normalized, sizeof(normalized), "%s", entry->text);
+        trim_config_text(normalized);
+
+        if (normalized[0] == '[')
+        {
+            entry->is_section = 1;
+            if (strcmp(normalized, "[overlay]") == 0)
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_OVERLAY;
+                current_section = PREFBAR_CONFIG_SECTION_OVERLAY;
+                if (seen_overlay++)
+                    cleanup_needed = 1;
+            }
+            else if (strcmp(normalized, "[telemetry]") == 0)
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_TELEMETRY;
+                current_section = PREFBAR_CONFIG_SECTION_TELEMETRY;
+                if (seen_telemetry++)
+                    cleanup_needed = 1;
+            }
+            else
+            {
+                entry->section = PREFBAR_CONFIG_SECTION_OTHER;
+                current_section = PREFBAR_CONFIG_SECTION_OTHER;
+            }
+        }
+        else
+        {
+            entry->section = current_section;
+        }
+
+        if (entry->key_index >= 0)
+        {
+            if (last_key[entry->key_index] >= 0)
+                cleanup_needed = 1;
+            last_key[entry->key_index] = count;
+        }
+        ++count;
+    }
+
+    if (ferror(input))
+        input_failed = 1;
+    (void)fclose(input);
+
+    if (input_failed || !cleanup_needed)
+    {
+        free(lines);
+        return;
+    }
+
+    for (int i = 0; i < count; ++i)
+        if (lines[i].key_index >= 0 && last_key[lines[i].key_index] != i)
+            lines[i].keep = 0;
+
+    struct stat original_stat;
+    const int have_original_stat = stat(PREFBAR_CONFIG_PATH, &original_stat) == 0;
+    char temp_path[sizeof(PREFBAR_CONFIG_PATH) + 5];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", PREFBAR_CONFIG_PATH);
+
+    FILE *output = fopen(temp_path, "w");
+    if (!output)
+    {
+        free(lines);
+        return;
+    }
+
+    int emitted_overlay = 0;
+    int emitted_telemetry = 0;
+    for (int i = 0; i < count; ++i)
+    {
+        const int section = lines[i].section;
+        if (section == PREFBAR_CONFIG_SECTION_OVERLAY ||
+            section == PREFBAR_CONFIG_SECTION_TELEMETRY)
+        {
+            int *emitted = section == PREFBAR_CONFIG_SECTION_OVERLAY
+                               ? &emitted_overlay
+                               : &emitted_telemetry;
+            if (lines[i].is_section && !*emitted)
+            {
+                if (fputs(lines[i].text, output) == EOF)
+                    break;
+                *emitted = 1;
+                for (int j = 0; j < count; ++j)
+                {
+                    if (lines[j].section == section && !lines[j].is_section &&
+                        lines[j].keep && fputs(lines[j].text, output) == EOF)
+                        break;
+                }
+            }
+            continue;
+        }
+
+        if (lines[i].keep && fputs(lines[i].text, output) == EOF)
+            break;
+    }
+
+    int output_ok = ferror(output) == 0;
+    if (fclose(output) != 0)
+        output_ok = 0;
+
+    if (output_ok)
+    {
+        if (have_original_stat)
+            (void)chmod(temp_path, original_stat.st_mode & 0777);
+        if (rename(temp_path, PREFBAR_CONFIG_PATH) != 0)
+            (void)unlink(temp_path);
+    }
+    else
+    {
+        (void)unlink(temp_path);
+    }
+
+    free(lines);
+}
+
 static int read_config_value(const char *key, char *out, size_t out_size)
 {
     if (!key || !out || out_size == 0)
@@ -319,6 +549,8 @@ static int read_config_int(const char *key, int fallback, int min_value, int max
 
 static void migrate_config_options(void)
 {
+    deduplicate_migrated_config_options();
+
     char value[64];
     const int legacy_show_fps = read_config_int("show_fps", 1, 0, 1);
     const int legacy_show_cpu = read_config_int("show_cpu", 1, 0, 1);

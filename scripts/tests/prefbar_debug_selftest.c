@@ -43,6 +43,19 @@ static long file_size(const char *path)
     return stat(path, &st) == 0 ? (long)st.st_size : -1;
 }
 
+
+static int text_occurrences(const char *text, const char *needle)
+{
+    int count = 0;
+    size_t needle_len = strlen(needle);
+    while ((text = strstr(text, needle)) != NULL)
+    {
+        ++count;
+        text += needle_len;
+    }
+    return count;
+}
+
 static void age_all_slots(void) /* pretend 60 s passed */
 {
     for (int i = 0; i < g_dbg.nslots; i++)
@@ -313,6 +326,65 @@ static void *hammer(void *arg)
             age_all_slots(); /* racy by design: only moves timestamps back */
     }
     return NULL;
+}
+
+
+static void test_duplicate_migration_cleanup(void)
+{
+    reset(NULL);
+    FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");
+    CHECK(f != NULL, "open duplicate migration config");
+    if (f)
+    {
+        fputs("# PrefBar 0.2.0 configuration\n"
+              "[notifications]\nnotifications=1\n"
+              "[overlay]\noverlay=1\noverlay_horizontal=1\n"
+              "overlay_horizontal_spacing=long\noverlay_horizontal_align=center\n"
+              "overlay_format=long\n"
+              "[telemetry]\nsensors=1\nshow_fps=1\nshow_frametime=1\n"
+              "show_1percent_low=1\nshow_cpu_usage=1\nshow_cpu_temp=1\n"
+              "show_gpu_temp=1\nshow_fan_duty=1\nshow_ram=1\nshow_vram=1\n"
+              "show_power=1\nshow_cpu_clock=1\nshow_gpu_clock=1\ngpu_temp_label=soc\n"
+              "[input]\ntouchpad_toggle=1\n"
+              "[overlay]\noverlay_horizontal_spacing=long \n"
+              "overlay_horizontal_align=center\noverlay_format=compact\n"
+              "[telemetry]\nshow_frametime=1\nshow_1percent_low=1\n"
+              "show_cpu_usage=1\nshow_cpu_temp=1\nshow_gpu_temp=1\n"
+              "show_ram=1\nshow_vram=1\nshow_power=1\nshow_cpu_clock=1\n"
+              "show_gpu_clock=1\ngpu_temp_label=gpu\n", f);
+        fclose(f);
+    }
+
+    ensure_default_config_file();
+
+    char config_text[8192] = {0};
+    f = fopen(PREFBAR_CONFIG_PATH, "r");
+    if (f)
+    {
+        (void)fread(config_text, 1, sizeof(config_text) - 1, f);
+        fclose(f);
+    }
+
+    CHECK(text_occurrences(config_text, "[overlay]") == 1 &&
+              text_occurrences(config_text, "[telemetry]") == 1,
+          "repeated overlay and telemetry sections should be consolidated");
+    CHECK(text_occurrences(config_text, "overlay_horizontal_spacing=") == 1 &&
+              text_occurrences(config_text, "overlay_format=") == 1 &&
+              text_occurrences(config_text, "show_frametime=") == 1 &&
+              text_occurrences(config_text, "gpu_temp_label=") == 1,
+          "repeated migrated options should appear only once");
+    CHECK(strstr(config_text, "overlay_format=compact\n") != NULL &&
+              strstr(config_text, "overlay_format=long") == NULL,
+          "the last overlay format value should be preserved");
+    CHECK(strstr(config_text, "# PrefBar 0.2.1 configuration\n") == config_text,
+          "duplicate cleanup should also update the old config header");
+
+    config_t cfg;
+    (void)load_config(&cfg);
+    CHECK(cfg.overlay_format == PREFBAR_OVERLAY_FORMAT_COMPACT &&
+              cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG &&
+              cfg.gpu_temp_label_soc == 0,
+          "cleanup should preserve the effective last values from duplicate blocks");
 }
 
 static void test_horizontal_spacing_config(void)
@@ -742,6 +814,7 @@ int main(void)
     test_levels();
     test_notification_switches();
     test_config_file_and_values();
+    test_duplicate_migration_cleanup();
     test_horizontal_spacing_config();
     test_horizontal_align_config();
     test_compact_overlay_rows();
