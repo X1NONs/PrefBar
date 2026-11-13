@@ -395,7 +395,7 @@ static void test_duplicate_migration_cleanup(void)
     CHECK(strstr(config_text, "overlay_format=compact\n") != NULL &&
               strstr(config_text, "overlay_format=long") == NULL,
           "the last overlay format value should be preserved");
-    CHECK(strstr(config_text, "# PrefBar 0.2.1 configuration\n") == config_text,
+    CHECK(strstr(config_text, "# PrefBar 0.3.0 configuration\n") == config_text,
           "duplicate cleanup should also update the old config header");
 
     config_t cfg;
