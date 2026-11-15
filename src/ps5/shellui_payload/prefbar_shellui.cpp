@@ -177,6 +177,14 @@ std::uint32_t g_telemetry_shadow_handle[PREFBAR_ROWS]{};
 std::uint32_t g_telemetry_background_handle{};
 std::uint32_t g_graph_bar_handle[PREFBAR_GRAPH_SAMPLES]{};
 std::uint32_t g_graph_grid_handle[3]{};
+bool g_graph_bar_visible[PREFBAR_GRAPH_SAMPLES]{};
+float g_graph_render_y = -1.0f;
+struct GraphPanelSetters {
+    void (*set_y)(MonoObject*, float){};
+    void (*set_height)(MonoObject*, float){};
+    void (*set_visible)(MonoObject*, bool){};
+};
+GraphPanelSetters g_graph_panel_setters{};
 struct TelemetryLayout {
     int font;
     int requested_font;
@@ -978,15 +986,46 @@ void prefbar_blank_graph_widgets() {
     MonoClass* panel_class = g_pui_image
         ? mono_class_from_name_(g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel")
         : nullptr;
-    if (!panel_class) return;
-    for (auto h : g_graph_bar_handle) {
-        MonoObject* panel = managed_target(h);
-        if (panel) (void)set_property_direct(panel_class, panel, "BackgroundVisibility", false);
+    if (panel_class) {
+        for (std::size_t i = 0; i < PREFBAR_GRAPH_SAMPLES; ++i) {
+            MonoObject* panel = managed_target(g_graph_bar_handle[i]);
+            if (panel)
+                (void)set_property_direct(panel_class, panel, "BackgroundVisibility", false);
+            g_graph_bar_visible[i] = false;
+        }
+        for (auto h : g_graph_grid_handle) {
+            MonoObject* panel = managed_target(h);
+            if (panel)
+                (void)set_property_direct(panel_class, panel, "BackgroundVisibility", false);
+        }
     }
-    for (auto h : g_graph_grid_handle) {
-        MonoObject* panel = managed_target(h);
-        if (panel) (void)set_property_direct(panel_class, panel, "BackgroundVisibility", false);
-    }
+    g_graph_render_y = -1.0f;
+}
+
+bool initialize_graph_panel_setters(MonoClass* klass) {
+    if (g_graph_panel_setters.set_y &&
+        g_graph_panel_setters.set_height &&
+        g_graph_panel_setters.set_visible)
+        return true;
+    if (!klass || !mono_compile_method_)
+        return false;
+
+    MonoMethod* set_y = property_setter(klass, "Y");
+    MonoMethod* set_height = property_setter(klass, "Height");
+    MonoMethod* set_visible = property_setter(klass, "BackgroundVisibility");
+    void* y_thunk = set_y ? mono_compile_method_(set_y) : nullptr;
+    void* height_thunk = set_height ? mono_compile_method_(set_height) : nullptr;
+    void* visible_thunk = set_visible ? mono_compile_method_(set_visible) : nullptr;
+    if (!y_thunk || !height_thunk || !visible_thunk)
+        return false;
+
+    g_graph_panel_setters.set_y =
+        reinterpret_cast<void (*)(MonoObject*, float)>(y_thunk);
+    g_graph_panel_setters.set_height =
+        reinterpret_cast<void (*)(MonoObject*, float)>(height_thunk);
+    g_graph_panel_setters.set_visible =
+        reinterpret_cast<void (*)(MonoObject*, bool)>(visible_thunk);
+    return true;
 }
 
 bool set_property_object(
@@ -1687,15 +1726,21 @@ void prefbar_draw_text() {
     const float graph_y = y0 + line_h * graph_text_rows + kGraphGap;
     MonoClass* graph_panel_class = mono_class_from_name_(
         g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel");
-    if (graph_visible && graph_panel_class) {
+    if (graph_visible && graph_panel_class &&
+        initialize_graph_panel_setters(graph_panel_class)) {
         static const float grid_ms[3] = {8.3f, 16.7f, 33.3f};
-        for (int i = 0; i < 3; ++i) {
-            MonoObject* grid = managed_target(g_graph_grid_handle[i]);
-            if (!grid) continue;
-            const float grid_y = graph_y + kGraphHeight * (1.0f - grid_ms[i] / 50.0f);
-            (void)set_property_direct(graph_panel_class, grid, "Y", grid_y);
-            (void)set_property_direct(graph_panel_class, grid, "Height", 1.0f);
-            (void)set_property_direct(graph_panel_class, grid, "BackgroundVisibility", true);
+        /* Guide lines only move when text/layout geometry changes, not on
+         * every 10 Hz graph packet. */
+        if (g_graph_render_y != graph_y) {
+            for (int i = 0; i < 3; ++i) {
+                MonoObject* grid = managed_target(g_graph_grid_handle[i]);
+                if (!grid) continue;
+                const float grid_y = graph_y + kGraphHeight * (1.0f - grid_ms[i] / 50.0f);
+                g_graph_panel_setters.set_y(grid, grid_y);
+                g_graph_panel_setters.set_height(grid, 1.0f);
+                g_graph_panel_setters.set_visible(grid, true);
+            }
+            g_graph_render_y = graph_y;
         }
         for (int i = 0; i < static_cast<int>(PREFBAR_GRAPH_SAMPLES); ++i) {
             MonoObject* bar = managed_target(g_graph_bar_handle[i]);
@@ -1705,9 +1750,13 @@ void prefbar_draw_text() {
                 static_cast<float>(PREFBAR_GRAPH_SCALE_MAX_MS_X10) * kGraphHeight;
             if (value > 0 && bar_height < 1.0f) bar_height = 1.0f;
             const float bar_y = graph_y + kGraphHeight - bar_height;
-            (void)set_property_direct(graph_panel_class, bar, "Y", bar_y);
-            (void)set_property_direct(graph_panel_class, bar, "Height", bar_height);
-            (void)set_property_direct(graph_panel_class, bar, "BackgroundVisibility", value != 0);
+            g_graph_panel_setters.set_y(bar, bar_y);
+            g_graph_panel_setters.set_height(bar, bar_height);
+            const bool visible = value != 0;
+            if (visible != g_graph_bar_visible[i]) {
+                g_graph_panel_setters.set_visible(bar, visible);
+                g_graph_bar_visible[i] = visible;
+            }
         }
     }
 
