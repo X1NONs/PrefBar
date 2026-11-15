@@ -141,13 +141,18 @@ All boolean values use `0` (off) or `1` (on).
 | `text_shadow` | Draw a text shadow | `0` or `1`; default `1` |
 | `overlay_mode` | `0` compact layout, `1` extended diagnostic rows | `0` or `1`; default `0` |
 | `overlay_font` | Text font size in pixels | `10`–`96`; default `26` |
-| `overlay_corner` | Overlay anchor: `0` top-left, `2` bottom-left | `0` or `2`; default `0` |
+| `overlay_corner` | Vertical overlay anchor: `0` top-left, `1` top-right, `2` bottom-left, `3` bottom-right | `0`–`3`; default `0` |
 | `overlay_x` | Horizontal margin in pixels | `0`–`1800`; default `24` |
 | `overlay_y` | Vertical margin in pixels | `0`–`1000`; default `24` |
 | `overlay_format` | Metric presentation: related metrics grouped into compact rows or one metric per row | `compact` or `classic`; default `compact` |
 | `overlay_horizontal` | Render metric rows as one horizontal bar | `0` or `1`; default `0` |
 | `overlay_horizontal_spacing` | Gap between metrics in horizontal mode | `short`, `medium`, or `long`; default `medium` |
 | `overlay_horizontal_align` | Horizontal bar alignment | `left`, `center`, or `right`; default `center` |
+
+For vertical overlays, top-right and bottom-right align each populated row to the right screen margin. Horizontal bars continue to use `overlay_horizontal_align` for their left, center, or right placement; `overlay_corner` selects their top or bottom edge.
+
+For FPS-only frame metrics, keep `show_fps=1` and set `show_frametime=0` and `show_1percent_low=0`.
+
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
 | `show_fps` | Show FPS | `0` or `1`; default `1` |
 | `show_frametime` | Show average frametime | `0` or `1`; default `1` |

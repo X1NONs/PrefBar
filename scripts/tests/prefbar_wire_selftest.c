@@ -46,8 +46,10 @@ int main(void)
     p = good(); p.flags = PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK; CHECK(!prefbar_wire_valid(&p, sizeof p)); /* reserved 11 */
     p = good(); p.flags = 0x80; CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.rows = PREFBAR_ROWS;    CHECK(prefbar_wire_valid(&p, sizeof p));
-    p = good(); p.corner = 1;          CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.corner = PREFBAR_CORNER_TR; CHECK(prefbar_wire_valid(&p, sizeof p));
     p = good(); p.corner = PREFBAR_CORNER_BL; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.corner = PREFBAR_CORNER_BR; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.corner = PREFBAR_CORNER_BR + 1; CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.font_size = 9;       CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.font_size = 97;      CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.margin_x = NAN;      CHECK(!prefbar_wire_valid(&p, sizeof p));

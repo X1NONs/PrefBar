@@ -1216,7 +1216,13 @@ void prefbar_draw_text() {
         ? pkt.margin_y : screen_height - 10.0f;
 
     /* Bottom anchoring reserves one line in horizontal mode. */
-    const int layout_rows = (corner == PREFBAR_CORNER_BL)
+    const bool bottom_corner =
+        corner == PREFBAR_CORNER_BL || corner == PREFBAR_CORNER_BR;
+    /* Horizontal bars retain their separate overlay_horizontal_align setting.
+     * Right-side corner anchors apply to vertical, per-row layouts. */
+    const bool right_vertical_anchor = !horizontal &&
+        (corner == PREFBAR_CORNER_TR || corner == PREFBAR_CORNER_BR);
+    const int layout_rows = bottom_corner
         ? (horizontal ? 1 : rows)
         : 0;
     unsigned why = 0;
@@ -1258,7 +1264,7 @@ void prefbar_draw_text() {
             return;
         }
         const float line_h = static_cast<float>(font_px) * 1.3f;
-        const float y0 = (corner == PREFBAR_CORNER_BL)
+        const float y0 = bottom_corner
             ? screen_height - my - line_h * static_cast<float>(layout_rows)
             : my;
         int created = 0;
@@ -1325,7 +1331,7 @@ void prefbar_draw_text() {
         if (set_label_text(labels[i], text))
             ++applied;
 
-        if (horizontal && text[0]) {
+        if ((horizontal || right_vertical_anchor) && text[0]) {
             float measured = 0.0f;
             if (!read_float_property(label_class, labels[i], "Width", &measured) ||
                 measured <= 0.0f) {
@@ -1336,8 +1342,10 @@ void prefbar_draw_text() {
                 }
             }
             row_width[i] = measured;
-            horizontal_text_width += measured;
-            ++horizontal_items;
+            if (horizontal) {
+                horizontal_text_width += measured;
+                ++horizontal_items;
+            }
         }
     }
 
@@ -1425,6 +1433,20 @@ void prefbar_draw_text() {
             }
             if (row_text[i] && row_text[i][0])
                 horizontal_x += row_width[i] + horizontal_gap;
+        }
+    } else if (right_vertical_anchor && label_class) {
+        /* Right-align each populated vertical row independently. Width comes
+         * from PUI after Text is updated, with a guarded estimate as fallback. */
+        for (int i = 0; i < PREFBAR_ROWS; ++i) {
+            if (!labels[i])
+                continue;
+            float row_x = screen_width - mx - row_width[i];
+            if (row_x < mx)
+                row_x = mx;
+            (void)set_property_direct(label_class, labels[i], "X", row_x);
+            if (want_shadow && shadows[i])
+                (void)set_property_direct(
+                    label_class, shadows[i], "X", row_x + 1.5f);
         }
     }
 
