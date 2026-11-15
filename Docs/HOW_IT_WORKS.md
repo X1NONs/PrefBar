@@ -191,8 +191,6 @@ notify_sec=0
 
 [overlay]
 overlay=1
-overlay_background=1
-overlay_background_opacity=75
 text_color=#F2F2F2
 text_shadow=1
 overlay_mode=0
@@ -204,6 +202,8 @@ overlay_horizontal=0
 overlay_horizontal_spacing=medium
 overlay_format=compact
 overlay_horizontal_align=center
+overlay_background=1
+overlay_background_opacity=75
 
 [telemetry]
 sensors=1

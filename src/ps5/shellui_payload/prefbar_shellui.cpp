@@ -149,6 +149,8 @@ constexpr const char* kValueId = "id_prefbar_value";
  * worker inside the controller. The receiver publishes packets under
  * g_telemetry_mutex; the update hook applies them to the UI. */
 constexpr std::uint64_t kTelemetryStaleMs = 3000;  /* rows go stale when packets stop arriving */
+constexpr float kOverlayBackgroundPaddingX = 10.0f;
+constexpr float kOverlayBackgroundPaddingY = 6.0f;
 constexpr bool kShowTelemetryStatus = true;        /* show a banner when telemetry is unavailable */
 bool g_prefbar_overlay_enabled = true;             /* touchpad toggle; sampling stays active */
 std::atomic<bool> g_config_overlay_enabled{true};
@@ -1530,15 +1532,17 @@ void prefbar_draw_text() {
                 panel_class, background, "BackgroundVisibility", show_background);
             if (show_background) {
                 float bg_x = horizontal
-                    ? horizontal_x - 10.0f
+                    ? horizontal_x - kOverlayBackgroundPaddingX
                     : (right_vertical_anchor
-                        ? screen_width - mx - max_vertical_text_width - 10.0f
-                        : mx - 10.0f);
-                float bg_y = y0 - 6.0f;
+                        ? screen_width - mx - max_vertical_text_width - kOverlayBackgroundPaddingX
+                        : mx - kOverlayBackgroundPaddingX);
+                float bg_y = y0 - kOverlayBackgroundPaddingY;
                 float bg_width = (horizontal ? horizontal_total_width
-                                             : max_vertical_text_width) + 20.0f;
+                                             : max_vertical_text_width) +
+                    2.0f * kOverlayBackgroundPaddingX;
                 float bg_height = (horizontal ? line_h
-                                              : static_cast<float>(last_visible_row) * line_h) + 12.0f;
+                                              : static_cast<float>(last_visible_row) * line_h) +
+                    2.0f * kOverlayBackgroundPaddingY;
 
                 if (bg_x < 0.0f) bg_x = 0.0f;
                 if (bg_y < 0.0f) bg_y = 0.0f;
