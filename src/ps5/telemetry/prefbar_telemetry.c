@@ -1470,9 +1470,13 @@ static void stats_graph_snapshot(const stats_t *s, uint64_t now,
         if (bucket >= (int)PREFBAR_GRAPH_SAMPLES) bucket = PREFBAR_GRAPH_SAMPLES - 1;
         const float ms = s->ft_ms[index];
         if (!(ms > 0.0f)) continue;
-        unsigned value = (unsigned)(ms * 10.0f + 0.5f);
-        if (value < 1u) value = 1u;
-        if (value > PREFBAR_GRAPH_SCALE_MAX_MS_X10) value = PREFBAR_GRAPH_SCALE_MAX_MS_X10;
+        unsigned value;
+        if (ms >= (float)PREFBAR_GRAPH_SCALE_MAX_MS_X10 / 10.0f)
+            value = PREFBAR_GRAPH_SCALE_MAX_MS_X10;
+        else {
+            value = (unsigned)(ms * 10.0f + 0.5f);
+            if (value < 1u) value = 1u;
+        }
         /* Preserve spikes instead of averaging them away during downsampling. */
         if (value > packet->frametime_x10_ms[bucket])
             packet->frametime_x10_ms[bucket] = (uint16_t)value;
