@@ -681,8 +681,8 @@ static void migrate_config_options(void)
 
     if (!add_warning_notifications && !add_overlay_horizontal && !add_overlay_horizontal_spacing &&
         !add_overlay_horizontal_align && !add_overlay_background &&
-        !add_overlay_background_opacity && !add_overlay_format && !add_show_frametime && !add_show_frametime_graph &&
-        !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
+        !add_overlay_background_opacity && !add_overlay_format &&
+        !add_show_frametime && !add_show_frametime_graph && !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
         !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
         !add_gpu_temp_label)
@@ -2539,6 +2539,7 @@ static void config_defaults(config_t *c)
     c->text_shadow = 1;
     c->show_fps = 1;
     c->show_frametime = 1;
+    c->show_frametime_graph = 0;
     c->show_1percent_low = 1;
     c->show_cpu_usage = 1;
     c->show_cpu_temp = 1;
