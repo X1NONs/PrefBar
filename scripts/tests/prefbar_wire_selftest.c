@@ -7,6 +7,23 @@
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 
+static prefbar_graph_wire_t good_graph(void)
+{
+    prefbar_graph_wire_t p;
+    memset(&p, 0, sizeof p);
+    p.magic = PREFBAR_GRAPH_WIRE_MAGIC;
+    p.version = PREFBAR_GRAPH_WIRE_VERSION;
+    p.size = sizeof p;
+    p.sequence = 1;
+    p.window_ms = PREFBAR_GRAPH_WINDOW_MS;
+    p.scale_max_ms_x10 = PREFBAR_GRAPH_SCALE_MAX_MS_X10;
+    p.sample_count = PREFBAR_GRAPH_SAMPLES;
+    p.flags = PREFBAR_GRAPH_FLAG_ENABLED;
+    p.frametime_x10_ms[0] = 167;
+    p.frametime_x10_ms[PREFBAR_GRAPH_SAMPLES - 1] = 333;
+    return p;
+}
+
 static prefbar_wire_t good(void)
 {
     prefbar_wire_t p;
@@ -63,6 +80,25 @@ int main(void)
     p = good(); p.margin_x = INFINITY; CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.r = 1.5f;            CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.a = NAN;             CHECK(!prefbar_wire_valid(&p, sizeof p));
+    prefbar_graph_wire_t gp;
+    CHECK(sizeof(prefbar_graph_wire_t) == PREFBAR_GRAPH_WIRE_BYTES);
+    CHECK(offsetof(prefbar_graph_wire_t, frametime_x10_ms) == 24);
+    gp = good_graph();
+    { unsigned char b[4]; memcpy(b, &gp.magic, 4); CHECK(!memcmp(b, "PBRG", 4)); }
+    CHECK(prefbar_graph_wire_valid(&gp, sizeof gp) == 1);
+    CHECK(prefbar_graph_wire_valid(NULL, sizeof gp) == 0);
+    CHECK(prefbar_graph_wire_valid(&gp, sizeof gp - 1) == 0);
+    gp = good_graph(); gp.sequence = 0; CHECK(!prefbar_graph_wire_valid(&gp, sizeof gp));
+    gp = good_graph(); gp.window_ms++; CHECK(!prefbar_graph_wire_valid(&gp, sizeof gp));
+    gp = good_graph(); gp.sample_count--; CHECK(!prefbar_graph_wire_valid(&gp, sizeof gp));
+    gp = good_graph(); gp.reserved = 1; CHECK(!prefbar_graph_wire_valid(&gp, sizeof gp));
+    gp = good_graph(); gp.flags = 0x80; CHECK(!prefbar_graph_wire_valid(&gp, sizeof gp));
+    gp = good_graph(); gp.frametime_x10_ms[3] = PREFBAR_GRAPH_SCALE_MAX_MS_X10 + 1;
+    CHECK(!prefbar_graph_wire_valid(&gp, sizeof gp));
+    gp = good_graph(); gp.flags = 0; CHECK(!prefbar_graph_wire_valid(&gp, sizeof gp));
+    gp = good_graph(); memset(gp.frametime_x10_ms, 0, sizeof gp.frametime_x10_ms);
+    gp.flags = 0; CHECK(prefbar_graph_wire_valid(&gp, sizeof gp));
+
     printf(fails ? "PrefBar wire selftest: %d FAILED\n" : "PrefBar wire selftest: all passed\n", fails);
     return fails != 0;
 }
