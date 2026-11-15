@@ -149,6 +149,10 @@ constexpr const char* kValueId = "id_prefbar_value";
  * worker inside the controller. The receiver publishes packets under
  * g_telemetry_mutex; the update hook applies them to the UI. */
 constexpr std::uint64_t kTelemetryStaleMs = 3000;  /* rows go stale when packets stop arriving */
+constexpr std::uint64_t kGraphStaleMs = 750;       /* graph packet cadence is 100 ms */
+constexpr float kGraphHeight = 48.0f;
+constexpr float kGraphGap = 8.0f;
+constexpr float kGraphPreferredWidth = 200.0f;
 constexpr float kOverlayBackgroundPaddingX = 10.0f;
 constexpr float kOverlayBackgroundPaddingY = 6.0f;
 constexpr bool kShowTelemetryStatus = true;        /* show a banner when telemetry is unavailable */
@@ -158,6 +162,12 @@ std::atomic<bool> g_touchpad_toggle_enabled{true};
 prefbar::TouchpadTripleClick g_touchpad_triple_click{};
 prefbar_wire_t g_telemetry_packet{};
 pthread_mutex_t g_telemetry_mutex = PTHREAD_MUTEX_INITIALIZER;
+prefbar_graph_wire_t g_graph_packet{};
+pthread_mutex_t g_graph_mutex = PTHREAD_MUTEX_INITIALIZER;
+std::atomic<std::uint64_t> g_graph_rx_count{0};
+std::atomic<std::uint64_t> g_graph_rx_ms{0};
+std::uint64_t g_graph_applied_count = 0;
+bool g_graph_hidden = true;
 std::atomic<std::uint64_t> g_telemetry_rx_count{0};
 std::atomic<std::uint64_t> g_telemetry_rx_ms{0};
 std::uint64_t g_telemetry_applied_count = 0;
@@ -165,6 +175,8 @@ bool g_telemetry_hidden = false;
 std::uint32_t g_telemetry_row_handle[PREFBAR_ROWS]{};
 std::uint32_t g_telemetry_shadow_handle[PREFBAR_ROWS]{};
 std::uint32_t g_telemetry_background_handle{};
+std::uint32_t g_graph_bar_handle[PREFBAR_GRAPH_SAMPLES]{};
+std::uint32_t g_graph_grid_handle[3]{};
 struct TelemetryLayout {
     int font;
     int requested_font;
@@ -175,11 +187,14 @@ struct TelemetryLayout {
     float my;
     float screen_width;
     float screen_height;
+    float graph_x;
+    float graph_width;
     float r;
     float g;
     float b;
     bool shadow;
     bool horizontal;
+    bool graph_enabled;
     bool valid;
 };
 TelemetryLayout g_telemetry_layout{};
@@ -851,6 +866,7 @@ void remove_and_release_handle(MonoObject* root, std::uint32_t& handle) {
 }
 
 bool set_label_text(MonoObject* label, const char* text);   /* defined below */
+void prefbar_blank_graph_widgets();
 
 /* Removing a widget does not visibly erase it on every firmware: on 13.40 the old copy stayed on
  * screen with frozen text. A label with empty text draws nothing, so blank before dropping. */
@@ -874,10 +890,17 @@ void prefbar_remove_rows(MonoObject* root) {
         remove_and_release_handle(root, h);
     for (auto& h : g_telemetry_shadow_handle)
         remove_and_release_handle(root, h);
+    prefbar_blank_graph_widgets();
+    for (auto& h : g_graph_bar_handle)
+        remove_and_release_handle(root, h);
+    for (auto& h : g_graph_grid_handle)
+        remove_and_release_handle(root, h);
     remove_and_release_handle(root, g_telemetry_background_handle);
     g_telemetry_layout.valid = false;
     g_telemetry_applied_count = 0;
     g_telemetry_hidden = false;
+    g_graph_applied_count = 0;
+    g_graph_hidden = true;
 }
 
 void prefbar_release_rows() {
@@ -886,10 +909,17 @@ void prefbar_release_rows() {
         release_managed_handle(h);
     for (auto& h : g_telemetry_shadow_handle)
         release_managed_handle(h);
+    prefbar_blank_graph_widgets();
+    for (auto& h : g_graph_bar_handle)
+        release_managed_handle(h);
+    for (auto& h : g_graph_grid_handle)
+        release_managed_handle(h);
     release_managed_handle(g_telemetry_background_handle);
     g_telemetry_layout.valid = false;
     g_telemetry_applied_count = 0;
     g_telemetry_hidden = false;
+    g_graph_applied_count = 0;
+    g_graph_hidden = true;
 }
 
 bool refresh_game_scene() {
@@ -942,6 +972,21 @@ bool set_property_direct(
     auto fn = reinterpret_cast<void (*)(MonoObject*, T)>(thunk);
     fn(instance, value);
     return true;
+}
+
+void prefbar_blank_graph_widgets() {
+    MonoClass* panel_class = g_pui_image
+        ? mono_class_from_name_(g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel")
+        : nullptr;
+    if (!panel_class) return;
+    for (auto h : g_graph_bar_handle) {
+        MonoObject* panel = managed_target(h);
+        if (panel) (void)set_property_direct(panel_class, panel, "BackgroundVisibility", false);
+    }
+    for (auto h : g_graph_grid_handle) {
+        MonoObject* panel = managed_target(h);
+        if (panel) (void)set_property_direct(panel_class, panel, "BackgroundVisibility", false);
+    }
 }
 
 bool set_property_object(
@@ -1042,6 +1087,30 @@ MonoObject* create_overlay_background(int opacity_percent) {
     return ok ? panel : nullptr;
 }
 
+MonoObject* create_graph_rect(const char* name, float x, float width,
+                              float r, float g, float b, float a) {
+    MonoClass* klass = mono_class_from_name_(g_pui_image,
+        "Sce.PlayStation.PUI.UI2", "Panel");
+    if (!klass) return nullptr;
+    MonoObject* panel = mono_object_new_(g_domain, klass);
+    if (!panel) return nullptr;
+    mono_runtime_object_init_(panel);
+    MonoString* mono_name = mono_string_new_(g_domain, name);
+    MonoObject* color = create_color(r, g, b, a);
+    if (!mono_name || !color) return nullptr;
+    bool ok = true;
+    ok &= set_property_direct(klass, panel, "Name", mono_name);
+    ok &= set_property_direct(klass, panel, "X", x);
+    ok &= set_property_direct(klass, panel, "Y", 0.0f);
+    ok &= set_property_direct(klass, panel, "Width", width);
+    ok &= set_property_direct(klass, panel, "Height", 0.0f);
+    ok &= set_property_object(klass, panel, "BackgroundColor", color);
+    ok &= set_property_direct(klass, panel, "BackgroundVisibility", false);
+    ok &= set_property_direct(klass, panel, "BackgroundOpacity", 1.0f);
+    ok &= set_property_direct(klass, panel, "BackgroundStyle", 1);
+    return ok ? panel : nullptr;
+}
+
 MonoObject* create_label(
     const char* name,
     float x,
@@ -1123,8 +1192,40 @@ std::uint64_t prefbar_now_ms() {
            static_cast<std::uint64_t>(ts.tv_nsec) / 1000000u;
 }
 
+/* Receiver thread: validate and publish graph snapshots independently. */
+void prefbar_ingest_graph(const unsigned char* buf, long n) {
+    static int rejected = 0;
+    static int accepted = 0;
+    if (n != static_cast<long>(sizeof(prefbar_graph_wire_t))) {
+        if (rejected++ < 5)
+            log_line("prefbar: graph rx rejected size=%ld want=%lu", n,
+                     static_cast<unsigned long>(sizeof(prefbar_graph_wire_t)));
+        return;
+    }
+    prefbar_graph_wire_t pkt;
+    std::memcpy(&pkt, buf, sizeof(pkt));
+    if (!prefbar_graph_wire_valid(&pkt, static_cast<std::size_t>(n))) {
+        if (rejected++ < 5) log_line("prefbar: graph rx rejected invalid packet");
+        return;
+    }
+    ++accepted;
+    if (accepted <= 3 || accepted % 100 == 0)
+        log_line("prefbar: graph rx ok #%d seq=%llu enabled=%d", accepted,
+                 static_cast<unsigned long long>(pkt.sequence),
+                 (pkt.flags & PREFBAR_GRAPH_FLAG_ENABLED) != 0);
+    pthread_mutex_lock(&g_graph_mutex);
+    g_graph_packet = pkt;
+    pthread_mutex_unlock(&g_graph_mutex);
+    g_graph_rx_ms.store(prefbar_now_ms());
+    g_graph_rx_count.fetch_add(1);
+}
+
 /* receiver thread: validate, sanitise, publish */
 void prefbar_ingest(const unsigned char* buf, long n) {
+    if (n == static_cast<long>(sizeof(prefbar_graph_wire_t))) {
+        prefbar_ingest_graph(buf, n);
+        return;
+    }
     static int rejected = 0;
     static int accepted = 0;
     if (n != static_cast<long>(sizeof(prefbar_wire_t))) {
@@ -1178,9 +1279,23 @@ void prefbar_draw_text() {
 
     const std::uint64_t count = g_telemetry_rx_count.load();
     const bool have_data = count != 0;
-    const bool stale = !have_data ||
-        (prefbar_now_ms() - g_telemetry_rx_ms.load()) > kTelemetryStaleMs;
-    if (count == g_telemetry_applied_count && stale == g_telemetry_hidden)
+    const std::uint64_t now_ms = prefbar_now_ms();
+    const bool stale = !have_data || (now_ms - g_telemetry_rx_ms.load()) > kTelemetryStaleMs;
+    const std::uint64_t graph_count = g_graph_rx_count.load();
+    const bool have_graph = graph_count != 0;
+    const bool graph_stale = !have_graph || (now_ms - g_graph_rx_ms.load()) > kGraphStaleMs;
+    prefbar_graph_wire_t graph_pkt{};
+    if (have_graph) {
+        pthread_mutex_lock(&g_graph_mutex);
+        graph_pkt = g_graph_packet;
+        pthread_mutex_unlock(&g_graph_mutex);
+    }
+    const bool overlay_visible = g_prefbar_overlay_enabled && g_config_overlay_enabled.load();
+    const bool graph_visible = overlay_visible && !graph_stale &&
+        ((graph_pkt.flags & PREFBAR_GRAPH_FLAG_ENABLED) != 0);
+    const bool graph_hidden = !graph_visible;
+    if (count == g_telemetry_applied_count && stale == g_telemetry_hidden &&
+        graph_count == g_graph_applied_count && graph_hidden == g_graph_hidden)
         return;
 
     prefbar_wire_t pkt;
@@ -1203,8 +1318,6 @@ void prefbar_draw_text() {
 
     /* with no fresh data show one status line instead of stale numbers */
     const char* banner = nullptr;
-    const bool overlay_visible = g_prefbar_overlay_enabled &&
-        g_config_overlay_enabled.load();
     if (overlay_visible && stale && kShowTelemetryStatus) {
         banner = have_data ? "PrefBar: telemetry data is stale"
                            : "PrefBar renderer ready - waiting for telemetry";
@@ -1269,6 +1382,26 @@ void prefbar_draw_text() {
     const int layout_rows = bottom_corner
         ? (horizontal ? 1 : (banner ? 1 : rows))
         : 0;
+    float graph_width = kGraphPreferredWidth;
+    const float available_graph_width = screen_width - 2.0f * mx;
+    if (graph_width > available_graph_width)
+        graph_width = available_graph_width > 1.0f ? available_graph_width : 1.0f;
+    float graph_x = mx;
+    if (horizontal) {
+        if (horizontal_alignment_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT)
+            graph_x = screen_width - mx - graph_width;
+        else if (horizontal_alignment_mode != PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT)
+            graph_x = (screen_width - graph_width) * 0.5f;
+    } else if (right_vertical_anchor) {
+        graph_x = screen_width - mx - graph_width;
+    }
+    if (graph_x < mx) graph_x = mx;
+    const float graph_cell_width = graph_width / static_cast<float>(PREFBAR_GRAPH_SAMPLES);
+    const float graph_bar_width = graph_cell_width * 0.68f;
+    const float graph_bottom_reserve = graph_visible ? kGraphHeight + kGraphGap : 0.0f;
+    const float y0 = bottom_corner
+        ? screen_height - my - line_h * static_cast<float>(layout_rows) - graph_bottom_reserve
+        : my;
     unsigned why = 0;
     if (!g_telemetry_layout.valid) why |= 1u;
     if (g_telemetry_layout.requested_font != requested_font) why |= 2u;
@@ -1283,6 +1416,9 @@ void prefbar_draw_text() {
     if (g_telemetry_layout.screen_width != screen_width ||
         g_telemetry_layout.screen_height != screen_height) why |= 512u;
     if (g_telemetry_layout.background_opacity != pkt.background_opacity) why |= 1024u;
+    if (g_telemetry_layout.graph_enabled != graph_visible) why |= 2048u;
+    if (g_telemetry_layout.graph_x != graph_x ||
+        g_telemetry_layout.graph_width != graph_width) why |= 4096u;
     MonoObject* labels[PREFBAR_ROWS]{};
     MonoObject* shadows[PREFBAR_ROWS]{};
     if (!why) {
@@ -1294,6 +1430,14 @@ void prefbar_draw_text() {
                 break;
             }
         }
+        if (graph_visible) {
+            for (auto h : g_graph_bar_handle) {
+                if (!managed_target(h)) { why |= 8192u; break; }
+            }
+            for (auto h : g_graph_grid_handle) {
+                if (!managed_target(h)) { why |= 16384u; break; }
+            }
+        }
     }
     const bool rebuild = why != 0;
 
@@ -1303,16 +1447,17 @@ void prefbar_draw_text() {
             remove_and_release_handle(root, h);
         for (auto& h : g_telemetry_shadow_handle)
             remove_and_release_handle(root, h);
+        prefbar_blank_graph_widgets();
+        for (auto& h : g_graph_bar_handle)
+            remove_and_release_handle(root, h);
+        for (auto& h : g_graph_grid_handle)
+            remove_and_release_handle(root, h);
         remove_and_release_handle(root, g_telemetry_background_handle);
         MonoObject* font = create_font(font_px);
         if (!font) {
             log_line("prefbar: UIFont create failed");
             return;
         }
-        const float y0 = bottom_corner
-            ? screen_height - my - line_h * static_cast<float>(layout_rows)
-            : my;
-
         /* Append the semi-transparent black Panel first so text and shadows
          * are layered above it in the ShellUI root widget. */
         if (pkt.background_opacity >= 50 && pkt.background_opacity <= 100) {
@@ -1356,13 +1501,35 @@ void prefbar_draw_text() {
                 labels[i] = nullptr;
             }
         }
+        if (graph_visible) {
+            for (int i = 0; i < 3; ++i) {
+                char id[40];
+                std::snprintf(id, sizeof(id), "id_prefbar_graph_grid%d", i);
+                MonoObject* grid = create_graph_rect(id, graph_x, graph_width,
+                                                       0.48f, 0.58f, 0.68f, 0.25f);
+                if (grid && append_child(root, grid))
+                    (void)replace_managed_handle(g_graph_grid_handle[i], grid);
+            }
+            for (int i = 0; i < static_cast<int>(PREFBAR_GRAPH_SAMPLES); ++i) {
+                char id[40];
+                std::snprintf(id, sizeof(id), "id_prefbar_graph_bar%d", i);
+                const float x = graph_x + graph_cell_width * static_cast<float>(i) +
+                    (graph_cell_width - graph_bar_width) * 0.5f;
+                MonoObject* bar = create_graph_rect(id, x, graph_bar_width,
+                                                     0.16f, 0.72f, 0.82f, 0.96f);
+                if (bar && append_child(root, bar))
+                    (void)replace_managed_handle(g_graph_bar_handle[i], bar);
+            }
+        }
+
         ++g_row_rebuild_count;
         log_line("prefbar: rows built #%d why=0x%x created=%d/%d font=%d corner=%d rows=%d",
                  g_row_rebuild_count, why, created, PREFBAR_ROWS, font_px, corner, rows);
         g_telemetry_layout = TelemetryLayout{
             font_px, requested_font, corner, layout_rows, pkt.background_opacity,
-            mx, my, screen_width, screen_height, pkt.r, pkt.g, pkt.b,
-            want_shadow, horizontal, created == PREFBAR_ROWS};
+            mx, my, screen_width, screen_height, graph_x, graph_width,
+            pkt.r, pkt.g, pkt.b, want_shadow, horizontal, graph_visible,
+            created == PREFBAR_ROWS};
     }
 
     int applied = 0;
@@ -1514,43 +1681,77 @@ void prefbar_draw_text() {
         }
     }
 
-    /* Keep the background bounds tied to actual text widths and the current
-     * arrangement. The same panel logic covers one-line horizontal bars and
-     * stacked vertical rows. */
+    const float graph_text_rows = horizontal
+        ? (last_visible_row > 0 ? 1.0f : 0.0f)
+        : static_cast<float>(last_visible_row);
+    const float graph_y = y0 + line_h * graph_text_rows + kGraphGap;
+    MonoClass* graph_panel_class = mono_class_from_name_(
+        g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel");
+    if (graph_visible && graph_panel_class) {
+        static const float grid_ms[3] = {8.3f, 16.7f, 33.3f};
+        for (int i = 0; i < 3; ++i) {
+            MonoObject* grid = managed_target(g_graph_grid_handle[i]);
+            if (!grid) continue;
+            const float grid_y = graph_y + kGraphHeight * (1.0f - grid_ms[i] / 50.0f);
+            (void)set_property_direct(graph_panel_class, grid, "Y", grid_y);
+            (void)set_property_direct(graph_panel_class, grid, "Height", 1.0f);
+            (void)set_property_direct(graph_panel_class, grid, "BackgroundVisibility", true);
+        }
+        for (int i = 0; i < static_cast<int>(PREFBAR_GRAPH_SAMPLES); ++i) {
+            MonoObject* bar = managed_target(g_graph_bar_handle[i]);
+            if (!bar) continue;
+            const std::uint16_t value = graph_pkt.frametime_x10_ms[i];
+            float bar_height = static_cast<float>(value) /
+                static_cast<float>(PREFBAR_GRAPH_SCALE_MAX_MS_X10) * kGraphHeight;
+            if (value > 0 && bar_height < 1.0f) bar_height = 1.0f;
+            const float bar_y = graph_y + kGraphHeight - bar_height;
+            (void)set_property_direct(graph_panel_class, bar, "Y", bar_y);
+            (void)set_property_direct(graph_panel_class, bar, "Height", bar_height);
+            (void)set_property_direct(graph_panel_class, bar, "BackgroundVisibility", value != 0);
+        }
+    }
+
+    /* Keep the existing black panel around both telemetry text and graph. */
     MonoObject* background = managed_target(g_telemetry_background_handle);
     if (background) {
         MonoClass* panel_class = mono_class_from_name_(
             g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel");
-        const bool has_content = horizontal
+        const bool text_content = horizontal
             ? horizontal_items > 0
             : last_visible_row > 0 && max_vertical_text_width > 0.0f;
-        const bool show_background =
-            overlay_visible && has_content &&
+        const bool has_content = text_content || graph_visible;
+        const bool show_background = overlay_visible && has_content &&
             pkt.background_opacity >= 50 && pkt.background_opacity <= 100;
         if (panel_class) {
-            (void)set_property_direct(
-                panel_class, background, "BackgroundVisibility", show_background);
+            (void)set_property_direct(panel_class, background,
+                                      "BackgroundVisibility", show_background);
             if (show_background) {
-                float bg_x = horizontal
-                    ? horizontal_x - kOverlayBackgroundPaddingX
-                    : (right_vertical_anchor
-                        ? screen_width - mx - max_vertical_text_width - kOverlayBackgroundPaddingX
-                        : mx - kOverlayBackgroundPaddingX);
+                const float text_width = horizontal ? horizontal_total_width
+                                                    : max_vertical_text_width;
+                const float content_width = graph_visible && graph_width > text_width
+                    ? graph_width : text_width;
+                float content_x = mx;
+                if (horizontal) {
+                    if (horizontal_alignment_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT)
+                        content_x = screen_width - mx - content_width;
+                    else if (horizontal_alignment_mode != PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT)
+                        content_x = (screen_width - content_width) * 0.5f;
+                } else if (right_vertical_anchor) {
+                    content_x = screen_width - mx - content_width;
+                }
+                if (content_x < mx) content_x = mx;
+                float bg_x = content_x - kOverlayBackgroundPaddingX;
                 float bg_y = y0 - kOverlayBackgroundPaddingY;
-                float bg_width = (horizontal ? horizontal_total_width
-                                             : max_vertical_text_width) +
-                    2.0f * kOverlayBackgroundPaddingX;
-                float bg_height = (horizontal ? line_h
-                                              : static_cast<float>(last_visible_row) * line_h) +
-                    2.0f * kOverlayBackgroundPaddingY;
-
+                const float text_height = horizontal ? line_h
+                    : static_cast<float>(last_visible_row) * line_h;
+                const float content_height = text_height +
+                    (graph_visible ? kGraphGap + kGraphHeight : 0.0f);
+                float bg_width = content_width + 2.0f * kOverlayBackgroundPaddingX;
+                float bg_height = content_height + 2.0f * kOverlayBackgroundPaddingY;
                 if (bg_x < 0.0f) bg_x = 0.0f;
                 if (bg_y < 0.0f) bg_y = 0.0f;
-                if (bg_width > screen_width - bg_x)
-                    bg_width = screen_width - bg_x;
-                if (bg_height > screen_height - bg_y)
-                    bg_height = screen_height - bg_y;
-
+                if (bg_width > screen_width - bg_x) bg_width = screen_width - bg_x;
+                if (bg_height > screen_height - bg_y) bg_height = screen_height - bg_y;
                 (void)set_property_direct(panel_class, background, "X", bg_x);
                 (void)set_property_direct(panel_class, background, "Y", bg_y);
                 (void)set_property_direct(panel_class, background, "Width", bg_width);
@@ -1566,6 +1767,8 @@ void prefbar_draw_text() {
                  stale ? 1 : 0, banner ? 1 : 0);
     g_telemetry_applied_count = count;
     g_telemetry_hidden = stale;
+    g_graph_applied_count = graph_count;
+    g_graph_hidden = graph_hidden;
 }
 
 struct pad_state_t {
