@@ -223,8 +223,10 @@ static void test_config_file_and_values(void)
           "default prefbar.conf should be created on first start");
     config_t cfg;
     (void)load_config(&cfg);
-    CHECK(cfg.overlay == 1 && cfg.text_shadow == 1,
-          "default overlay and shadow should be enabled");
+    CHECK(cfg.overlay == 1 && cfg.text_shadow == 1 &&
+              cfg.overlay_background == 1 &&
+              cfg.overlay_background_opacity == 75,
+          "default overlay, shadow, and 75% black background should be enabled");
     CHECK(cfg.overlay_horizontal == 0 &&
               cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM &&
               cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
@@ -247,13 +249,18 @@ static void test_config_file_and_values(void)
     char *horizontal_option = strstr(defaults_text, "overlay_horizontal=0");
     char *horizontal_spacing_option = strstr(defaults_text, "overlay_horizontal_spacing=medium");
     char *horizontal_align_option = strstr(defaults_text, "overlay_horizontal_align=center");
+    char *background_option = strstr(defaults_text, "overlay_background=1");
+    char *background_opacity_option = strstr(defaults_text, "overlay_background_opacity=75");
     char *gpu_temp_label_option = strstr(defaults_text, "gpu_temp_label=gpu");
     CHECK(overlay_section && telemetry_section && horizontal_option &&
-              horizontal_spacing_option && horizontal_align_option && gpu_temp_label_option &&
+              horizontal_spacing_option && horizontal_align_option &&
+              background_option && background_opacity_option && gpu_temp_label_option &&
               overlay_section < horizontal_option &&
               horizontal_option < horizontal_spacing_option &&
               horizontal_spacing_option < horizontal_align_option &&
-              horizontal_align_option < telemetry_section,
+              horizontal_align_option < background_option &&
+              background_option < background_opacity_option &&
+              background_opacity_option < telemetry_section,
           "horizontal mode, spacing, and alignment should be grouped under [overlay]");
     CHECK(strstr(defaults_text, "show_cpu_usage=1") &&
               strstr(defaults_text, "show_cpu_temp=1") &&
@@ -301,6 +308,8 @@ static void test_config_file_and_values(void)
           "migration should preserve existing spacing and default new alignment to center");
     CHECK(cfg.warning_notifications == 0,
           "legacy configs without warning_notifications should migrate to warnings muted");
+    CHECK(cfg.overlay_background == 1 && cfg.overlay_background_opacity == 75,
+          "legacy configs should gain the enabled 75% black overlay background defaults");
     char migrated_text[8192] = {0};
     f = fopen(PREFBAR_CONFIG_PATH, "r");
     if (f)
@@ -312,6 +321,9 @@ static void test_config_file_and_values(void)
           "migration should merge notification settings into one section");
     CHECK(text_occurrences(migrated_text, "warning_notifications=0") == 1,
           "migration should add exactly one disabled warning-notification setting");
+    CHECK(text_occurrences(migrated_text, "overlay_background=1") == 1 &&
+              text_occurrences(migrated_text, "overlay_background_opacity=75") == 1,
+          "migration should add exactly one background enable and opacity setting");
 
     char migrated_header[128] = {0};
     f = fopen(PREFBAR_CONFIG_PATH, "r");
@@ -327,7 +339,7 @@ static void test_config_file_and_values(void)
     CHECK(f != NULL, "open config with explicit individual settings");
     if (f)
     {
-        fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=short\noverlay_horizontal_align=right\n"
+        fputs("[overlay]\noverlay=0\noverlay_background=0\noverlay_background_opacity=100\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=short\noverlay_horizontal_align=right\n"
               "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
               "[telemetry]\nshow_fps=0\nshow_frametime=1\nshow_1percent_low=0\nshow_cpu_usage=0\nshow_cpu_temp=1\nshow_cpu_clock=0\nshow_gpu_temp=1\ngpu_temp_label=soc\nshow_gpu_clock=0\nshow_fan_duty=0\nshow_ram=0\nshow_vram=1\nshow_power=0\n"
               "[input]\ntouchpad_toggle=0\n", f);
@@ -345,8 +357,10 @@ static void test_config_file_and_values(void)
     CHECK(cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_RIGHT &&
               cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_SHORT,
           "explicit horizontal alignment and spacing should be parsed");
-    CHECK(cfg.overlay == 0 && cfg.text_shadow == 0,
-          "overlay and text shadow settings should parse");
+    CHECK(cfg.overlay == 0 && cfg.text_shadow == 0 &&
+              cfg.overlay_background == 0 &&
+              cfg.overlay_background_opacity == 100,
+          "overlay, text shadow, and explicit black-background settings should parse");
     CHECK(cfg.ov_font == 32 && cfg.ov_corner == PREFBAR_CORNER_BL &&
               cfg.ov_x == 44 && cfg.ov_y == 55,
           "overlay geometry should parse");
@@ -385,6 +399,22 @@ static void test_config_file_and_values(void)
     reset("overlay_corner=4\n");
     CHECK(load_config(&cfg) == 1 && cfg.ov_corner == PREFBAR_CORNER_TL,
           "out-of-range overlay_corner should safely fall back to top-left");
+
+    static const int opacity_values[] = {50, 75, 100};
+    for (unsigned i = 0; i < sizeof opacity_values / sizeof *opacity_values; ++i)
+    {
+        char opacity_config[64];
+        snprintf(opacity_config, sizeof opacity_config,
+                 "overlay_background_opacity=%d\n", opacity_values[i]);
+        reset(opacity_config);
+        CHECK(load_config(&cfg) == 1 &&
+                  cfg.overlay_background_opacity == opacity_values[i],
+              "overlay background opacity %d should be accepted", opacity_values[i]);
+    }
+    reset("overlay_background=2\noverlay_background_opacity=49\n");
+    CHECK(load_config(&cfg) == 1 && cfg.overlay_background == 1 &&
+              cfg.overlay_background_opacity == 75,
+          "invalid background settings should fall back to enabled at 75 percent");
 }
 
 static void *hammer(void *arg)

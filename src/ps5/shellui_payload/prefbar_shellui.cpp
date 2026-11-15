@@ -162,11 +162,13 @@ std::uint64_t g_telemetry_applied_count = 0;
 bool g_telemetry_hidden = false;
 std::uint32_t g_telemetry_row_handle[PREFBAR_ROWS]{};
 std::uint32_t g_telemetry_shadow_handle[PREFBAR_ROWS]{};
+std::uint32_t g_telemetry_background_handle{};
 struct TelemetryLayout {
     int font;
     int requested_font;
     int corner;
     int rows;
+    int background_opacity;
     float mx;
     float my;
     float screen_width;
@@ -870,6 +872,7 @@ void prefbar_remove_rows(MonoObject* root) {
         remove_and_release_handle(root, h);
     for (auto& h : g_telemetry_shadow_handle)
         remove_and_release_handle(root, h);
+    remove_and_release_handle(root, g_telemetry_background_handle);
     g_telemetry_layout.valid = false;
     g_telemetry_applied_count = 0;
     g_telemetry_hidden = false;
@@ -881,6 +884,7 @@ void prefbar_release_rows() {
         release_managed_handle(h);
     for (auto& h : g_telemetry_shadow_handle)
         release_managed_handle(h);
+    release_managed_handle(g_telemetry_background_handle);
     g_telemetry_layout.valid = false;
     g_telemetry_applied_count = 0;
     g_telemetry_hidden = false;
@@ -998,6 +1002,42 @@ MonoObject* create_color(float r, float g, float b, float a) {
     auto fn = reinterpret_cast<void (*)(void*, float, float, float, float)>(thunk);
     fn(real, r, g, b, a);
     return reinterpret_cast<MonoObject*>(real);
+}
+
+MonoObject* create_overlay_background(int opacity_percent) {
+    if (opacity_percent < 50 || opacity_percent > 100)
+        return nullptr;
+
+    MonoClass* klass = mono_class_from_name_(
+        g_pui_image,
+        "Sce.PlayStation.PUI.UI2",
+        "Panel");
+    if (!klass)
+        return nullptr;
+
+    MonoObject* panel = mono_object_new_(g_domain, klass);
+    if (!panel)
+        return nullptr;
+    mono_runtime_object_init_(panel);
+
+    MonoString* name = mono_string_new_(g_domain, "id_prefbar_background");
+    MonoObject* black = create_color(
+        0.0f, 0.0f, 0.0f,
+        static_cast<float>(opacity_percent) / 100.0f);
+    if (!name || !black)
+        return nullptr;
+
+    bool ok = true;
+    ok &= set_property_direct(klass, panel, "Name", name);
+    ok &= set_property_direct(klass, panel, "X", 0.0f);
+    ok &= set_property_direct(klass, panel, "Y", 0.0f);
+    ok &= set_property_direct(klass, panel, "Width", 1.0f);
+    ok &= set_property_direct(klass, panel, "Height", 1.0f);
+    ok &= set_property_object(klass, panel, "BackgroundColor", black);
+    ok &= set_property_direct(klass, panel, "BackgroundVisibility", true);
+    ok &= set_property_direct(klass, panel, "BackgroundOpacity", 1.0f);
+    ok &= set_property_direct(klass, panel, "BackgroundStyle", 1);
+    return ok ? panel : nullptr;
 }
 
 MonoObject* create_label(
@@ -1153,6 +1193,7 @@ void prefbar_draw_text() {
         pkt.corner = PREFBAR_CORNER_TL;
         pkt.rows = 3;
         pkt.font_size = 26;
+        pkt.background_opacity = 75;
         pkt.margin_x = 24.0f;
         pkt.margin_y = 24.0f;
         pkt.r = 0.95f; pkt.g = 0.95f; pkt.b = 0.95f; pkt.a = 1.0f;
@@ -1215,7 +1256,8 @@ void prefbar_draw_text() {
     const float my = pkt.margin_y < screen_height - 10.0f
         ? pkt.margin_y : screen_height - 10.0f;
 
-    /* Bottom anchoring reserves one line in horizontal mode. */
+    const float line_h = static_cast<float>(font_px) * 1.3f;
+    /* Bottom anchoring reserves the visible line count, including status banners. */
     const bool bottom_corner =
         corner == PREFBAR_CORNER_BL || corner == PREFBAR_CORNER_BR;
     /* Horizontal bars retain their separate overlay_horizontal_align setting.
@@ -1223,7 +1265,7 @@ void prefbar_draw_text() {
     const bool right_vertical_anchor = !horizontal &&
         (corner == PREFBAR_CORNER_TR || corner == PREFBAR_CORNER_BR);
     const int layout_rows = bottom_corner
-        ? (horizontal ? 1 : rows)
+        ? (horizontal ? 1 : (banner ? 1 : rows))
         : 0;
     unsigned why = 0;
     if (!g_telemetry_layout.valid) why |= 1u;
@@ -1238,6 +1280,7 @@ void prefbar_draw_text() {
     if (g_telemetry_layout.horizontal != horizontal) why |= 256u;
     if (g_telemetry_layout.screen_width != screen_width ||
         g_telemetry_layout.screen_height != screen_height) why |= 512u;
+    if (g_telemetry_layout.background_opacity != pkt.background_opacity) why |= 1024u;
     MonoObject* labels[PREFBAR_ROWS]{};
     MonoObject* shadows[PREFBAR_ROWS]{};
     if (!why) {
@@ -1258,15 +1301,30 @@ void prefbar_draw_text() {
             remove_and_release_handle(root, h);
         for (auto& h : g_telemetry_shadow_handle)
             remove_and_release_handle(root, h);
+        remove_and_release_handle(root, g_telemetry_background_handle);
         MonoObject* font = create_font(font_px);
         if (!font) {
             log_line("prefbar: UIFont create failed");
             return;
         }
-        const float line_h = static_cast<float>(font_px) * 1.3f;
         const float y0 = bottom_corner
             ? screen_height - my - line_h * static_cast<float>(layout_rows)
             : my;
+
+        /* Append the semi-transparent black Panel first so text and shadows
+         * are layered above it in the ShellUI root widget. */
+        if (pkt.background_opacity >= 50 && pkt.background_opacity <= 100) {
+            MonoObject* background = create_overlay_background(pkt.background_opacity);
+            if (background && replace_managed_handle(
+                    g_telemetry_background_handle, background)) {
+                if (!append_child(root, background)) {
+                    release_managed_handle(g_telemetry_background_handle);
+                    log_line("prefbar: background Panel append failed");
+                }
+            } else {
+                log_line("prefbar: background Panel creation failed; continuing without background");
+            }
+        }
         int created = 0;
         for (int i = 0; i < PREFBAR_ROWS; ++i) {
             char id[32];
@@ -1300,8 +1358,8 @@ void prefbar_draw_text() {
         log_line("prefbar: rows built #%d why=0x%x created=%d/%d font=%d corner=%d rows=%d",
                  g_row_rebuild_count, why, created, PREFBAR_ROWS, font_px, corner, rows);
         g_telemetry_layout = TelemetryLayout{
-            font_px, requested_font, corner, layout_rows, mx, my,
-            screen_width, screen_height, pkt.r, pkt.g, pkt.b,
+            font_px, requested_font, corner, layout_rows, pkt.background_opacity,
+            mx, my, screen_width, screen_height, pkt.r, pkt.g, pkt.b,
             want_shadow, horizontal, created == PREFBAR_ROWS};
     }
 
@@ -1312,6 +1370,8 @@ void prefbar_draw_text() {
     float row_width[PREFBAR_ROWS]{};
     int horizontal_items = 0;
     float horizontal_text_width = 0.0f;
+    float max_vertical_text_width = 0.0f;
+    int last_visible_row = 0;
     static bool width_warning_logged = false;
 
     /* FitWidthToText updates Label.Width when Text changes. Measure through
@@ -1331,7 +1391,7 @@ void prefbar_draw_text() {
         if (set_label_text(labels[i], text))
             ++applied;
 
-        if ((horizontal || right_vertical_anchor) && text[0]) {
+        if (text[0]) {
             float measured = 0.0f;
             if (!read_float_property(label_class, labels[i], "Width", &measured) ||
                 measured <= 0.0f) {
@@ -1342,6 +1402,9 @@ void prefbar_draw_text() {
                 }
             }
             row_width[i] = measured;
+            if (measured > max_vertical_text_width)
+                max_vertical_text_width = measured;
+            last_visible_row = i + 1;
             if (horizontal) {
                 horizontal_text_width += measured;
                 ++horizontal_items;
@@ -1407,13 +1470,12 @@ void prefbar_draw_text() {
         }
     }
 
+    float horizontal_gap = static_cast<float>(effective_font) * horizontal_gap_scale;
+    float horizontal_total_width = horizontal_text_width +
+        static_cast<float>(horizontal_items > 0 ? horizontal_items - 1 : 0) *
+            horizontal_gap;
+    float horizontal_x = mx;
     if (horizontal) {
-        const float horizontal_gap =
-            static_cast<float>(effective_font) * horizontal_gap_scale;
-        const float horizontal_total_width = horizontal_text_width +
-            static_cast<float>(horizontal_items > 0 ? horizontal_items - 1 : 0) *
-                horizontal_gap;
-        float horizontal_x = mx;
         if (horizontal_alignment_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT) {
             horizontal_x = screen_width - mx - horizontal_total_width;
         } else if (horizontal_alignment_mode != PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_LEFT) {
@@ -1438,7 +1500,7 @@ void prefbar_draw_text() {
         /* Right-align each populated vertical row independently. Width comes
          * from PUI after Text is updated, with a guarded estimate as fallback. */
         for (int i = 0; i < PREFBAR_ROWS; ++i) {
-            if (!labels[i])
+            if (!labels[i] || !row_text[i] || !row_text[i][0])
                 continue;
             float row_x = screen_width - mx - row_width[i];
             if (row_x < mx)
@@ -1447,6 +1509,49 @@ void prefbar_draw_text() {
             if (want_shadow && shadows[i])
                 (void)set_property_direct(
                     label_class, shadows[i], "X", row_x + 1.5f);
+        }
+    }
+
+    /* Keep the background bounds tied to actual text widths and the current
+     * arrangement. The same panel logic covers one-line horizontal bars and
+     * stacked vertical rows. */
+    MonoObject* background = managed_target(g_telemetry_background_handle);
+    if (background) {
+        MonoClass* panel_class = mono_class_from_name_(
+            g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel");
+        const bool has_content = horizontal
+            ? horizontal_items > 0
+            : last_visible_row > 0 && max_vertical_text_width > 0.0f;
+        const bool show_background =
+            overlay_visible && has_content &&
+            pkt.background_opacity >= 50 && pkt.background_opacity <= 100;
+        if (panel_class) {
+            (void)set_property_direct(
+                panel_class, background, "BackgroundVisibility", show_background);
+            if (show_background) {
+                float bg_x = horizontal
+                    ? horizontal_x - 10.0f
+                    : (right_vertical_anchor
+                        ? screen_width - mx - max_vertical_text_width - 10.0f
+                        : mx - 10.0f);
+                float bg_y = y0 - 6.0f;
+                float bg_width = (horizontal ? horizontal_total_width
+                                             : max_vertical_text_width) + 20.0f;
+                float bg_height = (horizontal ? line_h
+                                              : static_cast<float>(last_visible_row) * line_h) + 12.0f;
+
+                if (bg_x < 0.0f) bg_x = 0.0f;
+                if (bg_y < 0.0f) bg_y = 0.0f;
+                if (bg_width > screen_width - bg_x)
+                    bg_width = screen_width - bg_x;
+                if (bg_height > screen_height - bg_y)
+                    bg_height = screen_height - bg_y;
+
+                (void)set_property_direct(panel_class, background, "X", bg_x);
+                (void)set_property_direct(panel_class, background, "Y", bg_y);
+                (void)set_property_direct(panel_class, background, "Width", bg_width);
+                (void)set_property_direct(panel_class, background, "Height", bg_height);
+            }
         }
     }
 

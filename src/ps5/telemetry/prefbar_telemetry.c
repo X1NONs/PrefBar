@@ -368,6 +368,8 @@ static int migration_config_key_index(const char *line)
         "overlay_horizontal",
         "overlay_horizontal_spacing",
         "overlay_horizontal_align",
+        "overlay_background",
+        "overlay_background_opacity",
         "overlay_format",
         "show_frametime",
         "show_1percent_low",
@@ -410,7 +412,7 @@ static int migration_config_key_index(const char *line)
  */
 static void deduplicate_migrated_config_options(void)
 {
-    enum { KEY_COUNT = 16 };
+    enum { KEY_COUNT = 18 };
     config_migration_line_t *lines =
         (config_migration_line_t *)calloc(PREFBAR_CONFIG_MAX_LINES, sizeof(*lines));
     if (!lines)
@@ -641,6 +643,10 @@ static void migrate_config_options(void)
         !read_config_value("overlay_horizontal_spacing", value, sizeof(value));
     const int add_overlay_horizontal_align =
         !read_config_value("overlay_horizontal_align", value, sizeof(value));
+    const int add_overlay_background =
+        !read_config_value("overlay_background", value, sizeof(value));
+    const int add_overlay_background_opacity =
+        !read_config_value("overlay_background_opacity", value, sizeof(value));
     const int add_overlay_format =
         !read_config_value("overlay_format", value, sizeof(value));
 
@@ -670,7 +676,8 @@ static void migrate_config_options(void)
         !read_config_value("warning_notifications", value, sizeof(value));
 
     if (!add_warning_notifications && !add_overlay_horizontal && !add_overlay_horizontal_spacing &&
-        !add_overlay_horizontal_align && !add_overlay_format && !add_show_frametime &&
+        !add_overlay_horizontal_align && !add_overlay_background &&
+        !add_overlay_background_opacity && !add_overlay_format && !add_show_frametime &&
         !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
         !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
@@ -690,7 +697,8 @@ static void migrate_config_options(void)
         (void)fputs("\n[notifications]\nwarning_notifications=0\n", f);
 
     if (add_overlay_horizontal || add_overlay_horizontal_spacing ||
-        add_overlay_horizontal_align || add_overlay_format)
+        add_overlay_horizontal_align || add_overlay_background ||
+        add_overlay_background_opacity || add_overlay_format)
     {
         (void)fputs("\n[overlay]\n", f);
         if (add_overlay_horizontal)
@@ -699,6 +707,10 @@ static void migrate_config_options(void)
             (void)fputs("overlay_horizontal_spacing=medium\n", f);
         if (add_overlay_horizontal_align)
             (void)fputs("overlay_horizontal_align=center\n", f);
+        if (add_overlay_background)
+            (void)fputs("overlay_background=1\n", f);
+        if (add_overlay_background_opacity)
+            (void)fputs("overlay_background_opacity=75\n", f);
         if (add_overlay_format)
             (void)fputs("overlay_format=compact\n", f);
     }
@@ -757,6 +769,8 @@ static void ensure_default_config_file(void)
         "notify_sec=0\n\n"
         "[overlay]\n"
         "overlay=1\n"
+        "overlay_background=1\n"
+        "overlay_background_opacity=75\n"
         "text_color=#F2F2F2\n"
         "text_shadow=1\n"
         "overlay_mode=0\n"
@@ -1893,6 +1907,7 @@ typedef struct
 {
     int notify_sec, poll_us, sensors, diag;
     int overlay, ov_mode, ov_font, ov_corner, ov_x, ov_y;
+    int overlay_background, overlay_background_opacity;
     int notifications, startup_notification, error_notifications;
     int warning_notifications, debug_notifications;
     int debug_notify;
@@ -2221,6 +2236,8 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
                         (cfg->overlay ? PREFBAR_WIRE_FLAG_OVERLAY_ENABLED : 0u) |
                         (cfg->overlay_horizontal ? PREFBAR_WIRE_FLAG_HORIZONTAL : 0u) |
                         horizontal_spacing_flags | horizontal_alignment_flags);
+    p.background_opacity = cfg->overlay_background
+        ? (uint8_t)cfg->overlay_background_opacity : 0u;
     p.font_size = (uint16_t)cfg->ov_font;
     p.margin_x = (float)cfg->ov_x;
     p.margin_y = (float)cfg->ov_y;
@@ -2432,6 +2449,8 @@ static void config_defaults(config_t *c)
     c->diag = 1;
 #endif
     c->overlay = 1;
+    c->overlay_background = 1;
+    c->overlay_background_opacity = 75;
     c->ov_mode = 0;
     c->ov_font = 26;
     c->ov_corner = PREFBAR_CORNER_TL;
@@ -2511,6 +2530,8 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("diag", diag, 1, 0, 1)
 #endif
     CONFIG_INT("overlay", overlay, 1, 0, 1)
+    CONFIG_INT("overlay_background", overlay_background, 1, 0, 1)
+    CONFIG_INT("overlay_background_opacity", overlay_background_opacity, 75, 50, 100)
     CONFIG_INT("overlay_mode", ov_mode, 0, 0, 1)
     CONFIG_INT("overlay_font", ov_font, 26, 10, 96)
     if (strcmp(key, "overlay_corner") == 0)

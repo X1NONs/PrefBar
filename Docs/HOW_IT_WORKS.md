@@ -93,7 +93,7 @@ The telemetry worker writes human-readable `status.txt` and key/value `status.kv
 
 ### 3. Telemetry and control protocol
 
-`include/prefbar/telemetry_wire.h` defines the C-compatible version-5 telemetry packet shared by the C telemetry worker and C++ renderer. The packet carries up to fourteen compacted text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and horizontal layout. Horizontal spacing and alignment are encoded in the packet flags. The capacity accommodates twelve independent metrics plus two optional diagnostic rows.
+`include/prefbar/telemetry_wire.h` defines the C-compatible version-6 telemetry packet shared by the C telemetry worker and C++ renderer. The packet carries up to fourteen compacted text rows, font size, corner/position, text color, overlay visibility, text-shadow state, touchpad-toggle state, and horizontal layout. Horizontal spacing and alignment are encoded in the packet flags. The capacity accommodates twelve independent metrics plus two optional diagnostic rows.
 
 The controller sends telemetry to the renderer over UDP loopback on port `39028`. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
 
@@ -119,7 +119,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new `overlay_format=compact` default, per-metric visibility settings, and `gpu_temp_label=gpu` when the label option is absent. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU-temperature visibility (`show_gpu_temp`, retained as the current compatibility key for the SoC sensor 0 reading); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new black overlay background settings, the `overlay_format=compact` default, per-metric visibility settings, and `gpu_temp_label=gpu` when the label option is absent. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU-temperature visibility (`show_gpu_temp`, retained as the current compatibility key for the SoC sensor 0 reading); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 By default, only the startup attribution and error toasts are enabled. Warning and other debug/milestone toasts are disabled; all diagnostic events continue to be written to `debug.log`.
 
@@ -137,6 +137,8 @@ All boolean values use `0` (off) or `1` (on).
 | `debug_notify` | Maximum toast verbosity: `0` off, `1` errors, `2` warnings, `3` information/milestones, `4` trace. The default `3` also permits the separately controlled startup attribution toast; non-error toasts remain disabled by default. | `0`–`4`; default `3` |
 | `notify_sec` | Periodic performance-toast interval; zero disables periodic toasts | `0`–`3600` seconds; default `0` |
 | `overlay` | Show or hide the on-screen overlay | `0` or `1`; default `1` |
+| `overlay_background` | Show a rounded black background behind overlay text in both vertical and horizontal layouts | `0` or `1`; default `1` |
+| `overlay_background_opacity` | Black background opacity, as a percentage | `50`–`100`; default `75` |
 | `text_color` | Overlay text color | `#RRGGBB`; default `#F2F2F2` |
 | `text_shadow` | Draw a text shadow | `0` or `1`; default `1` |
 | `overlay_mode` | `0` compact layout, `1` extended diagnostic rows | `0` or `1`; default `0` |
@@ -189,6 +191,8 @@ notify_sec=0
 
 [overlay]
 overlay=1
+overlay_background=1
+overlay_background_opacity=75
 text_color=#F2F2F2
 text_shadow=1
 overlay_mode=0
