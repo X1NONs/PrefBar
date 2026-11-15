@@ -1423,8 +1423,19 @@ void prefbar_draw_text() {
      * Right-side corner anchors apply to vertical, per-row layouts. */
     const bool right_vertical_anchor = !horizontal &&
         (corner == PREFBAR_CORNER_TR || corner == PREFBAR_CORNER_BR);
+    int graph_layout_text_rows = banner ? 1 : 0;
+    if (!banner && overlay_visible && !stale) {
+        for (int i = 0; i < rows; ++i) {
+            if (pkt.text[i][0])
+                graph_layout_text_rows = horizontal ? 1 : i + 1;
+        }
+    }
+    /* Preserve the legacy text-only reservation when the graph is off. When
+     * enabled, reserve only rows that actually have text; this also lets a
+     * graph-only horizontal overlay sit flush against its bottom margin. */
     const int layout_rows = bottom_corner
-        ? (horizontal ? 1 : (banner ? 1 : rows))
+        ? (graph_visible ? graph_layout_text_rows
+                         : (horizontal ? 1 : (banner ? 1 : rows)))
         : 0;
     float graph_width = kGraphPreferredWidth;
     const float available_graph_width = screen_width - 2.0f * mx;
