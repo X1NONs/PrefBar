@@ -960,7 +960,8 @@ static void test_frametime_graph_config_and_history(void)
     CHECK(prefbar_graph_wire_valid(&packet, sizeof(packet)),
           "generated frame-time graph packet should validate");
     CHECK(packet.frametime_x10_ms[0] == 350,
-          "bucket should preserve its worst frame interval (got %u)", packet.frametime_x10_ms[0]);
+          "bucket should preserve its worst frame interval (got %u)",
+          (unsigned)packet.frametime_x10_ms[0]);
     CHECK(packet.frametime_x10_ms[PREFBAR_GRAPH_SAMPLES - 1] == 120,
           "latest bucket should contain the latest frame interval");
     stats_graph_snapshot(&stats, 5000000000ull, 0, 8, &packet);
