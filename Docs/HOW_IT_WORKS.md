@@ -121,6 +121,8 @@ On first start, the telemetry worker creates this file if it does not already ex
 
 It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new `overlay_format=compact` default, per-metric visibility settings, and `gpu_temp_label=gpu` when the label option is absent. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU-temperature visibility (`show_gpu_temp`, retained as the current compatibility key for the SoC sensor 0 reading); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
+By default, only the startup attribution and error toasts are enabled. Warning and other debug/milestone toasts are disabled; all diagnostic events continue to be written to `debug.log`.
+
 The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
 All boolean values use `0` (off) or `1` (on).
@@ -131,8 +133,8 @@ All boolean values use `0` (off) or `1` (on).
 | `startup_notification` | Show the delayed startup attribution toast | `0` or `1`; default `1` |
 | `error_notifications` | Allow error toasts | `0` or `1`; default `1` |
 | `warning_notifications` | Allow warning toasts independently of other debug notifications; warnings are still written to `debug.log` when disabled | `0` or `1`; default `0` |
-| `debug_notifications` | Allow non-error, non-warning debug/milestone toasts | `0` or `1`; default `1` |
-| `debug_notify` | Maximum toast verbosity: `0` off, `1` errors, `2` warnings, `3` information/milestones, `4` trace | `0`–`4`; default `3` |
+| `debug_notifications` | Allow non-error, non-warning debug/milestone toasts | `0` or `1`; default `0` |
+| `debug_notify` | Maximum toast verbosity: `0` off, `1` errors, `2` warnings, `3` information/milestones, `4` trace. The default `3` also permits the separately controlled startup attribution toast; non-error toasts remain disabled by default. | `0`–`4`; default `3` |
 | `notify_sec` | Periodic performance-toast interval; zero disables periodic toasts | `0`–`3600` seconds; default `0` |
 | `overlay` | Show or hide the on-screen overlay | `0` or `1`; default `1` |
 | `text_color` | Overlay text color | `#RRGGBB`; default `#F2F2F2` |
@@ -176,7 +178,7 @@ notifications=1
 startup_notification=1
 error_notifications=1
 warning_notifications=0
-debug_notifications=1
+debug_notifications=0
 debug_notify=3
 notify_sec=0
 

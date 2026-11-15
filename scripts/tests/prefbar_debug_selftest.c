@@ -98,7 +98,7 @@ static void test_levels(void)
         {"warning_notifications=1\ndebug_notify=2\n", 2},
         {"warning_notifications=1\ndebug_notify=3\n", 3},
         {"warning_notifications=1\ndebug_notify=4\n", 4},
-        {NULL, 2}, /* default: errors + information, no warning toasts */
+        {NULL, 1}, /* default: errors only; startup attribution is tested via config */
         {"warning_notifications=1\ndebug_notify=9\n", 3},
         {"warning_notifications=1\ndebug_notify=-1\n", 3},
         {"warning_notifications=1\ndebug_notify=abc\n", 3},
@@ -260,12 +260,17 @@ static void test_config_file_and_values(void)
               strstr(defaults_text, "show_ram=1") &&
               strstr(defaults_text, "show_vram=1"),
           "default config should expose separate CPU, RAM, and VRAM controls");
-    CHECK(strstr(defaults_text, "warning_notifications=0") != NULL,
-          "new default config should disable warning toasts explicitly");
-    CHECK(cfg.notifications == 1 && cfg.touchpad_toggle == 1,
-          "default notifications and touchpad toggle should be enabled");
-    CHECK(cfg.warning_notifications == 0 && cfg.debug_notify == 3,
-          "warnings should be muted by default without lowering information verbosity");
+    CHECK(strstr(defaults_text, "startup_notification=1") != NULL &&
+              strstr(defaults_text, "error_notifications=1") != NULL &&
+              strstr(defaults_text, "warning_notifications=0") != NULL &&
+              strstr(defaults_text, "debug_notifications=0") != NULL,
+          "default config should enable startup and error toasts while disabling warning and debug toasts");
+    CHECK(cfg.notifications == 1 && cfg.startup_notification == 1 &&
+              cfg.error_notifications == 1 && cfg.touchpad_toggle == 1,
+          "startup, error, master notifications, and touchpad toggle should be enabled by default");
+    CHECK(cfg.warning_notifications == 0 && cfg.debug_notifications == 0 &&
+              cfg.debug_notify == 3,
+          "only error toasts should be enabled by default while retaining the startup INFO threshold");
 
     /* An older config's grouped toggles seed the new individual toggles. */
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");

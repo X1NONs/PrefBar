@@ -111,7 +111,9 @@ static uint64_t now_ns(void)
  * dbg_event() is the single entry point. Each event is appended to
  * <DATA_DIR>/debug.log and, when its level is <= "debug_notify" from
  * prefbar.conf, shown as a system toast.
- *   debug_notify = 0 off | 1 errors | 2 +warnings | 3 +milestones (default) | 4 +trace
+ *   debug_notify = maximum level: 0 off | 1 errors | 2 warnings | 3 info | 4 trace.
+ * Non-error toast categories are independently muted by default; startup
+ * attribution remains enabled and requires the INFO threshold.
  * Flood protection: one event per key per cooldown, and at most DBG_MAX_TOASTS
  * toasts per run, so a fault loop can never bury the screen in notifications.
  * Safe to call from the controller thread and the sampler thread at once.
@@ -750,7 +752,7 @@ static void ensure_default_config_file(void)
         "startup_notification=1\n"
         "error_notifications=1\n"
         "warning_notifications=0\n"
-        "debug_notifications=1\n"
+        "debug_notifications=0\n"
         "debug_notify=3\n"
         "notify_sec=0\n\n"
         "[overlay]\n"
@@ -830,7 +832,7 @@ static void dbg_init_locked(void)
     g_dbg.startup_notification = read_config_int("startup_notification", 1, 0, 1);
     g_dbg.error_notifications = read_config_int("error_notifications", 1, 0, 1);
     g_dbg.warning_notifications = read_config_int("warning_notifications", 0, 0, 1);
-    g_dbg.debug_notifications = read_config_int("debug_notifications", 1, 0, 1);
+    g_dbg.debug_notifications = read_config_int("debug_notifications", 0, 0, 1);
 }
 
 /* caller holds the lock; keeps debug.log under DBG_LOG_MAX (+ one .1 backup) */
@@ -2439,7 +2441,7 @@ static void config_defaults(config_t *c)
     c->startup_notification = 1;
     c->error_notifications = 1;
     c->warning_notifications = 0;
-    c->debug_notifications = 1;
+    c->debug_notifications = 0;
     c->debug_notify = 3;
     c->text_shadow = 1;
     c->show_fps = 1;
@@ -2526,7 +2528,7 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("startup_notification", startup_notification, 1, 0, 1)
     CONFIG_INT("error_notifications", error_notifications, 1, 0, 1)
     CONFIG_INT("warning_notifications", warning_notifications, 0, 0, 1)
-    CONFIG_INT("debug_notifications", debug_notifications, 1, 0, 1)
+    CONFIG_INT("debug_notifications", debug_notifications, 0, 0, 1)
     CONFIG_INT("debug_notify", debug_notify, 3, 0, DBG_TRACE)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
     CONFIG_INT("show_fps", show_fps, 1, 0, 1)
