@@ -373,7 +373,7 @@ static void test_config_file_and_values(void)
     {
         char corner_config[48];
         snprintf(corner_config, sizeof corner_config,
-                 "overlay_corner=%s\\n", corner_cases[i].value);
+                 "overlay_corner=%s\n", corner_cases[i].value);
         reset(corner_config);
         CHECK(load_config(&cfg) == 1,
               "overlay corner %s config should load", corner_cases[i].value);
@@ -382,7 +382,7 @@ static void test_config_file_and_values(void)
               corner_cases[i].value, corner_cases[i].expected, cfg.ov_corner);
     }
 
-    reset("overlay_corner=4\\n");
+    reset("overlay_corner=4\n");
     CHECK(load_config(&cfg) == 1 && cfg.ov_corner == PREFBAR_CORNER_TL,
           "out-of-range overlay_corner should safely fall back to top-left");
 }
