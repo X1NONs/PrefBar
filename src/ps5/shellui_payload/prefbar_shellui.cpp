@@ -1333,8 +1333,13 @@ void prefbar_draw_text() {
     const bool graph_visible = overlay_visible && !graph_stale &&
         ((graph_pkt.flags & PREFBAR_GRAPH_FLAG_ENABLED) != 0);
     const bool graph_hidden = !graph_visible;
+    /* While the overlay is hidden, graph packets may continue at 10 Hz.
+     * Cache them without needlessly reapplying every text label. A visibility
+     * transition still forces one draw, and visible graphs redraw per packet. */
+    const bool graph_data_changed = graph_visible &&
+        graph_count != g_graph_applied_count;
     if (count == g_telemetry_applied_count && stale == g_telemetry_hidden &&
-        graph_count == g_graph_applied_count && graph_hidden == g_graph_hidden)
+        !graph_data_changed && graph_hidden == g_graph_hidden)
         return;
 
     prefbar_wire_t pkt;
