@@ -1791,8 +1791,7 @@ void prefbar_draw_text() {
                 if (content_x < mx) content_x = mx;
                 float bg_x = content_x - kOverlayBackgroundPaddingX;
                 float bg_y = y0 - kOverlayBackgroundPaddingY;
-                const float text_height = horizontal ? line_h
-                    : static_cast<float>(last_visible_row) * line_h;
+                const float text_height = graph_text_rows * line_h;
                 const float content_height = text_height +
                     (graph_visible ? kGraphGap + kGraphHeight : 0.0f);
                 float bg_width = content_width + 2.0f * kOverlayBackgroundPaddingX;
