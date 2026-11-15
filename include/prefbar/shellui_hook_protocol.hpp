@@ -43,11 +43,21 @@ enum class ShellUiHookAckPhase : std::uint8_t {
     MainThreadGuard = 2,
 };
 
+/*
+ * Backend for the Application.Update detour (14-byte absolute jump plus
+ * relocated prologue). The detour is only enabled on firmware where it has
+ * been exercised: FW 7.00-8.20, 9.xx and 11.xx-13.xx via MDBG. Below 7.00 it
+ * is reported Unsupported, which makes the
+ * renderer fall back to the one-byte main-thread guard (see
+ * shellui_main_thread_guard_backend) instead of detouring ShellUI code.
+ * Issue #17: on FW 4.03 the detour patched and verified cleanly, then
+ * ShellUI died before the hook was ever acknowledged.
+ */
 inline ShellUiHookBackend shellui_hook_backend(
     std::uint32_t sdk, bool eta_chain) noexcept {
     (void)eta_chain; // All selected 9.xx firmware now uses the MDBG backend.
     const std::uint32_t family = sdk & 0xffff0000U;
-    if ((family >= 0x03000000U && family <= 0x08200000U) ||
+    if ((family >= 0x07000000U && family <= 0x08200000U) ||
         (family >= 0x09000000U && family < 0x0a000000U) ||
         (family >= 0x11000000U && family <= 0x13ff0000U))
         return ShellUiHookBackend::Mdbg;
