@@ -139,8 +139,6 @@ ProcessLookupResult find_game_process() noexcept {
                         result.pid = candidate;
                         std::snprintf(result.title_id, sizeof(result.title_id), "%s", info.title_id);
                     }
-                } else {
-                    result.pid = candidate;
                 }
             }
         }
