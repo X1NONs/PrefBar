@@ -78,6 +78,11 @@ static void test_cpu_idle_thread_recovery(void)
     g_sim_idle_mask = all_cores;
     usleep(10000);
     sensors_read(&sens, &cpuu, now_ns());
+    CHECK((unsigned)cpuu.idle_mask != all_cores,
+          "incomplete thread discovery should be throttled between retry intervals");
+    cpuu.last_discovery_ns = 0; /* force the next retry without a 1 s test delay */
+    usleep(10000);
+    sensors_read(&sens, &cpuu, now_ns());
     CHECK((unsigned)cpuu.idle_mask == all_cores,
           "partial idle-thread discovery should retry and find CPU0");
     CHECK(!sens.core_ok[0],
@@ -97,6 +102,7 @@ static void test_cpu_idle_thread_recovery(void)
           "a disappeared idle thread should be invalidated, not sampled as zero");
 
     g_sim_idle_mask = all_cores;
+    cpuu.last_discovery_ns = 0; /* force rediscovery of the reappearing core */
     usleep(10000);
     sensors_read(&sens, &cpuu, now_ns());
     CHECK((unsigned)cpuu.idle_mask == all_cores && !sens.core_ok[3],
