@@ -129,6 +129,7 @@ std::uint32_t g_game_scene_handle{};
 int g_pad_handle = -1;
 int g_pad_init_state = 0;
 int g_pad_user = -1;
+bool g_pad_handle_owned = false;
 MonoMethod* g_find_scene_method{};
 bool g_background_render_mode = false;
 
@@ -1591,11 +1592,13 @@ bool pad_read(pad_state_t* s) {
         }
 
         int h = scePadOpen(user, 0, 0, nullptr);
+        const bool opened_handle = h >= 0;
         if (h < 0)
             h = scePadGetHandle(user, 0, 0);
 
         if (h >= 0) {
             g_pad_handle = h;
+            g_pad_handle_owned = opened_handle;
             g_pad_user = user;
             g_pad_init_state = 1;
             consecutive_read_failures = 0;
@@ -1617,10 +1620,10 @@ bool pad_read(pad_state_t* s) {
             fg_user != -1 && static_cast<std::uint32_t>(fg_user) != 0xffffffffu &&
             fg_user != g_pad_user) {
             log_line("pad: foreground user changed 0x%x -> 0x%x, reopening pad", g_pad_user, fg_user);
-            if (g_pad_handle >= 0) {
+            if (g_pad_handle >= 0 && g_pad_handle_owned)
                 scePadClose(g_pad_handle);
-            }
             g_pad_handle = -1;
+            g_pad_handle_owned = false;
             g_pad_init_state = 0;
             return false;
         }
@@ -1633,10 +1636,10 @@ bool pad_read(pad_state_t* s) {
         if (++consecutive_read_failures > 15) {
             log_line("pad: read failed rc=0x%x for 15 frames, resetting handle 0x%x",
                      read_rc, g_pad_handle);
-            if (g_pad_handle >= 0) {
+            if (g_pad_handle >= 0 && g_pad_handle_owned)
                 scePadClose(g_pad_handle);
-            }
             g_pad_handle = -1;
+            g_pad_handle_owned = false;
             g_pad_init_state = 0;
             consecutive_read_failures = 0;
         }
@@ -2038,7 +2041,7 @@ bool initialize_receiver() {
     g_receiver_fd = fd;
     log_line(
         "receiver ready port=%u mode=persistent-main-thread "
-        "timeout_ms=2000 stale=1",
+        "timeout_ms=33 stale=1",
         PREFBAR_WIRE_PORT);
     return true;
 }
@@ -2049,8 +2052,26 @@ bool initialize_receiver() {
          * lets the exact-size validator reject oversized datagrams as well. */
         unsigned char buf[sizeof(prefbar_wire_t) + 1U];
         const long n = static_cast<long>(recv(g_receiver_fd, buf, sizeof(buf), 0));
-        if (n > 0)
+        if (n > 0) {
             prefbar_ingest(buf, n);
+        } else if (n < 0) {
+            const int receive_error = errno;
+            if (receive_error != EAGAIN && receive_error != EWOULDBLOCK &&
+                receive_error != EINTR) {
+                static int last_reported_error = 0;
+                static std::uint64_t last_error_log_ms = 0;
+                const std::uint64_t now = prefbar_now_ms();
+                if (receive_error != last_reported_error ||
+                    now - last_error_log_ms >= 5000) {
+                    log_line("receiver: recv failed errno=%d; backing off",
+                             receive_error);
+                    last_reported_error = receive_error;
+                    last_error_log_ms = now;
+                }
+                /* Avoid a hot loop if the socket enters a persistent error state. */
+                usleep(10000);
+            }
+        }
 
         if (g_background_render_mode) {
             process_prefbar_toggle_input();
