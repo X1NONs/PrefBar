@@ -55,6 +55,7 @@
 #include <ps5/kernel.h>
 #include <ps5/nid.h>
 #endif
+#include "prefbar/build_info.h"
 #include "prefbar/telemetry_wire.h"
 #ifndef PREFBAR_SIM
 #include <sys/types.h>
@@ -75,7 +76,6 @@ extern uint64_t prefbar_game_session_generation(void);
 #define LOCK_PATH "/system_tmp/prefbar.lock"
 #endif
 
-#define PREFBAR_VERSION "0.3.0"
 #define PREFBAR_CONFIG_PATH DATA_DIR "/prefbar.conf"
 #define PREFBAR_CONFIG_HEADER "# PrefBar " PREFBAR_VERSION " configuration"
 
