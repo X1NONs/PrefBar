@@ -171,14 +171,14 @@ static void test_levels(void)
         int expect;
     } cases[] = {
         {"debug_notify=0\n", 0},
-        {"warning_notifications=1\ndebug_notify=1\n", 1},
-        {"warning_notifications=1\ndebug_notify=2\n", 2},
-        {"warning_notifications=1\ndebug_notify=3\n", 3},
-        {"warning_notifications=1\ndebug_notify=4\n", 4},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=1\n", 1},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=2\n", 2},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=3\n", 3},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=4\n", 4},
         {NULL, 1}, /* default: errors only; startup attribution is tested via config */
-        {"warning_notifications=1\ndebug_notify=9\n", 3},
-        {"warning_notifications=1\ndebug_notify=-1\n", 3},
-        {"warning_notifications=1\ndebug_notify=abc\n", 3},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=9\n", 3},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=-1\n", 3},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=abc\n", 3},
     };
     for (unsigned c = 0; c < sizeof cases / sizeof *cases; c++)
     {
@@ -527,9 +527,12 @@ static void test_config_header_upgrades_any_release(void)
         "overlay_horizontal_spacing=long\n"
         "overlay_horizontal_align=center\n"
         "overlay_format=compact\n"
+        "overlay_background=1\n"
+        "overlay_background_opacity=75\n"
         "[telemetry]\n"
         "sensors=1\n"
         "show_frametime=1\n"
+        "show_frametime_graph=0\n"
         "show_1percent_low=1\n"
         "show_cpu_usage=1\n"
         "show_cpu_temp=1\n"
