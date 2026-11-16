@@ -82,6 +82,7 @@ extern uint64_t prefbar_game_session_generation(void);
 #define HIST 600             /* frametimes kept for avg / 1% low        */
 #define MAX_FLIPS_PER_POLL 8 /* cap if the poll loop was stalled        */
 #define REPORT_NS 1000000000ull
+#define PREFBAR_GRAPH_INTERVAL_NS 100000000ull /* 10 Hz */
 #define STALE_NS 2000000000ull /* no counter change for this long = idle */
 #define NCORES 8
 #define MAX_THREADS 3072
@@ -372,6 +373,7 @@ static int migration_config_key_index(const char *line)
         "overlay_background_opacity",
         "overlay_format",
         "show_frametime",
+        "show_frametime_graph",
         "show_1percent_low",
         "show_cpu_usage",
         "show_cpu_temp",
@@ -412,7 +414,7 @@ static int migration_config_key_index(const char *line)
  */
 static void deduplicate_migrated_config_options(void)
 {
-    enum { KEY_COUNT = 18 };
+    enum { KEY_COUNT = 19 };
     config_migration_line_t *lines =
         (config_migration_line_t *)calloc(PREFBAR_CONFIG_MAX_LINES, sizeof(*lines));
     if (!lines)
@@ -652,6 +654,8 @@ static void migrate_config_options(void)
 
     const int add_show_frametime =
         !read_config_value("show_frametime", value, sizeof(value));
+    const int add_show_frametime_graph =
+        !read_config_value("show_frametime_graph", value, sizeof(value));
     const int add_show_1percent_low =
         !read_config_value("show_1percent_low", value, sizeof(value));
     const int add_show_cpu_usage =
@@ -678,7 +682,7 @@ static void migrate_config_options(void)
     if (!add_warning_notifications && !add_overlay_horizontal && !add_overlay_horizontal_spacing &&
         !add_overlay_horizontal_align && !add_overlay_background &&
         !add_overlay_background_opacity && !add_overlay_format && !add_show_frametime &&
-        !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
+        !add_show_frametime_graph && !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
         !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
         !add_gpu_temp_label)
@@ -715,13 +719,15 @@ static void migrate_config_options(void)
             (void)fputs("overlay_format=compact\n", f);
     }
 
-    if (add_show_frametime || add_show_1percent_low || add_show_cpu_usage ||
+    if (add_show_frametime || add_show_frametime_graph || add_show_1percent_low ||
         add_show_cpu_temp || add_show_gpu_temp || add_show_ram || add_show_vram ||
         add_show_power || add_show_cpu_clock || add_show_gpu_clock || add_gpu_temp_label)
     {
         (void)fputs("\n[telemetry]\n", f);
         if (add_show_frametime)
             fprintf(f, "show_frametime=%d\n", legacy_show_fps);
+        if (add_show_frametime_graph)
+            (void)fputs("show_frametime_graph=0\n", f);
         if (add_show_1percent_low)
             fprintf(f, "show_1percent_low=%d\n", legacy_show_fps);
         if (add_show_cpu_usage)
@@ -786,6 +792,7 @@ static void ensure_default_config_file(void)
         "sensors=1\n"
         "show_fps=1\n"
         "show_frametime=1\n"
+        "show_frametime_graph=0\n"
         "show_1percent_low=1\n"
         "show_cpu_usage=1\n"
         "show_cpu_temp=1\n"
@@ -1388,6 +1395,7 @@ static int get_page_table_stats(int vm, int type, int *total, int *fr)
 typedef struct
 {
     float ft_ms[HIST];
+    uint64_t ft_ns[HIST]; /* approximate display-flip timestamps */
     int head, count;
     uint64_t last_flip_ns; /* time of the last observed counter change */
     uint64_t last_count;
@@ -1395,9 +1403,10 @@ typedef struct
     uint64_t win_start_ns, win_start_count; /* 1 s window for headline FPS */
 } stats_t;
 
-static void stats_push(stats_t *s, float ms)
+static void stats_push(stats_t *s, float ms, uint64_t frame_ns)
 {
     s->ft_ms[s->head] = ms;
+    s->ft_ns[s->head] = frame_ns;
     s->head = (s->head + 1) % HIST;
     if (s->count < HIST)
         s->count++;
@@ -1434,12 +1443,61 @@ static void stats_update(stats_t *s, uint64_t count, uint64_t t_ns)
         /* Divide by the real counter delta; cap only the number of samples
          * inserted after a delayed poll. Otherwise a one-second sampler stall
          * turns into eight fabricated 125 ms hitches. */
-        const float ms =
-            (float)(t_ns - s->last_flip_ns) / 1e6f / (float)observed_flips;
+        const uint64_t interval_ns = t_ns - s->last_flip_ns;
+        const float ms = (float)interval_ns / 1e6f / (float)observed_flips;
         for (uint64_t i = 0; i < samples; i++)
-            stats_push(s, ms);
+        {
+            const uint64_t frame_index = i + 1;
+            const uint64_t offset = (interval_ns / samples) * frame_index +
+                ((interval_ns % samples) * frame_index) / samples;
+            stats_push(s, ms, s->last_flip_ns + offset);
+        }
         s->last_count = count;
         s->last_flip_ns = t_ns;
+    }
+}
+
+static void stats_graph_snapshot(const stats_t *s, uint64_t now,
+                                  int enabled, uint64_t sequence,
+                                  prefbar_graph_wire_t *packet)
+{
+    memset(packet, 0, sizeof(*packet));
+    packet->magic = PREFBAR_GRAPH_WIRE_MAGIC;
+    packet->version = PREFBAR_GRAPH_WIRE_VERSION;
+    packet->size = (uint16_t)sizeof(*packet);
+    packet->sequence = sequence ? sequence : 1;
+    packet->window_ms = PREFBAR_GRAPH_WINDOW_MS;
+    packet->scale_max_ms_x10 = PREFBAR_GRAPH_SCALE_MAX_MS_X10;
+    packet->sample_count = PREFBAR_GRAPH_SAMPLES;
+    if (!enabled || !s || s->count <= 0)
+        return;
+    packet->flags = PREFBAR_GRAPH_FLAG_ENABLED;
+    const uint64_t window_ns = (uint64_t)PREFBAR_GRAPH_WINDOW_MS * 1000000ull;
+    const uint64_t cutoff = now > window_ns ? now - window_ns : 0;
+    const int oldest = (s->head - s->count + HIST) % HIST;
+    for (int i = 0; i < s->count; ++i)
+    {
+        const int index = (oldest + i) % HIST;
+        const uint64_t frame_ns = s->ft_ns[index];
+        if (frame_ns < cutoff || frame_ns > now)
+            continue;
+        const uint64_t elapsed = frame_ns - cutoff;
+        int bucket = (int)((elapsed * PREFBAR_GRAPH_SAMPLES) / window_ns);
+        if (bucket >= (int)PREFBAR_GRAPH_SAMPLES)
+            bucket = (int)PREFBAR_GRAPH_SAMPLES - 1;
+        const float ms = s->ft_ms[index];
+        if (!(ms > 0.0f))
+            continue;
+        unsigned value;
+        if (ms >= (float)PREFBAR_GRAPH_SCALE_MAX_MS_X10 / 10.0f)
+            value = PREFBAR_GRAPH_SCALE_MAX_MS_X10;
+        else
+        {
+            value = (unsigned)(ms * 10.0f + 0.5f);
+            if (value < 1u) value = 1u;
+        }
+        if (value > packet->frametime_x10_ms[bucket])
+            packet->frametime_x10_ms[bucket] = (uint16_t)value;
     }
 }
 
@@ -1954,7 +2012,7 @@ typedef struct
     int warning_notifications, debug_notifications;
     int debug_notify;
     int text_shadow;
-    int show_fps, show_frametime, show_1percent_low;
+    int show_fps, show_frametime, show_frametime_graph, show_1percent_low;
     int show_cpu_usage, show_cpu_temp, show_cpu_clock;
     int show_gpu_temp, show_gpu_clock, show_fan_duty;
     int gpu_temp_label_soc;
@@ -2305,6 +2363,26 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
         dbg_event(DBG_TRACE, "overlay.first", "first overlay packet sent (renderer must be loaded to show it)");
 }
 
+static void overlay_graph_send(const stats_t *stats, uint64_t now, int enabled)
+{
+    static uint64_t sequence;
+    if (g_udp < 0) g_udp = socket(AF_INET, SOCK_DGRAM, 0);
+    if (g_udp < 0) return;
+    prefbar_graph_wire_t packet;
+    stats_graph_snapshot(stats, now, enabled, ++sequence, &packet);
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof address);
+    address.sin_family = AF_INET;
+    address.sin_port = htons(PREFBAR_WIRE_PORT);
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    const ssize_t sent = sendto(g_udp, &packet, sizeof packet, 0,
+                                (struct sockaddr *)&address, sizeof address);
+    if (sent != (ssize_t)sizeof packet)
+        dbg_event(DBG_WARN, "overlay.graph.send",
+                  "frame-time graph packet not sent (rc=%d errno=%d)",
+                  (int)sent, errno);
+}
+
 /* ----------------------------------------------------------- diagnostics
  * Raw dumps used to find out what the sensor APIs really return on a given
  * firmware. A capture = DIAG_REPORTS consecutive reports appended to
@@ -2507,6 +2585,7 @@ static void config_defaults(config_t *c)
     c->text_shadow = 1;
     c->show_fps = 1;
     c->show_frametime = 1;
+    c->show_frametime_graph = 0;
     c->show_1percent_low = 1;
     c->show_cpu_usage = 1;
     c->show_cpu_temp = 1;
@@ -2595,6 +2674,7 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
     CONFIG_INT("show_fps", show_fps, 1, 0, 1)
     CONFIG_INT("show_frametime", show_frametime, 1, 0, 1)
+    CONFIG_INT("show_frametime_graph", show_frametime_graph, 0, 0, 1)
     CONFIG_INT("show_1percent_low", show_1percent_low, 1, 0, 1)
     CONFIG_INT("show_cpu_usage", show_cpu_usage, 1, 0, 1)
     CONFIG_INT("show_cpu_temp", show_cpu_temp, 1, 0, 1)
@@ -2786,6 +2866,8 @@ static int prefbar_run(int install_signals, int lock)
 
     uint64_t last_count = 0;
     uint64_t next_report = now_ns() + REPORT_NS;
+    uint64_t next_graph = now_ns() + PREFBAR_GRAPH_INTERVAL_NS;
+    int graph_was_enabled = 0;
     uint64_t last_notify = 0;
     uint64_t dce_fail_since_ns = 0;
     int dce_error_reported = 0;
@@ -2951,6 +3033,17 @@ static int prefbar_run(int install_signals, int lock)
             }
         }
         game_was_active = game_active;
+
+        if (t >= next_graph)
+        {
+            next_graph = t + PREFBAR_GRAPH_INTERVAL_NS;
+            const int graph_enabled = cfg.overlay && cfg.show_frametime_graph;
+            if (graph_enabled || graph_was_enabled)
+            {
+                overlay_graph_send(&st, t, graph_enabled);
+                graph_was_enabled = graph_enabled;
+            }
+        }
 
         if (t >= next_report)
         {
