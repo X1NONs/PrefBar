@@ -894,7 +894,12 @@ static void dbg_startup_tick(void)
     }
     DBG_UNLOCK();
     if (send_attribution)
-        notify("PrefBar made by X1NONs");
+    {
+        char startup_message[96];
+        snprintf(startup_message, sizeof(startup_message),
+                 "PrefBar v%s made by X1NONs", PREFBAR_VERSION);
+        notify(startup_message);
+    }
 #if defined(PREFBAR_EMBED)
     pthread_mutex_unlock(&g_dbg_toast_mu);
 #endif
