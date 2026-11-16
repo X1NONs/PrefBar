@@ -303,7 +303,7 @@ static void test_config_file_and_values(void)
     CHECK(cfg.overlay == 1 && cfg.text_shadow == 1 &&
               cfg.overlay_background == 1 &&
               cfg.overlay_background_opacity == 75,
-          "default overlay, shadow, and 75% black background should be enabled");
+          "default overlay, shadow, and 75%% black background should be enabled");
     CHECK(cfg.overlay_horizontal == 0 &&
               cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_MEDIUM &&
               cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
@@ -386,7 +386,7 @@ static void test_config_file_and_values(void)
     CHECK(cfg.warning_notifications == 0,
           "legacy configs without warning_notifications should migrate to warnings muted");
     CHECK(cfg.overlay_background == 1 && cfg.overlay_background_opacity == 75,
-          "legacy configs should gain the enabled 75% black overlay background defaults");
+          "legacy configs should gain the enabled 75%% black overlay background defaults");
     char migrated_text[8192] = {0};
     f = fopen(PREFBAR_CONFIG_PATH, "r");
     if (f)
