@@ -7,6 +7,7 @@
 
 #include "ps5_injection.hpp"
 #include "ps5_platform.hpp"
+#include "prefbar/build_info.h"
 #include "prefbar/crash_strikes.hpp"
 #include "prefbar/shellui_stage.hpp"
 
@@ -206,15 +207,31 @@ void log_line(const char* fmt, ...) {
     std::fclose(fp);
 }
 
-bool marker_matches(pid_t pid) {
+enum class RendererMarkerState {
+    Missing,
+    CurrentBuild,
+    StaleBuild,
+};
+
+RendererMarkerState renderer_marker_state(pid_t pid) {
     FILE* fp = std::fopen(kMarker, "r");
     if (!fp)
-        return false;
+        return RendererMarkerState::Missing;
 
     int marked_pid = -1;
-    const int rc = std::fscanf(fp, "%d", &marked_pid);
+    char marked_version[32]{};
+    const int fields = std::fscanf(fp, "%d %31s", &marked_pid, marked_version);
     std::fclose(fp);
-    return rc == 1 && marked_pid == pid;
+
+    if (fields < 1 || marked_pid != pid)
+        return RendererMarkerState::Missing;
+    if (fields == 2 && std::strcmp(marked_version, PREFBAR_VERSION) == 0)
+        return RendererMarkerState::CurrentBuild;
+    return RendererMarkerState::StaleBuild;
+}
+
+bool marker_matches(pid_t pid) {
+    return renderer_marker_state(pid) == RendererMarkerState::CurrentBuild;
 }
 
 const char* last_stage_for(pid_t pid, char (&stage)[48]) {
@@ -242,6 +259,7 @@ bool ensure_shellui_renderer() {
     static unsigned retry_delay_ticks = 0;
     static unsigned discovery_failures = 0;
     static unsigned injection_attempts = 0;
+    static pid_t stale_marker_pid = -1;
     static bool renderer_quarantined = false;
     static bool firmware_gate_checked = false;
     static bool firmware_supported = false;
@@ -316,8 +334,24 @@ bool ensure_shellui_renderer() {
     const pid_t pid = lookup.pid;
     g_last_shellui_pid = pid;
 
-    if (marker_matches(pid))
+    const RendererMarkerState marker = renderer_marker_state(pid);
+    if (marker == RendererMarkerState::CurrentBuild)
         return true;
+    if (marker == RendererMarkerState::StaleBuild) {
+        if (stale_marker_pid != pid) {
+            log_line(
+                "stale ShellUI renderer marker pid=%d; restart ShellUI before loading this PrefBar build",
+                pid);
+            stale_marker_pid = pid;
+        }
+        if (attempted_pid != pid) {
+            attempted_pid = pid;
+            attempted_result = false;
+        }
+        retry_allowed = false;
+        retry_delay_ticks = 0;
+        return false;
+    }
 
     if (attempted_pid != pid) {
         log_line(
