@@ -43,13 +43,11 @@ int main() {
     {
         std::FILE* fp = std::fopen(path, "w");
         assert(fp);
-        std::fputs("not a number
-", fp);
+        std::fputs("not a number\n", fp);
         std::fclose(fp);
         assert(prefbar::renderer_crash_strikes(path) == 0);
         fp = std::fopen(path, "w");
-        std::fputs("4000000000
-", fp);
+        std::fputs("4000000000\n", fp);
         std::fclose(fp);
         assert(prefbar::renderer_crash_strikes(path) == 1000);
     }
@@ -62,6 +60,5 @@ int main() {
 
     prefbar::renderer_crash_strikes_clear(path);
     rmdir(dir);
-    std::cout << "PrefBar crash-strike test: PASS
-";
+    std::cout << "PrefBar crash-strike test: PASS\n";
 }
