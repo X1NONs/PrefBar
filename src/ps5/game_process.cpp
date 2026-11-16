@@ -128,7 +128,8 @@ ProcessLookupResult find_game_process() noexcept {
         const std::size_t record_size =
             static_cast<std::size_t>(record_size_signed);
 
-        if (record_size >= kPidOffset + sizeof(pid_t) &&
+        if (result.pid <= 0 &&
+            record_size >= kPidOffset + sizeof(pid_t) &&
             record_name_equals(cursor, record_size)) {
             pid_t candidate = -1;
             std::memcpy(&candidate, cursor + kPidOffset, sizeof(candidate));
