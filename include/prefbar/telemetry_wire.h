@@ -26,6 +26,15 @@
 #define PREFBAR_CORNER_BL    2             /* bottom-left */
 #define PREFBAR_CORNER_BR    3             /* bottom-right */
 #define PREFBAR_WIRE_BYTES   1390u
+/* Optional high-frequency frame-time graph packet; v6 text packet is unchanged. */
+#define PREFBAR_GRAPH_WIRE_MAGIC   0x47524250u /* little-endian "PBRG" */
+#define PREFBAR_GRAPH_WIRE_VERSION 1u
+#define PREFBAR_GRAPH_SAMPLES      48u
+#define PREFBAR_GRAPH_WINDOW_MS    3000u
+#define PREFBAR_GRAPH_SCALE_MAX_MS_X10 500u /* 50.0 ms in 0.1 ms units */
+#define PREFBAR_GRAPH_FLAG_ENABLED 0x01u
+#define PREFBAR_GRAPH_KNOWN_FLAGS  PREFBAR_GRAPH_FLAG_ENABLED
+#define PREFBAR_GRAPH_WIRE_BYTES   (24u + PREFBAR_GRAPH_SAMPLES * 2u)
 #define PREFBAR_WIRE_FLAG_TEXT_SHADOW       0x01u
 #define PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE   0x02u
 #define PREFBAR_WIRE_FLAG_OVERLAY_ENABLED   0x04u
@@ -55,12 +64,29 @@ typedef struct prefbar_wire {
     float    r, g, b, a;           /* text colour 0..1 */
     char     text[PREFBAR_ROWS][PREFBAR_ROW_LEN];
 } prefbar_wire_t;
+
+/* 48 chronological buckets across 3 seconds; each stores the maximum
+ * observed frame interval in 0.1 ms units. */
+typedef struct prefbar_graph_wire {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t size;
+    uint64_t sequence;
+    uint16_t window_ms;
+    uint16_t scale_max_ms_x10;
+    uint8_t  sample_count;
+    uint8_t  flags;
+    uint16_t reserved;
+    uint16_t frametime_x10_ms[PREFBAR_GRAPH_SAMPLES];
+} prefbar_graph_wire_t;
 #pragma pack(pop)
 
 #ifdef __cplusplus
 static_assert(sizeof(prefbar_wire_t) == PREFBAR_WIRE_BYTES, "prefbar_wire_t layout changed");
+static_assert(sizeof(prefbar_graph_wire_t) == PREFBAR_GRAPH_WIRE_BYTES, "prefbar_graph_wire_t layout changed");
 #else
 typedef char prefbar_wire_size_check[(sizeof(prefbar_wire_t) == PREFBAR_WIRE_BYTES) ? 1 : -1];
+typedef char prefbar_graph_wire_size_check[(sizeof(prefbar_graph_wire_t) == PREFBAR_GRAPH_WIRE_BYTES) ? 1 : -1];
 #endif
 
 /* Returns 1 if the datagram is a well-formed packet. NaN fields fail every
@@ -88,6 +114,24 @@ static inline int prefbar_wire_valid(const prefbar_wire_t *p, size_t len)
     if (!(p->margin_y >= 0.0f && p->margin_y <= 1000.0f)) return 0;
     if (!(p->r >= 0.0f && p->r <= 1.0f && p->g >= 0.0f && p->g <= 1.0f &&
           p->b >= 0.0f && p->b <= 1.0f && p->a >= 0.0f && p->a <= 1.0f)) return 0;
+    return 1;
+}
+
+/* Strict validator: fixed geometry keeps rendering deterministic. */
+static inline int prefbar_graph_wire_valid(const prefbar_graph_wire_t *p, size_t len)
+{
+    if (!p || len != sizeof(prefbar_graph_wire_t)) return 0;
+    if (p->magic != PREFBAR_GRAPH_WIRE_MAGIC ||
+        p->version != PREFBAR_GRAPH_WIRE_VERSION ||
+        p->size != sizeof(prefbar_graph_wire_t) || p->sequence == 0) return 0;
+    if (p->window_ms != PREFBAR_GRAPH_WINDOW_MS ||
+        p->scale_max_ms_x10 != PREFBAR_GRAPH_SCALE_MAX_MS_X10 ||
+        p->sample_count != PREFBAR_GRAPH_SAMPLES || p->reserved != 0) return 0;
+    if (p->flags & (uint8_t)~PREFBAR_GRAPH_KNOWN_FLAGS) return 0;
+    for (size_t i = 0; i < PREFBAR_GRAPH_SAMPLES; ++i) {
+        if (p->frametime_x10_ms[i] > p->scale_max_ms_x10) return 0;
+        if (!(p->flags & PREFBAR_GRAPH_FLAG_ENABLED) && p->frametime_x10_ms[i] != 0) return 0;
+    }
     return 1;
 }
 
