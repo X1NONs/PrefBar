@@ -167,7 +167,7 @@ elfldr_load(pid_t pid, uint8_t *elf, intptr_t *baseaddr) {
 
   // Reserve an address space of sufficient size.
   if((ctx.base_addr=pt_mmap(pid, ctx.base_addr, ctx.base_size, prot,
-			    flags, -1, 0)) == -1) {
+			    flags, -1, 0)) < 0x1000) {
     pt_perror(pid, "pt_mmap");
     return 0;
   }
