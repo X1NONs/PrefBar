@@ -1420,10 +1420,16 @@ static void stats_update(stats_t *s, uint64_t count, uint64_t t_ns)
     {
         /* frametime is quantised by the poll interval; if several flips
          * happened between two polls, spread the interval evenly */
-        if (flips > MAX_FLIPS_PER_POLL)
-            flips = MAX_FLIPS_PER_POLL;
-        float ms = (float)(t_ns - s->last_flip_ns) / 1e6f / (float)flips;
-        for (uint64_t i = 0; i < flips; i++)
+        const uint64_t observed_flips = flips;
+        const uint64_t samples = observed_flips > MAX_FLIPS_PER_POLL
+                                     ? MAX_FLIPS_PER_POLL
+                                     : observed_flips;
+        /* Divide by the real counter delta; cap only the number of samples
+         * inserted after a delayed poll. Otherwise a one-second sampler stall
+         * turns into eight fabricated 125 ms hitches. */
+        const float ms =
+            (float)(t_ns - s->last_flip_ns) / 1e6f / (float)observed_flips;
+        for (uint64_t i = 0; i < samples; i++)
             stats_push(s, ms);
         s->last_count = count;
         s->last_flip_ns = t_ns;
@@ -1510,10 +1516,10 @@ typedef struct
 { /* CPU-usage tracking state */
     uint32_t idle_tid[NCORES];
     int idle_mask; /* bit i = idle thread i known */
-    int scanned;   /* thread names already scanned */
+    int scanned;   /* complete idle-thread scan; retry while cores are missing */
     double prev_idle_s[NCORES];
-    uint64_t prev_t_ns;
-    int have_prev;
+    uint64_t prev_t_ns[NCORES];
+    unsigned prev_core_mask;
     ps_ts raw_user[NCORES], raw_sys[NCORES]; /* last raw idle-thread times (diag) */
     int raw_found, raw_nthreads;
 } cpuu_t;
@@ -1532,8 +1538,10 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
     if (n > MAX_THREADS)
         n = MAX_THREADS;
 
-    /* find the per-core idle threads ("SceIdleCpu0".."SceIdleCpu7") once */
-    if (!c->scanned && SYM_PRESENT(sceKernelGetThreadName))
+    /* Discover idle threads once all cores are known; retry incomplete scans. */
+    const unsigned all_cores_mask = (1u << NCORES) - 1u;
+    if ((!c->scanned || (unsigned)c->idle_mask != all_cores_mask) &&
+        SYM_PRESENT(sceKernelGetThreadName))
     {
         for (int i = 0; i < n; i++)
         {
@@ -1542,13 +1550,14 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
             memset(name, 0, sizeof name);
             if (sceKernelGetThreadName(g_threads[i].td_tid, name) == 0 &&
                 sscanf(name, "SceIdleCpu%d", &core) == 1 &&
-                core >= 0 && core < NCORES)
+                core >= 0 && core < NCORES &&
+                !(c->idle_mask & (1 << core)))
             {
                 c->idle_tid[core] = g_threads[i].td_tid;
                 c->idle_mask |= 1 << core;
             }
         }
-        c->scanned = 1;
+        c->scanned = (unsigned)c->idle_mask == all_cores_mask;
     }
     if (!c->idle_mask)
         return;
@@ -1574,17 +1583,31 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
 
     c->raw_found = found;
     c->raw_nthreads = n;
-    if (c->have_prev && t_ns > c->prev_t_ns)
+    double sum = 0.0;
+    int cnt = 0;
+    for (int core = 0; core < NCORES; core++)
     {
-        double dt = (double)(t_ns - c->prev_t_ns) / 1e9;
-        double sum = 0.0;
-        int cnt = 0;
-        for (int core = 0; core < NCORES; core++)
+        const unsigned bit = 1u << core;
+        s->core_ok[core] = 0;
+        if (!(found & (int)bit))
         {
-            s->core_ok[core] = 0;
-            if (!(found & (1 << core)))
-                continue;
-            double idle = (idle_s[core] - c->prev_idle_s[core]) / dt;
+            /* A disappeared idle thread must be rediscovered, not replaced
+             * by a zero-valued sample that corrupts its next delta. */
+            if (c->idle_mask & (int)bit)
+            {
+                c->idle_mask &= ~(int)bit;
+                c->prev_core_mask &= ~bit;
+                c->scanned = 0;
+            }
+            continue;
+        }
+
+        if ((c->prev_core_mask & bit) && t_ns > c->prev_t_ns[core])
+        {
+            const double dt =
+                (double)(t_ns - c->prev_t_ns[core]) / 1e9;
+            double idle =
+                (idle_s[core] - c->prev_idle_s[core]) / dt;
             s->dbg_ratio[core] = (float)idle; /* before clamping */
             s->dbg_dt = dt;
             s->dbg_have = 1;
@@ -1597,17 +1620,19 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
             sum += s->core[core];
             cnt++;
         }
-        if (cnt)
-        {
-            s->cpu_avg = (float)(sum / cnt);
-            s->ncores_known = cnt;
-            s->have_cpu = 1;
-        }
-    }
-    for (int core = 0; core < NCORES; core++)
+
+        /* Update only cores present in this sample. Each core keeps its own
+         * timestamp so a temporarily missing thread does not skew the delta. */
         c->prev_idle_s[core] = idle_s[core];
-    c->prev_t_ns = t_ns;
-    c->have_prev = 1;
+        c->prev_t_ns[core] = t_ns;
+        c->prev_core_mask |= bit;
+    }
+    if (cnt)
+    {
+        s->cpu_avg = (float)(sum / cnt);
+        s->ncores_known = cnt;
+        s->have_cpu = 1;
+    }
 }
 
 /* Validate memory-pool readings before displaying them. */
@@ -2750,7 +2775,8 @@ static int prefbar_run(int install_signals, int lock)
     uint64_t last_count = 0;
     uint64_t next_report = now_ns() + REPORT_NS;
     uint64_t last_notify = 0;
-    int fail_ticks = 0;
+    uint64_t dce_fail_since_ns = 0;
+    int dce_error_reported = 0;
 
     /* diagnostics scheduling */
     const uint64_t t_start = now_ns();
@@ -2865,7 +2891,8 @@ static int prefbar_run(int install_signals, int lock)
             }
             dce.abi = 0;
             dce_state = -1;
-            fail_ticks = 0;
+            dce_fail_since_ns = 0;
+            dce_error_reported = 0;
         }
         else
         {
@@ -2874,7 +2901,8 @@ static int prefbar_run(int install_signals, int lock)
             {
                 memset(&st, 0, sizeof st);
                 last_count = 0;
-                fail_ticks = 0;
+                dce_fail_since_ns = 0;
+                dce_error_reported = 0;
                 dce_state = -1;
             }
 
@@ -2886,7 +2914,8 @@ static int prefbar_run(int install_signals, int lock)
                     dbg_event(DBG_TRACE, "dce.ok", "display counter readable (/dev/dce, abi=%s)",
                               dce.abi == 2 ? "sign-ext" : "zero-ext");
                 }
-                fail_ticks = 0;
+                dce_fail_since_ns = 0;
+                dce_error_reported = 0;
                 last_count = count;
                 stats_update(&st, count, t);
             }
@@ -2897,12 +2926,15 @@ static int prefbar_run(int install_signals, int lock)
                     dce_state = 0;
                     dbg_event(DBG_TRACE, "dce.fail1", "/dev/dce read failed (errno %d)", dce.last_errno);
                 }
-                if (++fail_ticks == 2000)
-                { /* ~4 s of failure during a confirmed game */
-                    write_file_atomic("status.txt",
-                                      "PrefBar: cannot read /dev/dce during an active game\n");
-                    dbg_event(DBG_ERR, "dce.fail", "cannot read /dev/dce for ~4 s during active game (errno %d) - no FPS", dce.last_errno);
-                    fail_ticks = 0;
+                if (dce_fail_since_ns == 0)
+                    dce_fail_since_ns = t ? t : 1;
+                if (!dce_error_reported && t >= dce_fail_since_ns &&
+                    t - dce_fail_since_ns >= 4ull * 1000000000ull)
+                {
+                    dce_error_reported = 1;
+                    dbg_event(DBG_ERR, "dce.fail",
+                              "cannot read /dev/dce for 4 s during active game (errno %d) - no FPS",
+                              dce.last_errno);
                 }
             }
         }
@@ -3007,6 +3039,9 @@ static int prefbar_run(int install_signals, int lock)
                 app(txt, sizeof txt, "%s\n", l2);
             if (l3[0])
                 app(txt, sizeof txt, "%s\n", l3);
+            if (dce_error_reported)
+                app(txt, sizeof txt,
+                    "PrefBar: cannot read /dev/dce during an active game\n");
             write_file_atomic("status.txt", txt);
 
             format_kv(&r, &sens, kv, sizeof kv);
