@@ -6,6 +6,7 @@
  */
 
 #include "prefbar_shellui.hpp"
+#include "prefbar/build_info.h"
 #include "prefbar/shellui_stage.hpp"
 
 #include <cstdio>
@@ -21,7 +22,7 @@ void write_online_marker() {
     FILE* fp = std::fopen(kMarker, "w");
     if (!fp)
         return;
-    std::fprintf(fp, "%d\n", getpid());
+    std::fprintf(fp, "%d %s\n", getpid(), PREFBAR_VERSION);
     std::fclose(fp);
 }
 
