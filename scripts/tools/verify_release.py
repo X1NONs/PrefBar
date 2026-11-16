@@ -99,6 +99,9 @@ def renderer_elf_issues(elf: bytes) -> list[str]:
         sh_type, sh_offset, sh_size, sh_link, sh_entsize = (
             section[1], section[4], section[5], section[6], section[9]
         )
+        if sh_type == 9 and sh_size:  # SHT_REL
+            issues.append(f"SHT_REL section {index} is unsupported by the injected loader")
+            continue
         if sh_type != 4:  # SHT_RELA
             continue
         if sh_entsize != rela_entry.size or sh_size % rela_entry.size:
@@ -112,7 +115,10 @@ def renderer_elf_issues(elf: bytes) -> list[str]:
         string_section = None
         if sh_link < len(sections):
             candidate = sections[sh_link]
-            if candidate[1] in (2, 11) and candidate[9] == symbol_entry.size:
+            if (candidate[1] in (2, 11) and
+                candidate[9] == symbol_entry.size and
+                candidate[4] <= len(elf) and
+                candidate[5] <= len(elf) - candidate[4]):
                 if candidate[5] % symbol_entry.size == 0 and candidate[6] < len(sections):
                     strings = sections[candidate[6]]
                     if strings[1] == 3 and strings[4] <= len(elf) and strings[5] <= len(elf) - strings[4]:
