@@ -51,6 +51,8 @@ flowchart TD
     H --> I["ShellUI update hook"]
     C --> J["Sample telemetry"]
     J --> K["UDP telemetry packet"]
+    J --> P["10 Hz frame-time graph packets"]
+    P --> I
     K --> I
     I --> L["Update overlay labels"]
     I --> M["Touchpad input"]
@@ -89,6 +91,8 @@ PrefBar displays this reading as **GPU temperature** by default because that is 
 
 The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted. Horizontal mode places the compacted metrics on one line. It estimates the complete bar width, then aligns it left, centered, or right. Font size is reduced only when needed to fit within the screen margins.
 
+When `show_frametime_graph=1`, the worker sends a separate graph snapshot ten times per second. The renderer displays 48 compact cyan bars spanning the latest three seconds, with subtle 8.3, 16.7, and 33.3 ms reference lines. Each time bucket keeps its highest observed frame interval so short spikes are not averaged away. The vertical scale is fixed at 0–50 ms; values above 50 ms reach the top. This graph uses the same DCE flip-counter-derived frame-time estimate as the FPS and average-frametime metrics. It is not a GPU render-time measurement or an exact presentation-timestamp trace: the worker polls the counter, caps stored history samples after a long poll interval, and spreads those representative samples over the observed interval.
+
 **Fan duty is not fan RPM.** The currently used fan API reports a Q10 duty value, converted to a percentage. The project does not claim that this API supplies tachometer RPM.
 
 The telemetry worker writes human-readable `status.txt` and key/value `status.kv` files under `/data/prefbar`. It also appends debug events to `debug.log`; optional diagnostic captures are written to `diag.txt`.
@@ -97,7 +101,7 @@ The telemetry worker writes human-readable `status.txt` and key/value `status.kv
 
 `include/prefbar/telemetry_wire.h` defines the C-compatible version-6 telemetry packet shared by the C telemetry worker and C++ renderer. The packet carries up to fourteen compacted text rows, font size, corner/position, text color, black-background opacity, overlay visibility, text-shadow state, touchpad-toggle state, and horizontal layout. Horizontal spacing and alignment are encoded in the packet flags. The capacity accommodates twelve independent metrics plus two optional diagnostic rows.
 
-The controller sends telemetry to the renderer over UDP loopback on port `39028`. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
+The controller sends the version-6 text packet to the renderer over UDP loopback on port `39028`. The optional frame-time graph uses a separate version-1 packet on the same local port, with a fixed 48-sample payload and an independent 10 Hz cadence; this keeps the existing text packet size and one-second reporting schedule unchanged. The renderer dispatches packets by exact size and validates each format independently. The renderer sends overlay-toggle events back to the controller over UDP loopback on port `39029`. These messages are local to the console; they are not sent over the network interface.
 
 The hook/control request and acknowledgment structures are declared in `include/prefbar/shellui_hook_protocol.hpp`. The stage file path is declared in `include/prefbar/shellui_stage.hpp`.
 
@@ -121,7 +125,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new black overlay background settings, the `overlay_format=compact` default, per-metric visibility settings, and `gpu_temp_label=gpu` when the label option is absent. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU-temperature visibility (`show_gpu_temp`, retained as the current compatibility key for the SoC sensor 0 reading); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new black overlay background settings, the `overlay_format=compact` default, per-metric visibility settings, the opt-in `show_frametime_graph=0` setting, and `gpu_temp_label=gpu` when the label option is absent. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU-temperature visibility (`show_gpu_temp`, retained as the current compatibility key for the SoC sensor 0 reading); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 By default, only the startup attribution and error toasts are enabled. Warning and other debug/milestone toasts are disabled; all diagnostic events continue to be written to `debug.log`.
 
@@ -160,6 +164,7 @@ For FPS-only frame metrics, keep `show_fps=1` and set `show_frametime=0` and `sh
 | `sensors` | Enable optional sensor/CPU/memory sampling | `0` or `1`; default `1` |
 | `show_fps` | Show FPS | `0` or `1`; default `1` |
 | `show_frametime` | Show average frametime | `0` or `1`; default `1` |
+| `show_frametime_graph` | Show the optional three-second frame-time graph (48 maximum-per-bucket bars, 0–50 ms scale) below telemetry in both layouts | `0` or `1`; default `0` |
 | `show_1percent_low` | Show 1% low FPS | `0` or `1`; default `1` |
 | `show_cpu_usage` | Show CPU utilization | `0` or `1`; default `1` |
 | `show_cpu_temp` | Show CPU temperature | `0` or `1`; default `1` |
@@ -211,6 +216,7 @@ overlay_background_opacity=75
 sensors=1
 show_fps=1
 show_frametime=1
+show_frametime_graph=0
 show_1percent_low=1
 show_cpu_usage=1
 show_cpu_temp=1
