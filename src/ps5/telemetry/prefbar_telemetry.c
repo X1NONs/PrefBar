@@ -2992,7 +2992,7 @@ static int prefbar_run(int install_signals, int lock)
                 if (fps_active && sens.have_cpu && sens.cpu_avg < 0.05f)
                 {
                     if (++cpu_zero_run == 10)
-                        dbg_event(DBG_TRACE, "cpu.zero", "CPU usage reads 0%% in game (known issue; see Docs/HOW_IT_WORKS.md)");
+                        dbg_event(DBG_TRACE, "cpu.zero", "CPU usage reads 0%% in game; see the CPU utilization sampling notes in Docs/HOW_IT_WORKS.md");
                 }
                 else
                 {
