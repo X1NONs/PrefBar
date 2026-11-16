@@ -1052,7 +1052,17 @@ static void test_frametime_graph_config_and_history(void)
     stats_graph_snapshot(&stats, 5000000000ull, 1, 8, &packet);
     CHECK(packet.frametime_x10_ms[0] == PREFBAR_GRAPH_SCALE_MAX_MS_X10,
           "frame intervals above 50 ms should saturate at the graph ceiling");
-    stats_graph_snapshot(&stats, 5000000000ull, 0, 9, &packet);
+
+    stats_t early = {0};
+    early.count = 1;
+    early.head = 1;
+    early.ft_ms[0] = 10.0f;
+    early.ft_ns[0] = 990000000ull;
+    stats_graph_snapshot(&early, 1000000000ull, 1, 9, &packet);
+    CHECK(packet.frametime_x10_ms[PREFBAR_GRAPH_SAMPLES - 1] == 100,
+          "newest sample should stay at the right edge before 3 s uptime");
+
+    stats_graph_snapshot(&stats, 5000000000ull, 0, 10, &packet);
     CHECK(prefbar_graph_wire_valid(&packet, sizeof(packet)) &&
           packet.flags == 0 && packet.frametime_x10_ms[0] == 0,
           "disabled graph snapshot should be a valid empty packet");
