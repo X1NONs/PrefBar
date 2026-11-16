@@ -1330,9 +1330,12 @@ static long cpu_frequency_read(void) { return sceKernelGetCpuFrequency(); }
 static int soc_clock_api_present(void) { return 1; }
 static int soc_clock_read(uint32_t *domains) { return sceKernelGetSocClock(domains); }
 static const double SIM_IDLE_FRAC[NCORES] = {0.90, 0.70, 0.50, 0.80, 0.60, 0.95, 0.70, 0.85};
+/* Tests can hide/reintroduce individual idle threads to exercise recovery. */
+static unsigned g_sim_idle_mask = (1u << NCORES) - 1u;
 static int sceKernelGetThreadName(uint32_t id, char *out)
 {
-    if (id >= 100 && id < 100 + NCORES)
+    if (id >= 100 && id < 100 + NCORES &&
+        (g_sim_idle_mask & (1u << (id - 100))))
         snprintf(out, 0x40, "SceIdleCpu%u", id - 100);
     else
         snprintf(out, 0x40, "SceWorker%u", id);
@@ -1346,7 +1349,9 @@ static int sceKernelGetCpuUsage(struct ps_proc_stats *out, int32_t *n)
     {
         double v = (i < NCORES) ? e * SIM_IDLE_FRAC[i] : e * 0.1;
         out[i].lo_data = 0;
-        out[i].td_tid = (uint32_t)(100 + i);
+        out[i].td_tid = (i < NCORES && (g_sim_idle_mask & (1u << i)))
+                            ? (uint32_t)(100 + i)
+                            : (uint32_t)(200 + i);
         out[i].user.sec = 0;
         out[i].user.nsec = 0;
         out[i].sys.sec = (int64_t)v;
