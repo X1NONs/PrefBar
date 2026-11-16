@@ -1011,6 +1011,66 @@ static void test_power_sensor_and_row(void)
           "all 12 independent metrics plus two diagnostics should fit (%d/%d)", n, PREFBAR_ROWS);
 }
 
+static void test_frametime_graph_config_and_history(void)
+{
+    reset(NULL);
+    ensure_default_config_file();
+    CHECK(read_config_int("show_frametime_graph", -1, 0, 1) == 0,
+          "new default config should include the graph switch disabled");
+
+    reset("[telemetry]\nshow_fps=1\n");
+    config_t cfg;
+    config_defaults(&cfg);
+    CHECK(cfg.show_frametime_graph == 0, "frame-time graph should default off");
+    config_apply_value(&cfg, "show_frametime_graph", "1");
+    CHECK(cfg.show_frametime_graph == 1, "frame-time graph config should parse as enabled");
+
+    reset("[telemetry]\nshow_fps=1\n");
+    migrate_config_options();
+    CHECK(read_config_int("show_frametime_graph", -1, 0, 1) == 0,
+          "configuration migration should add the graph option disabled");
+
+    stats_t stats;
+    memset(&stats, 0, sizeof(stats));
+    stats.count = 3;
+    stats.head = 3;
+    stats.ft_ms[0] = 16.7f; stats.ft_ns[0] = 2050000000ull;
+    stats.ft_ms[1] = 35.0f; stats.ft_ns[1] = 2060000000ull;
+    stats.ft_ms[2] = 12.0f; stats.ft_ns[2] = 4990000000ull;
+
+    prefbar_graph_wire_t packet;
+    stats_graph_snapshot(&stats, 5000000000ull, 1, 7, &packet);
+    CHECK(prefbar_graph_wire_valid(&packet, sizeof(packet)),
+          "generated frame-time graph packet should validate");
+    CHECK(packet.frametime_x10_ms[0] == 350,
+          "bucket should preserve its worst frame interval (got %u)",
+          (unsigned)packet.frametime_x10_ms[0]);
+    CHECK(packet.frametime_x10_ms[PREFBAR_GRAPH_SAMPLES - 1] == 120,
+          "latest bucket should contain the latest frame interval");
+
+    stats.ft_ms[1] = 55.0f;
+    stats_graph_snapshot(&stats, 5000000000ull, 1, 8, &packet);
+    CHECK(packet.frametime_x10_ms[0] == PREFBAR_GRAPH_SCALE_MAX_MS_X10,
+          "frame intervals above 50 ms should saturate at the graph ceiling");
+    stats_graph_snapshot(&stats, 5000000000ull, 0, 9, &packet);
+    CHECK(prefbar_graph_wire_valid(&packet, sizeof(packet)) &&
+          packet.flags == 0 && packet.frametime_x10_ms[0] == 0,
+          "disabled graph snapshot should be a valid empty packet");
+
+    /* Capped samples still spread across the whole observed poll interval. */
+    stats_t stalled = {0};
+    stats_update(&stalled, 100, 1000000000ull);
+    stats_update(&stalled, 160, 2000000000ull);
+    CHECK(stalled.count == MAX_FLIPS_PER_POLL,
+          "graph timestamps should use bounded representative samples");
+    CHECK(stalled.ft_ns[0] > 1000000000ull &&
+          stalled.ft_ns[stalled.count - 1] == 2000000000ull,
+          "capped samples should span the complete observed interval");
+    for (int i = 1; i < stalled.count; ++i)
+        CHECK(stalled.ft_ns[i] > stalled.ft_ns[i - 1],
+              "representative timestamps should be strictly increasing");
+}
+
 static void test_reload_config_preserves_last_good(void)
 {
     reset("show_fps=1\ndebug_notify=1\n");
@@ -1087,6 +1147,7 @@ int main(void)
     test_overlay_format_and_compact_groups();
     test_clock_sensor_and_row();
     test_power_sensor_and_row();
+    test_frametime_graph_config_and_history();
     test_reload_config_preserves_last_good();
     test_toast_cap();
     test_rotation();
