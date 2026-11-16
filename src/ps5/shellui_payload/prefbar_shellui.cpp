@@ -27,6 +27,7 @@ int sceUserServiceGetForegroundUser(int* user_id);
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <netinet/in.h>
@@ -456,10 +457,10 @@ bool publish_hook_request(
     request.displaced_size = static_cast<std::uint32_t>(displaced_size);
     std::memcpy(request.expected, expected.data(), expected.size());
     std::memcpy(request.desired, desired.data(), desired.size());
-    request.nonce = request.method_address ^ request.hook_address ^
-        request.original_call_address ^
-        (static_cast<std::uint64_t>(request.pid) << 32U) ^
-        0x8d4f23a76c19e502ULL;
+    /* Fresh correlation token: prevents an old ack from matching an identical
+     * retry in the same ShellUI session. This is not an authentication secret;
+     * the shared request file remains subject to filesystem permissions. */
+    arc4random_buf(&request.nonce, sizeof(request.nonce));
     if (request.nonce == 0)
         request.nonce = 1;
     request.checksum = shellui_hook_request_checksum(request);
