@@ -1092,8 +1092,10 @@ static int dce_read(dce_t *d, uint64_t *count)
     if (rc < 0)
     {
         d->last_errno = err;
-        if (err == EBADF)
+        if (err == EBADF || err == ENODEV || err == ENXIO)
         {
+            /* The device/descriptor is no longer usable; reopen on the next
+             * poll instead of retrying the stale descriptor forever. */
             close(d->fd);
             d->fd = -1;
         }
