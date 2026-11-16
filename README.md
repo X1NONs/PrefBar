@@ -47,6 +47,13 @@ PrefBar is designed to be a universal payload for jailbroken PS5 consoles. Howev
 | Firmware       | Status                          |
 | -------------- | ------------------------------- |
 | **Below 7.XX** | 🟡 Unverified or might not work
+| **7.XX**       | ✅ Compatibility path available; point-release validation varies
+| **8.XX**       | ✅ Compatibility path available; point-release validation varies
+| **9.XX**       | ✅ Compatibility path available; point-release validation varies
+| **10.XX**      | ✅ Compatibility path available; point-release validation varies
+| **11.XX**      | ✅ Compatibility path available; point-release validation varies
+| **12.XX**      | ✅ Compatibility path available; point-release validation varies
+| **13.XX**      | ✅ Compatibility path available; point-release validation varies
 | **7.XX**       | ✅ Supported
 | **8.XX**       | ✅ Supported
 | **9.XX**       | ✅ Supported
@@ -55,6 +62,7 @@ PrefBar is designed to be a universal payload for jailbroken PS5 consoles. Howev
 | **12.XX**      | ✅ Supported
 | **13.XX**      | ✅ Supported
 
+Firmware ranges show that a compatibility backend exists; they are not a certification of every point release. Hardware validation is limited to tested builds, so check the linked issues and report results for your exact firmware.
 please [open an issue](https://github.com/X1NONs/PrefBar/issues) with your result so this table can be updated.
 
 ## Customization and colors
