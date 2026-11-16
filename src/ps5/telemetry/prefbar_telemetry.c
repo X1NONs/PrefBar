@@ -1473,15 +1473,19 @@ static void stats_graph_snapshot(const stats_t *s, uint64_t now,
         return;
     packet->flags = PREFBAR_GRAPH_FLAG_ENABLED;
     const uint64_t window_ns = (uint64_t)PREFBAR_GRAPH_WINDOW_MS * 1000000ull;
-    const uint64_t cutoff = now > window_ns ? now - window_ns : 0;
     const int oldest = (s->head - s->count + HIST) % HIST;
     for (int i = 0; i < s->count; ++i)
     {
         const int index = (oldest + i) % HIST;
         const uint64_t frame_ns = s->ft_ns[index];
-        if (frame_ns < cutoff || frame_ns > now)
+        if (frame_ns > now)
             continue;
-        const uint64_t elapsed = frame_ns - cutoff;
+        const uint64_t age_ns = now - frame_ns;
+        if (age_ns > window_ns)
+            continue;
+        /* Age-based mapping keeps the newest sample at the right edge even
+         * when monotonic uptime is shorter than the three-second window. */
+        const uint64_t elapsed = window_ns - age_ns;
         int bucket = (int)((elapsed * PREFBAR_GRAPH_SAMPLES) / window_ns);
         if (bucket >= (int)PREFBAR_GRAPH_SAMPLES)
             bucket = (int)PREFBAR_GRAPH_SAMPLES - 1;
