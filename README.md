@@ -21,6 +21,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 ## Features
 
 - **Frame performance:** FPS, average frametime, and 1% lows.
+- **Optional frame-time graph:** 48 cyan bars showing the peak observed frametime in each bucket across a rolling three-second window, with a 0–50 ms scale and 8.3, 16.7, and 33.3 ms reference lines. It updates at 10 Hz and is disabled by default; enable it with `show_frametime_graph=1`.
 - **CPU/GPU telemetry:** CPU utilization, CPU frequency, GPU clock, CPU temperature, and GPU temperature when the relevant system interfaces are available.
 - **Fan telemetry:** Fan-duty percentage. This is not an RPM reading.
 - **Memory:** RAM and VRAM usage when the relevant system interfaces are available.
@@ -65,7 +66,7 @@ PrefBar reads its runtime settings from:
 /data/prefbar/prefbar.conf
 ```
 
-The configuration supports overlay visibility, a rounded black background with adjustable opacity, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, a selectable compact/classic metric format, and independent visibility switches for every telemetry metric.
+The configuration supports overlay visibility, a rounded black background with adjustable opacity, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, a selectable compact/classic metric format, and independent visibility switches for every telemetry metric, and the optional frame-time graph.
 
 I recommend using [PS5 Web File Manager](https://github.com/owendswang/ps5-web-file-manager) for changing the config, but any method works too.
 
@@ -85,6 +86,16 @@ overlay_background_opacity=75
 ### Metric format
 
 `overlay_format=compact` is the default. It groups frame metrics, CPU metrics, GPU metrics, memory, and system readings into a small number of labeled rows. Set `overlay_format=classic` to restore the previous one-metric-per-row layout. Every `show_*` switch remains independent in both formats.
+
+### Frame-time graph
+
+The graph is optional and off by default. Add this setting under `[telemetry]` to enable it:
+
+```ini
+show_frametime_graph=1
+```
+
+It plots the last three seconds of flip-counter-derived frametime estimates as 48 compact bars, refreshed ten times per second. Each bar represents the highest observed frametime in its time bucket, so brief spikes remain visible instead of being averaged away. The vertical scale is fixed at 0–50 ms; readings above 50 ms reach the top of the graph. The graph uses the same display flip-counter data as PrefBar's FPS and frametime metrics. It is not a GPU render-time measurement or an exact presentation-timestamp trace.
 
 ### Horizontal overlay
 
