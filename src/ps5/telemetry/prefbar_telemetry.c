@@ -1524,6 +1524,7 @@ typedef struct
     uint32_t idle_tid[NCORES];
     int idle_mask; /* bit i = idle thread i known */
     int scanned;   /* complete idle-thread scan; retry while cores are missing */
+    uint64_t last_discovery_ns;
     double prev_idle_s[NCORES];
     uint64_t prev_t_ns[NCORES];
     unsigned prev_core_mask;
@@ -1548,8 +1549,12 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
     /* Discover idle threads once all cores are known; retry incomplete scans. */
     const unsigned all_cores_mask = (1u << NCORES) - 1u;
     if ((!c->scanned || (unsigned)c->idle_mask != all_cores_mask) &&
-        SYM_PRESENT(sceKernelGetThreadName))
+        SYM_PRESENT(sceKernelGetThreadName) &&
+        (c->last_discovery_ns == 0 ||
+         (t_ns >= c->last_discovery_ns &&
+          t_ns - c->last_discovery_ns >= 1000000000ull)))
     {
+        c->last_discovery_ns = t_ns;
         for (int i = 0; i < n; i++)
         {
             char name[0x40];
