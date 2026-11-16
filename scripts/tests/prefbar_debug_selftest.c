@@ -63,6 +63,31 @@ static void age_all_slots(void) /* pretend 60 s passed */
             g_dbg.slot[i].last_ns -= 60ull * 1000000000ull;
 }
 
+static void test_stats_update_after_sampler_stall(void)
+{
+    stats_t stats = {0};
+    const uint64_t start_ns = 1000000000ull;
+
+    stats_update(&stats, 100, start_ns);
+    stats_update(&stats, 160, start_ns + 1000000000ull);
+
+    CHECK(stats.count == MAX_FLIPS_PER_POLL,
+          "a long sampler stall should cap inserted samples at %d (got %d)",
+          MAX_FLIPS_PER_POLL, stats.count);
+    for (int i = 0; i < stats.count; ++i)
+        CHECK(stats.ft_ms[i] > 16.0f && stats.ft_ms[i] < 17.0f,
+              "sample %d should use the real 60-frame delta, got %.3f ms",
+              i, stats.ft_ms[i]);
+
+    report_t report = stats_report(&stats, 160, start_ns + 1000000000ull);
+    CHECK(report.hitches == 0,
+          "a stable 60 FPS interval must not become fake hitches (got %d)",
+          report.hitches);
+    CHECK(report.max_ms > 16.0 && report.max_ms < 17.0,
+          "max frametime should remain near 16.67 ms (got %.3f)",
+          report.max_ms);
+}
+
 static void test_cooldown(void)
 {
     reset(NULL);
@@ -996,6 +1021,7 @@ static void test_single_instance(void)
 int main(void)
 {
     (void)!freopen("/dev/null", "w", stderr); /* silence simulated toasts */
+    test_stats_update_after_sampler_stall();
     test_cooldown();
     test_levels();
     test_notification_switches();
