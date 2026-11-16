@@ -298,7 +298,7 @@ intptr_t prefbar_stable_elfldr_load(pid_t pid, uint8_t* elf) {
         flags,
         -1,
         0);
-    if (ctx.base_addr == -1)
+    if (ctx.base_addr < 0x1000)
         return 0;
 
     if (prefbar_trace_continue(pid) != 0)
