@@ -72,6 +72,8 @@ The controller waits for stable process observations before starting the rendere
 
 The telemetry worker does not read or write game-process memory. The DCE counter is used as the source for frame statistics. Sensor APIs are optional/weakly linked, so a metric can be unavailable on a particular firmware or runtime environment.
 
+CPU utilization is derived from the per-core idle-thread time reported by `sceKernelGetCpuUsage`: PrefBar compares each `SceIdleCpuN` thread's accumulated time across samples and calculates `100% - idle%`. Each core keeps its own baseline and elapsed time. Missing idle threads are marked unavailable, rediscovered on later samples, and are not replaced with zero-time samples. A displayed 0% reading should therefore be treated as a telemetry observation to investigate, not proof that the game is using no CPU.
+
 Disabled or unavailable metrics are compacted, so later enabled metrics move into the next available row instead of leaving blank gaps. Each FPS, frametime, 1% low, CPU usage, CPU temperature, CPU clock, GPU temperature (SoC sensor 0), GPU clock, fan duty, RAM, VRAM, and power metric has its own switch. This compacted sequence is shared by vertical and horizontal layouts. When all metrics are disabled or unavailable, PrefBar sends an empty row to clear previously displayed text.
 
 The current overlay can show twelve independently selectable metrics:
