@@ -63,6 +63,52 @@ static void age_all_slots(void) /* pretend 60 s passed */
             g_dbg.slot[i].last_ns -= 60ull * 1000000000ull;
 }
 
+static void test_cpu_idle_thread_recovery(void)
+{
+    reset(NULL);
+    cpuu_t cpuu = {0};
+    sensors_t sens;
+    const unsigned all_cores = (1u << NCORES) - 1u;
+
+    g_sim_idle_mask = all_cores & ~1u;
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK((cpuu.idle_mask & 1u) == 0,
+          "missing CPU0 idle thread should remain undiscovered initially");
+
+    g_sim_idle_mask = all_cores;
+    usleep(10000);
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK((unsigned)cpuu.idle_mask == all_cores,
+          "partial idle-thread discovery should retry and find CPU0");
+    CHECK(!sens.core_ok[0],
+          "newly discovered CPU0 should establish a baseline before reporting");
+    CHECK(sens.core_ok[1],
+          "already tracked cores should continue reporting during discovery recovery");
+
+    usleep(10000);
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.core_ok[0],
+          "CPU0 should report after a second valid sample");
+
+    g_sim_idle_mask = all_cores & ~(1u << 3);
+    usleep(10000);
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(!(cpuu.idle_mask & (1u << 3)) && !sens.core_ok[3],
+          "a disappeared idle thread should be invalidated, not sampled as zero");
+
+    g_sim_idle_mask = all_cores;
+    usleep(10000);
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK((unsigned)cpuu.idle_mask == all_cores && !sens.core_ok[3],
+          "a reappearing idle thread should be rediscovered and re-baselined");
+
+    usleep(10000);
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.core_ok[3],
+          "reappearing CPU3 should report only after a fresh baseline interval");
+    g_sim_idle_mask = all_cores;
+}
+
 static void test_stats_update_after_sampler_stall(void)
 {
     stats_t stats = {0};
@@ -1022,6 +1068,7 @@ int main(void)
 {
     (void)!freopen("/dev/null", "w", stderr); /* silence simulated toasts */
     test_stats_update_after_sampler_stall();
+    test_cpu_idle_thread_recovery();
     test_cooldown();
     test_levels();
     test_notification_switches();
