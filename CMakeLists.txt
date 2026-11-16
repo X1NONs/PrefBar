@@ -147,7 +147,7 @@ else()
             scripts/tests/prefbar_debug_selftest.c)
         target_include_directories(prefbar_debug_tests PRIVATE include)
         target_compile_definitions(prefbar_debug_tests PRIVATE
-            PREFBAR_SIM=1 PREFBAR_EMBED=1)
+            PREFBAR_SIM=1 PREFBAR_EMBED=1 PREFBAR_TEST_CONFIG_RELOAD=1)
         target_compile_options(prefbar_debug_tests PRIVATE -Wall -Wextra -UNDEBUG)
         target_link_libraries(prefbar_debug_tests PRIVATE Threads::Threads)
         add_test(NAME prefbar_debug_tests COMMAND prefbar_debug_tests)
