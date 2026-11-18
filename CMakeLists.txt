@@ -72,8 +72,6 @@ if(PREFBAR_BUILD_PS5)
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/embed_binary.py"
             "$<TARGET_FILE:prefbar_shellui>"
             "${PREFBAR_SHELLUI_BLOB_CPP}"
-        web/backend/web_server.cpp
-        "${PREFBAR_WEB_BLOB_CPP}"
         DEPENDS prefbar_shellui scripts/tools/embed_binary.py
         VERBATIM
     )
@@ -105,6 +103,8 @@ if(PREFBAR_BUILD_PS5)
         src/ps5/compat/pt.c
         src/ps5/telemetry/prefbar_telemetry.c
         "${PREFBAR_SHELLUI_BLOB_CPP}"
+        web/backend/web_server.cpp
+        "${PREFBAR_WEB_BLOB_CPP}"
     )
     set_target_properties(prefbar_controller PROPERTIES
         OUTPUT_NAME "PrefBar_controller_v0.3.0.elf"
