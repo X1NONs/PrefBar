@@ -220,6 +220,30 @@ poll_us=2000
 
 Setting `overlay=0` hides the renderer output while telemetry and status-file updates continue. Setting `sensors=0` disables the optional sensor sampling; frame-counter sampling remains a separate path. Setting `touchpad_toggle=0` disables the touchpad gesture.
 
+## Web Control Center
+
+The existing interface is kept in `web/index.html` and embedded into the controller during the PS5 build. The build reuses `scripts/tools/embed_binary.py` with a separate C++ symbol for the web asset; no web files need to be installed on the console.
+
+The controller starts the native HTTP server from `web/backend/web_server.cpp`. It listens on IPv4 port **18080** and serves only `/` and `/index.html` as the Control Center. It does not expose arbitrary filesystem paths or the backend source directory.
+
+### API
+
+| Method | Endpoint | Response |
+|---|---|---|
+| GET | `/api/v1/health` | Server and API version |
+| GET | `/api/v1/config` | Current `prefbar.conf` as INI text |
+| PUT | `/api/v1/config` | Validates and atomically replaces `prefbar.conf` |
+| GET | `/api/v1/status` | Current `status.kv` telemetry snapshot |
+| GET | `/api/v1/diagnostics` | Bounded excerpts of controller, debug, and diagnostic logs |
+
+The Control Center loads the saved INI when opened. Its Save action sends the complete generated INI document using `PUT /api/v1/config`; when the page is hosted somewhere without the PrefBar API, the action falls back to downloading `prefbar.conf`. The server rejects duplicate, missing, unknown, malformed, and out-of-range settings. A successful write uses a temporary file, flushes it, and renames it over the existing configuration.
+
+Saving does not force a live telemetry reload. The telemetry worker reads the new configuration when it confirms the next game session, matching the existing runtime configuration lifecycle.
+
+### Network scope
+
+The listener accepts clients only from IPv4 loopback, RFC1918 private ranges, and IPv4 link-local addresses. There is no per-user authentication in this initial implementation: any device on a trusted local network that can reach the server can read status/diagnostic data and change PrefBar settings. Do not forward port 18080 to the internet or expose it to an untrusted network.
+
 ## Diagnostics and hook-probe logs
 
 The controller writes startup information to `/data/prefbar/controller.log`; the injector writes `/data/prefbar/injector.log`. The renderer writes `/system_tmp/prefbar_shellui.log` and records its latest startup stage in `/system_tmp/prefbar_shellui.stage`.

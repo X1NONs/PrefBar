@@ -7,6 +7,7 @@
 
 #include "ps5_platform.hpp"
 #include "ps5_injection.hpp"
+#include "web_server.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -266,6 +267,18 @@ extern "C" int main() {
             PBDBG_ERR, "telemetry.thread",
             "telemetry thread failed to start (rc=%d)", telemetry_rc);
         return 1;
+    }
+
+    const int web_rc = prefbar::web::start();
+    if (web_rc == 0) {
+        prefbar_debug_event(
+            PBDBG_INFO, "web.start",
+            "Control Center HTTP server listening on port %u",
+            static_cast<unsigned>(prefbar::web::kDefaultPort));
+    } else {
+        prefbar_debug_event(
+            PBDBG_WARN, "web.start",
+            "Control Center HTTP server unavailable (rc=%d)", web_rc);
     }
     const pid_t shellui_pid = prefbar::ps5::observe_shellui_pid();
     const prefbar::ps5::ProcessLookupResult game =

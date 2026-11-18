@@ -368,14 +368,14 @@
 
   <footer class="bottom-bar">
     <div class="save-state" id="save-state"><span class="state-dot"></span><span id="save-label">No unsaved changes</span></div>
-    <div class="actions"><button class="btn ghost" id="rawOpenBottom">View .conf</button><button class="btn" id="resetBtn">Reset defaults</button><button class="btn primary" id="saveBtn">Export .conf</button></div>
+    <div class="actions"><button class="btn ghost" id="rawOpenBottom">View .conf</button><button class="btn" id="resetBtn">Reset defaults</button><button class="btn primary" id="saveBtn">Save to PS5</button></div>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="modal-backdrop" id="modal">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-head"><strong id="modal-title">Generated prefbar.conf</strong><button class="icon-button" id="modalClose" aria-label="Close">×</button></div>
-      <div class="modal-body"><pre id="config-output"></pre><div class="muted-foot">Generated from the current settings. Export the file for manual installation, or copy its contents.</div></div>
+      <div class="modal-body"><pre id="config-output"></pre><div class="muted-foot">Generated from the current settings. Save directly to a connected PS5, or copy the contents for manual installation.</div></div>
       <div class="modal-foot"><button class="btn" id="copyConfig">Copy config</button></div>
     </div>
   </div>
@@ -596,7 +596,44 @@
         toast('Copy is unavailable in this browser. Select and copy the config text instead.');
       }
     });
-    $('saveBtn').addEventListener('click', downloadConfig);
+    $('saveBtn').addEventListener('click', saveConfig);
+    async function saveConfig() {
+      const button = $('saveBtn');
+      const config = generateConfig();
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/v1/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          body: config,
+          cache: 'no-store'
+        });
+
+        if (response.status === 404 || response.status === 405) {
+          downloadConfig();
+          return;
+        }
+        if (!response.ok) {
+          let detail = '';
+          try {
+            const result = await response.json();
+            detail = result.error || '';
+          } catch {}
+          toast(detail
+            ? `PrefBar rejected the configuration: ${detail}.`
+            : `Could not save to PS5 (HTTP ${response.status}).`);
+          return;
+        }
+
+        initialSnapshot = snapshot();
+        markDirty();
+        toast('Saved to this PS5. Changes apply when the next game session starts.');
+      } catch {
+        downloadConfig();
+      } finally {
+        button.disabled = false;
+      }
+    }
     function downloadConfig() {
       const blob = new Blob([generateConfig()], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
@@ -621,10 +658,63 @@
       $('text_color_picker').value = defaults.text_color;
       updatePreview(); toast('Settings reset to PrefBar defaults.');
     });
+    function applyRemoteConfig(documentText) {
+      const values = Object.create(null);
+      documentText.split(/\\r?\\n/).forEach(rawLine => {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#') || line.startsWith(';') || line.startsWith('[')) return;
+        const equals = line.indexOf('=');
+        if (equals < 1) return;
+        values[line.slice(0, equals).trim()] = line.slice(equals + 1).trim();
+      });
+
+      const segmentedKeys = [
+        'overlay_format', 'overlay_horizontal',
+        'overlay_horizontal_spacing', 'overlay_horizontal_align'
+      ];
+      for (const [key, defaultValue] of Object.entries(defaults)) {
+        const value = values[key];
+        if (value === undefined) continue;
+        if (segmentedKeys.includes(key)) {
+          const group = document.querySelector(`[data-setting="${key}"]`);
+          if (!group || !Array.from(group.querySelectorAll('button'))
+            .some(button => button.dataset.value === value)) continue;
+          group.querySelectorAll('button').forEach(button => {
+            button.classList.toggle('selected', button.dataset.value === value);
+          });
+        } else if (typeof defaultValue === 'boolean') {
+          const control = $(key);
+          if (control) control.checked = value === '1';
+        } else {
+          const control = $(key);
+          if (control) control.value = value;
+        }
+      }
+
+      if (/^#[0-9A-Fa-f]{6}$/.test(values.text_color || '')) {
+        $('text_color_picker').value = values.text_color;
+      }
+      updatePreview();
+    }
+
+    async function loadRemoteConfig() {
+      try {
+        const response = await fetch('/api/v1/config', { cache: 'no-store' });
+        if (!response.ok) return;
+        const documentText = await response.text();
+        applyRemoteConfig(documentText);
+        initialSnapshot = snapshot();
+        markDirty();
+      } catch {
+        /* The page can still be used as an offline config editor. */
+      }
+    }
+
     window.addEventListener('resize', updatePreview);
     updatePreview();
     initialSnapshot = snapshot();
     markDirty();
+    loadRemoteConfig();
   </script>
 </body>
 </html>

@@ -72,7 +72,23 @@ if(PREFBAR_BUILD_PS5)
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/embed_binary.py"
             "$<TARGET_FILE:prefbar_shellui>"
             "${PREFBAR_SHELLUI_BLOB_CPP}"
+        web/backend/web_server.cpp
+        "${PREFBAR_WEB_BLOB_CPP}"
         DEPENDS prefbar_shellui scripts/tools/embed_binary.py
+        VERBATIM
+    )
+
+    # Embed the Control Center page into the controller payload.
+    set(PREFBAR_WEB_BLOB_CPP
+        "${PREFBAR_GENERATED_DIR}/prefbar_web_blob.cpp")
+    add_custom_command(
+        OUTPUT "${PREFBAR_WEB_BLOB_CPP}"
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/embed_binary.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+            "${PREFBAR_WEB_BLOB_CPP}"
+            prefbar_web_index_html
+        DEPENDS web/index.html scripts/tools/embed_binary.py
         VERBATIM
     )
 
@@ -97,6 +113,7 @@ if(PREFBAR_BUILD_PS5)
         include
         src/ps5
         src/ps5/compat
+        web/backend
         "${PREFBAR_SDK}"
         "${PREFBAR_SDK}/include"
     )
