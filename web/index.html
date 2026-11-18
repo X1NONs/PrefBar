@@ -660,7 +660,7 @@
     });
     function applyRemoteConfig(documentText) {
       const values = Object.create(null);
-      documentText.split(/\\r?\\n/).forEach(rawLine => {
+      documentText.split(/\r?\n/).forEach(rawLine => {
         const line = rawLine.trim();
         if (!line || line.startsWith('#') || line.startsWith(';') || line.startsWith('[')) return;
         const equals = line.indexOf('=');

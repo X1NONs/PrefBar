@@ -234,7 +234,7 @@ The controller starts the native HTTP server from `web/backend/web_server.cpp`. 
 | GET | `/api/v1/config` | Current `prefbar.conf` as INI text |
 | PUT | `/api/v1/config` | Validates and atomically replaces `prefbar.conf` |
 | GET | `/api/v1/status` | Current `status.kv` telemetry snapshot |
-| GET | `/api/v1/diagnostics` | Bounded excerpts of controller, debug, and diagnostic logs |
+| GET | `/api/v1/diagnostics` | Bounded snapshots of controller, debug, and diagnostic logs; an oversized log is reported unavailable rather than truncated |
 
 The Control Center loads the saved INI when opened. Its Save action sends the complete generated INI document using `PUT /api/v1/config`; when the page is hosted somewhere without the PrefBar API, the action falls back to downloading `prefbar.conf`. The server rejects duplicate, missing, unknown, malformed, and out-of-range settings. A successful write uses a temporary file, flushes it, and renames it over the existing configuration.
 
