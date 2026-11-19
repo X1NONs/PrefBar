@@ -47,13 +47,14 @@ constexpr char kStatusPath[] = "/data/prefbar/status.kv";
 constexpr char kControllerLogPath[] = "/data/prefbar/controller.log";
 constexpr char kDebugLogPath[] = "/data/prefbar/debug.log";
 constexpr char kDiagnosticPath[] = "/data/prefbar/diag.txt";
+constexpr char kBootLogPath[] = "/data/prefbar/boot.log";
 
 constexpr std::size_t kMaxHeaderBytes = 8 * 1024;
 constexpr std::size_t kMaxBodyBytes = 16 * 1024;
 constexpr std::size_t kMaxConfigBytes = 8 * 1024;
 constexpr std::size_t kMaxStatusBytes = 8 * 1024;
 constexpr std::size_t kMaxDiagnosticSectionBytes = 16 * 1024;
-constexpr std::size_t kMaxDiagnosticResponseBytes = 52 * 1024;
+constexpr std::size_t kMaxDiagnosticResponseBytes = 68 * 1024;
 constexpr unsigned kSocketTimeoutSeconds = 3;
 
 std::atomic<bool> g_running{false};
@@ -704,6 +705,8 @@ void handle_api_request(int socket_fd,
             char body[kMaxDiagnosticResponseBytes];
             std::size_t used = 0;
             append_diagnostic_section(body, sizeof(body), &used,
+                                      "boot.log", kBootLogPath);
+            append_diagnostic_section(body, sizeof(body), &used,
                                       "controller.log", kControllerLogPath);
             append_diagnostic_section(body, sizeof(body), &used,
                                       "debug.log", kDebugLogPath);
@@ -824,6 +827,15 @@ void handle_client(int client_fd) noexcept {
 
 void* server_worker(void*) noexcept {
     const int listener = g_listener.load(std::memory_order_acquire);
+    if (listener < 0 || listener >= FD_SETSIZE) {
+        prefbar_debug_event(
+            kLogError, "web.listener.fd",
+            "HTTP listener descriptor %d is outside FD_SETSIZE=%d",
+            listener, FD_SETSIZE);
+        g_running.store(false, std::memory_order_release);
+        return nullptr;
+    }
+
     while (!g_stopping.load(std::memory_order_acquire) && listener >= 0) {
         fd_set read_set;
         FD_ZERO(&read_set);
@@ -871,9 +883,18 @@ int start() noexcept {
     pthread_mutex_lock(&g_lifecycle_mutex);
 
     if (g_worker_created) {
-        const bool running = g_running.load(std::memory_order_acquire);
-        pthread_mutex_unlock(&g_lifecycle_mutex);
-        return running ? 0 : EALREADY;
+        if (g_running.load(std::memory_order_acquire)) {
+            pthread_mutex_unlock(&g_lifecycle_mutex);
+            return 0;
+        }
+
+        /* The worker has exited. Reap it and close its listener before retrying. */
+        (void)pthread_join(g_worker, nullptr);
+        const int stale_listener =
+            g_listener.exchange(-1, std::memory_order_acq_rel);
+        if (stale_listener >= 0)
+            close(stale_listener);
+        g_worker_created = false;
     }
 
     const int listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
