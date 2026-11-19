@@ -7,9 +7,9 @@
 
 namespace prefbar::web {
 
-inline constexpr unsigned short kDefaultPort = 18080;
+inline constexpr unsigned short kDefaultPort = 8998;
 
-/* Starts the LAN Control Center HTTP server.
+/* Starts the Control Center HTTP server.
  * Returns 0 on success or a positive error code on failure. */
 int start() noexcept;
 

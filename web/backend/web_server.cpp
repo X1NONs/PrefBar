@@ -75,8 +75,6 @@ struct HttpRequest {
     char method[8]{};
     char target[1024]{};
     char content_type[128]{};
-    char host[256]{};
-    char origin[512]{};
     const char* body = nullptr;
     std::size_t body_size = 0;
 };
@@ -553,14 +551,6 @@ int read_request(int socket_fd,
                 if (!copy_header_value(request->content_type,
                                        sizeof(request->content_type), colon))
                     return 400;
-            } else if (strcasecmp(line, "Host") == 0) {
-                if (!copy_header_value(request->host,
-                                       sizeof(request->host), colon))
-                    return 400;
-            } else if (strcasecmp(line, "Origin") == 0) {
-                if (!copy_header_value(request->origin,
-                                       sizeof(request->origin), colon))
-                    return 400;
             } else if (strcasecmp(line, "Transfer-Encoding") == 0 &&
                        strcasecmp(colon, "identity") != 0) {
                 unsupported_transfer_encoding = true;
@@ -607,41 +597,6 @@ int read_request(int socket_fd,
         return 400;
 
     return 0;
-}
-
-bool is_private_peer(const sockaddr_in& peer) noexcept {
-    const std::uint32_t address = ntohl(peer.sin_addr.s_addr);
-    if ((address >> 24) == 127u)
-        return true;
-    if ((address & 0xff000000u) == 0x0a000000u) /* 10.0.0.0/8 */
-        return true;
-    if ((address & 0xfff00000u) == 0xac100000u) /* 172.16.0.0/12 */
-        return true;
-    if ((address & 0xffff0000u) == 0xc0a80000u) /* 192.168.0.0/16 */
-        return true;
-    if ((address & 0xffff0000u) == 0xa9fe0000u) /* 169.254.0.0/16 */
-        return true;
-    return false;
-}
-
-bool origin_matches_host(const HttpRequest& request) noexcept {
-    if (!request.origin[0])
-        return true; /* non-browser clients such as curl */
-    if (!request.host[0] ||
-        strncasecmp(request.origin, "http://", 7) != 0) {
-        return false;
-    }
-
-    const char* origin_host = request.origin + 7;
-    const char* path = std::strchr(origin_host, '/');
-    if (path && path[1] != '\0')
-        return false;
-
-    const std::size_t host_length = path
-        ? static_cast<std::size_t>(path - origin_host)
-        : std::strlen(origin_host);
-    return std::strlen(request.host) == host_length &&
-        strncasecmp(origin_host, request.host, host_length) == 0;
 }
 
 bool append_text(char* output,
@@ -773,10 +728,6 @@ void handle_api_request(int socket_fd,
                        "expected_text_plain");
             return;
         }
-        if (!origin_matches_host(request)) {
-            send_error(socket_fd, 403, "Forbidden", "origin_not_allowed");
-            return;
-        }
         if (!validate_config_document(request.body, request.body_size)) {
             send_error(socket_fd, 400, "Bad Request",
                        "invalid_or_incomplete_configuration");
@@ -811,7 +762,7 @@ void handle_api_request(int socket_fd,
     send_error(socket_fd, 405, "Method Not Allowed", "method_not_allowed");
 }
 
-void handle_client(int client_fd, const sockaddr_in& peer) noexcept {
+void handle_client(int client_fd) noexcept {
     int enabled = 1;
 #ifdef SO_NOSIGPIPE
     (void)setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE,
@@ -825,11 +776,6 @@ void handle_client(int client_fd, const sockaddr_in& peer) noexcept {
                      &timeout, sizeof(timeout));
     (void)setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO,
                      &timeout, sizeof(timeout));
-
-    if (!is_private_peer(peer)) {
-        send_error(client_fd, 403, "Forbidden", "private_network_only");
-        return;
-    }
 
     char storage[kMaxHeaderBytes + kMaxBodyBytes + 1];
     HttpRequest request{};
@@ -900,10 +846,7 @@ void* server_worker(void*) noexcept {
             break;
         }
 
-        sockaddr_in peer{};
-        socklen_t peer_size = sizeof(peer);
-        const int client = accept(
-            listener, reinterpret_cast<sockaddr*>(&peer), &peer_size);
+        const int client = accept(listener, nullptr, nullptr);
         if (client < 0) {
             if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
                 continue;
@@ -914,7 +857,7 @@ void* server_worker(void*) noexcept {
             break;
         }
 
-        handle_client(client, peer);
+        handle_client(client);
         close(client);
     }
 
@@ -981,7 +924,7 @@ int start() noexcept {
     pthread_mutex_unlock(&g_lifecycle_mutex);
 
     prefbar_debug_event(kLogInfo, "web.start",
-                        "PrefBar Control Center listening on port %u (private IPv4 networks)",
+                        "PrefBar Control Center listening on port %u (all IPv4 interfaces, unrestricted clients)",
                         static_cast<unsigned>(kDefaultPort));
     return 0;
 }
