@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdint>
+#include <pthread.h>
 #include <cstdio>
 #include <ctime>
 #include <sys/stat.h>
@@ -49,6 +50,17 @@ std::uint64_t monotonic_us() noexcept {
         return 0;
     return static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000ULL +
         static_cast<std::uint64_t>(ts.tv_nsec) / 1'000ULL;
+}
+
+/* Let PrefBar's normal startup attribution toast run first. The first debug
+ * event after this delay triggers that startup gate, then emits this event. */
+void* web_ready_notification_worker(void*) noexcept {
+    (void)usleep(4'000'000);
+    prefbar_debug_event(
+        PBDBG_INFO, "web.ready",
+        "Control Center ready; listening on port %u",
+        static_cast<unsigned>(prefbar::web::kDefaultPort));
+    return nullptr;
 }
 
 void write_startup_record(pid_t first_shellui,
@@ -275,6 +287,18 @@ extern "C" int main() {
             PBDBG_INFO, "web.start",
             "Control Center HTTP server listening on port %u",
             static_cast<unsigned>(prefbar::web::kDefaultPort));
+
+        pthread_t notice_thread{};
+        const int notice_rc = pthread_create(
+            &notice_thread, nullptr, web_ready_notification_worker, nullptr);
+        if (notice_rc == 0) {
+            (void)pthread_detach(notice_thread);
+        } else {
+            prefbar_debug_event(
+                PBDBG_WARN, "web.notice.thread",
+                "could not schedule Control Center ready notification (rc=%d)",
+                notice_rc);
+        }
     } else {
         prefbar_debug_event(
             PBDBG_WARN, "web.start",
