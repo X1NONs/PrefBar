@@ -52,19 +52,56 @@ std::uint64_t monotonic_us() noexcept {
         static_cast<std::uint64_t>(ts.tv_nsec) / 1'000ULL;
 }
 
-/* Let PrefBar's normal startup attribution toast run first. The first debug
- * event after this delay triggers that startup gate, then emits this event. */
-void* web_ready_notification_worker(void*) noexcept {
+struct StartupNotificationState {
+    int web_rc;
+    int telemetry_rc;
+};
+
+/* Static storage: the detached notification worker may outlive startup. */
+StartupNotificationState g_startup_notification_state{};
+
+/* Delay startup notifications until PrefBar's attribution toast has had its
+ * normal opportunity to appear. */
+void* startup_notification_worker(void* opaque) noexcept {
     (void)usleep(4'000'000);
-    prefbar_debug_event(
-        PBDBG_INFO, "web.ready",
-        "Control Center ready; listening on port %u",
-        static_cast<unsigned>(prefbar::web::kDefaultPort));
+    const auto* state =
+        static_cast<const StartupNotificationState*>(opaque);
+    if (!state)
+        return nullptr;
+
+    if (state->web_rc == 0 && state->telemetry_rc == 0) {
+        prefbar_debug_event(
+            PBDBG_INFO, "web.ready",
+            "Control Center ready; listening on port %u",
+            static_cast<unsigned>(prefbar::web::kDefaultPort));
+    } else if (state->web_rc == 0) {
+        prefbar_debug_event(
+            PBDBG_ERR, "startup.degraded",
+            "Control Center listening on port %u; telemetry failed to start "
+            "(rc=%d), renderer injection disabled",
+            static_cast<unsigned>(prefbar::web::kDefaultPort),
+            state->telemetry_rc);
+    } else if (state->telemetry_rc == 0) {
+        prefbar_debug_event(
+            PBDBG_ERR, "web.unavailable",
+            "Control Center could not listen on port %u (rc=%d)",
+            static_cast<unsigned>(prefbar::web::kDefaultPort),
+            state->web_rc);
+    } else {
+        prefbar_debug_event(
+            PBDBG_ERR, "startup.failed",
+            "Control Center and telemetry failed to start (web rc=%d, "
+            "telemetry rc=%d)",
+            state->web_rc, state->telemetry_rc);
+    }
     return nullptr;
 }
 
-void write_startup_record(pid_t first_shellui,
-                          const prefbar::ps5::ProcessLookupResult& game) noexcept {
+void write_startup_record(
+    pid_t first_shellui,
+    const prefbar::ps5::ProcessLookupResult& game,
+    int telemetry_rc,
+    int web_rc) noexcept {
     FILE* fp = std::fopen(kControllerLog, "w");
     if (!fp)
         return;
@@ -72,7 +109,8 @@ void write_startup_record(pid_t first_shellui,
     std::fprintf(
         fp,
         "PrefBar V0.3.0 controller\n"
-        "Mode=single-controller embedded-telemetry shellui-renderer\n"
+        "Mode=%s\n"
+        "Startup web_rc=%d telemetry_rc=%d http_port=%u\n"
         "Game gate=%u consecutive samples; ShellUI gate=%u consecutive samples; "
         "poll=%u ms\n"
         "Renderer injection=deferred-until-game-and-shellui-ready\n"
@@ -80,6 +118,14 @@ void write_startup_record(pid_t first_shellui,
         "Overlay=loopback UDP rows only; port=39028\n"
         "Worker pid=%d ppid=%d first_shellui_pid=%d first_game_pid=%d "
         "title_id=%s sysctl=%d/%d errno=%d bytes=%zu records=%u malformed=%u\n",
+        telemetry_rc == 0
+            ? "single-controller embedded-telemetry shellui-renderer"
+            : web_rc == 0
+                ? "diagnostics-only; renderer injection disabled"
+                : "startup-failed; telemetry unavailable; renderer disabled",
+        web_rc,
+        telemetry_rc,
+        static_cast<unsigned>(prefbar::web::kDefaultPort),
         kGameStableSamples,
         kShellUiStableSamples,
         static_cast<unsigned>(kPollIntervalUs / 1000U),
@@ -268,45 +314,68 @@ extern "C" int main() {
     const long process_name_rc = -1;
     const int process_name_errno = ENOSYS;
 #endif
-    const int telemetry_rc = prefbar_telemetry_embedded_start();
-    prefbar_debug_event(
-        process_name_rc == 0 ? PBDBG_INFO : PBDBG_WARN,
-        "process.name",
-        "main thread name request rc=%ld errno=%d",
-        process_name_rc, process_name_errno);
-    if (telemetry_rc != 0) {
-        prefbar_debug_event(
-            PBDBG_ERR, "telemetry.thread",
-            "telemetry thread failed to start (rc=%d)", telemetry_rc);
-        return 1;
-    }
 
+    /* Start diagnostics first so telemetry startup failures remain inspectable. */
     const int web_rc = prefbar::web::start();
     if (web_rc == 0) {
         prefbar_debug_event(
             PBDBG_INFO, "web.start",
             "Control Center HTTP server listening on port %u",
             static_cast<unsigned>(prefbar::web::kDefaultPort));
-
-        pthread_t notice_thread{};
-        const int notice_rc = pthread_create(
-            &notice_thread, nullptr, web_ready_notification_worker, nullptr);
-        if (notice_rc == 0) {
-            (void)pthread_detach(notice_thread);
-        } else {
-            prefbar_debug_event(
-                PBDBG_WARN, "web.notice.thread",
-                "could not schedule Control Center ready notification (rc=%d)",
-                notice_rc);
-        }
     } else {
         prefbar_debug_event(
-            PBDBG_WARN, "web.start",
-            "Control Center HTTP server unavailable (rc=%d)", web_rc);
+            PBDBG_ERR, "web.start",
+            "Control Center HTTP server could not start (rc=%d)", web_rc);
     }
+
+    const int telemetry_rc = prefbar_telemetry_embedded_start();
+    prefbar_debug_event(
+        process_name_rc == 0 ? PBDBG_INFO : PBDBG_WARN,
+        "process.name",
+        "main thread name request rc=%ld errno=%d",
+        process_name_rc, process_name_errno);
+
     const pid_t shellui_pid = prefbar::ps5::observe_shellui_pid();
     const prefbar::ps5::ProcessLookupResult game =
         prefbar::ps5::find_game_process();
-    write_startup_record(shellui_pid, game);
+    write_startup_record(shellui_pid, game, telemetry_rc, web_rc);
+
+    g_startup_notification_state = {web_rc, telemetry_rc};
+    pthread_t notice_thread{};
+    const int notice_rc = pthread_create(
+        &notice_thread, nullptr, startup_notification_worker,
+        &g_startup_notification_state);
+    if (notice_rc == 0) {
+        if (web_rc == 0 || telemetry_rc == 0) {
+            (void)pthread_detach(notice_thread);
+        } else {
+            /* Even total startup failure gets one delayed, visible error. */
+            (void)pthread_join(notice_thread, nullptr);
+        }
+    } else {
+        prefbar_debug_event(
+            PBDBG_WARN, "startup.notice.thread",
+            "could not schedule startup notification (rc=%d)", notice_rc);
+    }
+
+    if (telemetry_rc != 0) {
+        prefbar_debug_event(
+            PBDBG_ERR, "telemetry.thread",
+            "telemetry thread failed to start (rc=%d)", telemetry_rc);
+
+        if (web_rc == 0) {
+            prefbar_debug_event(
+                PBDBG_WARN, "controller.degraded",
+                "running diagnostics-only; renderer injection is disabled "
+                "while telemetry is unavailable");
+
+            /* Do not launch a competing controller/renderer if the singleton
+             * telemetry lock belongs to another PrefBar instance. */
+            while (prefbar::web::is_running())
+                usleep(1'000'000);
+        }
+        return 1;
+    }
+
     run_controller();
 }
