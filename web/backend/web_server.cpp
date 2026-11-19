@@ -31,6 +31,8 @@
 extern "C" void prefbar_debug_event(
     int level, const char* key, const char* fmt, ...)
     __attribute__((format(printf, 3, 4)));
+extern "C" void prefbar_boot_stage(
+    const char* stage, int web_rc, int telemetry_rc) noexcept;
 
 extern const std::uint8_t prefbar_web_index_html[];
 extern const std::size_t prefbar_web_index_html_size;
@@ -880,11 +882,14 @@ void* server_worker(void*) noexcept {
 } // namespace
 
 int start() noexcept {
+    prefbar_boot_stage("web_enter", -1, -1);
     pthread_mutex_lock(&g_lifecycle_mutex);
+    prefbar_boot_stage("web_mutex_locked", -1, -1);
 
     if (g_worker_created) {
         if (g_running.load(std::memory_order_acquire)) {
             pthread_mutex_unlock(&g_lifecycle_mutex);
+            prefbar_boot_stage("web_already_running", 0, 0);
             return 0;
         }
 
@@ -895,21 +900,33 @@ int start() noexcept {
         if (stale_listener >= 0)
             close(stale_listener);
         g_worker_created = false;
+        prefbar_boot_stage("web_stale_worker_reaped", stale_listener, errno);
     }
 
+    errno = 0;
     const int listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    const int socket_errno = errno;
+    prefbar_boot_stage("web_socket", listener,
+                       listener < 0 ? socket_errno : 0);
     if (listener < 0) {
-        const int error = errno ? errno : EIO;
+        const int error = socket_errno ? socket_errno : EIO;
         pthread_mutex_unlock(&g_lifecycle_mutex);
+        prefbar_boot_stage("web_socket_failed", error, socket_errno);
         return error;
     }
 
     int enabled = 1;
-    if (setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
-                   &enabled, sizeof(enabled)) != 0) {
-        const int error = errno ? errno : EIO;
+    errno = 0;
+    const int reuse_rc = setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
+                                    &enabled, sizeof(enabled));
+    const int reuse_errno = errno;
+    prefbar_boot_stage("web_setsockopt", reuse_rc,
+                       reuse_rc != 0 ? reuse_errno : 0);
+    if (reuse_rc != 0) {
+        const int error = reuse_errno ? reuse_errno : EIO;
         close(listener);
         pthread_mutex_unlock(&g_lifecycle_mutex);
+        prefbar_boot_stage("web_setsockopt_failed", error, reuse_errno);
         return error;
     }
 
@@ -918,35 +935,61 @@ int start() noexcept {
     address.sin_port = htons(kDefaultPort);
     address.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(listener, reinterpret_cast<const sockaddr*>(&address),
-             sizeof(address)) != 0 ||
-        listen(listener, 4) != 0) {
-        const int error = errno ? errno : EIO;
+    errno = 0;
+    const int bind_rc = bind(
+        listener, reinterpret_cast<const sockaddr*>(&address),
+        sizeof(address));
+    const int bind_errno = errno;
+    prefbar_boot_stage("web_bind", bind_rc,
+                       bind_rc != 0 ? bind_errno : 0);
+    if (bind_rc != 0) {
+        const int error = bind_errno ? bind_errno : EIO;
         close(listener);
         pthread_mutex_unlock(&g_lifecycle_mutex);
+        prefbar_boot_stage("web_bind_failed", error, bind_errno);
+        return error;
+    }
+
+    errno = 0;
+    const int listen_rc = listen(listener, 4);
+    const int listen_errno = errno;
+    prefbar_boot_stage("web_listen", listen_rc,
+                       listen_rc != 0 ? listen_errno : 0);
+    if (listen_rc != 0) {
+        const int error = listen_errno ? listen_errno : EIO;
+        close(listener);
+        pthread_mutex_unlock(&g_lifecycle_mutex);
+        prefbar_boot_stage("web_listen_failed", error, listen_errno);
         return error;
     }
 
     g_stopping.store(false, std::memory_order_release);
     g_listener.store(listener, std::memory_order_release);
     g_running.store(true, std::memory_order_release);
+    prefbar_boot_stage("web_listener_ready", listener, 0);
 
+    errno = 0;
     const int thread_error = pthread_create(
         &g_worker, nullptr, server_worker, nullptr);
+    prefbar_boot_stage("web_pthread_create", thread_error,
+                       thread_error != 0 ? errno : 0);
     if (thread_error != 0) {
         g_listener.store(-1, std::memory_order_release);
         g_running.store(false, std::memory_order_release);
         close(listener);
         pthread_mutex_unlock(&g_lifecycle_mutex);
+        prefbar_boot_stage("web_thread_failed", thread_error, errno);
         return thread_error;
     }
 
     g_worker_created = true;
     pthread_mutex_unlock(&g_lifecycle_mutex);
+    prefbar_boot_stage("web_worker_created", 0, 0);
 
     prefbar_debug_event(kLogInfo, "web.start",
                         "PrefBar Control Center listening on port %u (all IPv4 interfaces, unrestricted clients)",
                         static_cast<unsigned>(kDefaultPort));
+    prefbar_boot_stage("web_start_complete", 0, 0);
     return 0;
 }
 

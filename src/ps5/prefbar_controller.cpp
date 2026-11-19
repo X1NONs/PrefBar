@@ -355,12 +355,27 @@ extern "C" std::uint64_t prefbar_game_session_generation(void) noexcept {
     return g_game_session_generation.load(std::memory_order_relaxed);
 }
 
+/* Used by the HTTP backend to record exact startup checkpoints without
+ * depending on the telemetry/debug-notification subsystem. */
+extern "C" void prefbar_boot_stage(
+    const char* stage, int web_rc, int telemetry_rc) noexcept {
+    write_boot_stage(stage, web_rc, telemetry_rc);
+}
+
 extern "C" int main() {
-    (void)mkdir("/data/prefbar", 0777);
-    (void)signal(SIGPIPE, SIG_IGN);
-    write_boot_stage("entry", -1, -1);
+    const int mkdir_rc = mkdir("/data/prefbar", 0777);
+    const int mkdir_errno = errno;
+    write_boot_stage("entry", mkdir_rc, mkdir_errno);
 
     errno = 0;
+    const auto previous_sigpipe = signal(SIGPIPE, SIG_IGN);
+    const int signal_errno = errno;
+    write_boot_stage(
+        "after_sigpipe", previous_sigpipe == SIG_ERR ? -1 : 0,
+        previous_sigpipe == SIG_ERR ? signal_errno : 0);
+
+    errno = 0;
+    write_boot_stage("before_thread_name", -1, -1);
 #ifdef SYS_thr_set_name
     const long process_name_rc = syscall(SYS_thr_set_name, -1L, "PrefBar");
     const int process_name_errno = errno;
@@ -368,10 +383,14 @@ extern "C" int main() {
     const long process_name_rc = -1;
     const int process_name_errno = ENOSYS;
 #endif
+    write_boot_stage(
+        "after_thread_name", static_cast<int>(process_name_rc),
+        process_name_errno);
 
     /* Start the Control Center before telemetry so it can report failures. */
+    write_boot_stage("before_web_start", -1, -1);
     int web_rc = prefbar::web::start();
-    write_boot_stage("web_start", web_rc, -1);
+    write_boot_stage("after_web_start", web_rc, errno);
     if (web_rc == 0) {
         prefbar_debug_event(
             PBDBG_INFO, "web.start",
