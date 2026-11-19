@@ -272,6 +272,8 @@ void write_startup_record(
         if (!prefbar::web::is_running() && now >= next_web_retry_us) {
             next_web_retry_us = now + kWebRetryIntervalUs;
             const int web_rc = prefbar::web::start();
+            g_startup_notification_state.web_rc.store(
+                web_rc, std::memory_order_release);
             write_boot_stage("web_watchdog_retry", web_rc, 0);
             if (web_rc == 0) {
                 prefbar_debug_event(
