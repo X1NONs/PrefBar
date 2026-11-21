@@ -7,7 +7,9 @@
 #include "ps5_injection.hpp"
 
 #include <csignal>
+#include <cerrno>
 #include <cstring>
+#include <unistd.h>
 #include <machine/reg.h>
 #include <sys/wait.h>
 
@@ -60,8 +62,15 @@ long call_until_breakpoint_on_target_stack(
         return -1;
     }
 
-    if (waitpid(pid, nullptr, 0) < 0) {
-        (void)pt_setregs(pid, &original);
+    if (pt_wait_stopped(pid, 2000U) < 0) {
+        const int wait_error = errno;
+        /* The stager may still be running. Stop the traced thread before
+         * restoring its original instruction pointer and returning control. */
+        if (kill(pid, SIGSTOP) == 0 &&
+            pt_wait_stopped(pid, 2000U) == 0) {
+            (void)pt_setregs(pid, &original);
+        }
+        errno = wait_error;
         return -1;
     }
 

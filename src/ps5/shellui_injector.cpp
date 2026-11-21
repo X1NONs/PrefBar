@@ -411,6 +411,7 @@ bool ensure_shellui_renderer() {
     for (int i = 0; i < 3500; ++i) {
         if (marker_matches(pid)) {
             attempted_result = true;
+            injection_attempts = 0; /* a healthy renderer starts a fresh retry budget */
             log_line(
                 "ShellUI renderer online pid=%d total_ms=%llu",
                 pid,

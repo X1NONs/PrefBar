@@ -76,7 +76,7 @@ static int prefbar_trace_stop(pid_t pid) {
         return 0;
     if (kill(pid, SIGSTOP) != 0)
         return -1;
-    if (waitpid(pid, 0, 0) < 0)
+    if (pt_wait_stopped(pid, 2000U) < 0)
         return -1;
     g_trace_stopped = true;
     return 0;
