@@ -6,6 +6,8 @@
  */
 
 #include "ps5_injection.hpp"
+#include "ps5_platform.hpp"
+#include "prefbar/crash_strikes.hpp"
 #include "prefbar/shellui_stage.hpp"
 
 extern const std::uint8_t prefbar_shellui_elf[];
@@ -27,7 +29,10 @@ namespace {
 constexpr const char* kMarker = "/system_tmp/prefbar_shellui.pid";
 constexpr const char* kLog = "/data/prefbar/injector.log";
 constexpr const char* kShellUiName = "SceShellUI";
+constexpr const char* kStrikeDir = "/data/prefbar";
+constexpr const char* kForceRendererPath = "/data/prefbar/force_renderer";
 pid_t g_last_shellui_pid = -1;
+char g_strike_path[96]{}; /* empty until the SDK version is known */
 
 std::uint64_t now_ms() noexcept {
     timeval tv{};
@@ -241,6 +246,34 @@ bool ensure_shellui_renderer() {
     if (renderer_quarantined)
         return false;
 
+    /*
+     * Crash-loop protection: if ShellUI already died while PrefBar was starting
+     * on this firmware in earlier launches, do not inject again until the user
+     * deletes the strike file or creates the force-renderer file.
+     */
+    static bool strike_gate_checked = false;
+    if (!strike_gate_checked) {
+        strike_gate_checked = true;
+        const std::uint32_t sdk = firmware_sdk_version();
+        if (sdk != 0) {
+            renderer_crash_strike_path(
+                sdk, kStrikeDir, g_strike_path, sizeof(g_strike_path));
+            const bool force = access(kForceRendererPath, F_OK) == 0;
+            if (renderer_crash_blocked(g_strike_path, force)) {
+                log_line(
+                    "ShellUI renderer disabled: firmware sdk=0x%08x crashed "
+                    "ShellUI during %u earlier launches. Delete %s to retry, "
+                    "or create %s to ignore this protection.",
+                    sdk,
+                    renderer_crash_strikes(g_strike_path),
+                    g_strike_path,
+                    kForceRendererPath);
+                renderer_quarantined = true;
+                return false;
+            }
+        }
+    }
+
     const ShellUiLookupResult lookup = find_shellui_pid();
     if (lookup.pid <= 0) {
         ++discovery_failures;
@@ -341,6 +374,7 @@ bool ensure_shellui_renderer() {
                 "ShellUI renderer online pid=%d total_ms=%llu",
                 pid,
                 static_cast<unsigned long long>(now_ms() - inject_started_ms));
+            renderer_crash_strikes_clear(g_strike_path);
             return true;
         }
 
@@ -356,6 +390,13 @@ bool ensure_shellui_renderer() {
                     last_stage_for(pid, stage));
                 renderer_quarantined = true;
                 retry_allowed = false;
+                const unsigned strikes = renderer_crash_strike_add(g_strike_path);
+                if (strikes != 0)
+                    log_line(
+                        "ShellUI crash strike %u/%u recorded in %s",
+                        strikes,
+                        kRendererCrashStrikeLimit,
+                        g_strike_path);
                 return false;
             }
         }

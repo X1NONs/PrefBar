@@ -1569,6 +1569,18 @@ void process_prefbar_toggle_input() {
 }
 
 void application_update_hook(MonoObject* instance) {
+    /*
+     * The controller resumes ShellUI right after patching, before this
+     * renderer has consumed the hook acknowledgement and set g_runtime_ready.
+     * Until then act as a transparent pass-through: touch no pad/UI state and
+     * just run the original Application.Update.
+     */
+    if (!g_runtime_ready.load()) {
+        if (g_application_update_original)
+            g_application_update_original(instance);
+        return;
+    }
+
     process_prefbar_toggle_input();
     prefbar_draw_text();
 
