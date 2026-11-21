@@ -19,6 +19,8 @@ along with this program; see the file COPYING. If not, see
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <time.h>
+#include <signal.h>
 
 #include <sys/ptrace.h>
 #include <sys/socket.h>
@@ -29,6 +31,59 @@ along with this program; see the file COPYING. If not, see
 #include <ps5/kernel.h>
 
 #include "pt.h"
+
+/*
+ * Wait for a ptrace stop without blocking forever. A traced ShellUI thread
+ * must never leave the controller stuck if a stager or kernel wait fails.
+ */
+int
+pt_wait_stopped(pid_t pid, unsigned timeout_ms)
+{
+  struct timespec deadline;
+  if (pid <= 0 || clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
+  {
+    if (pid <= 0)
+      errno = EINVAL;
+    return -1;
+  }
+
+  deadline.tv_sec += (time_t)(timeout_ms / 1000U);
+  deadline.tv_nsec += (long)(timeout_ms % 1000U) * 1000000L;
+  if (deadline.tv_nsec >= 1000000000L)
+  {
+    ++deadline.tv_sec;
+    deadline.tv_nsec -= 1000000000L;
+  }
+
+  for (;;)
+  {
+    int status = 0;
+    pid_t waited = waitpid(pid, &status, WNOHANG);
+    if (waited == pid)
+    {
+      if (WIFSTOPPED(status))
+        return 0;
+      errno = ECHILD;
+      return -1;
+    }
+    if (waited < 0 && errno != EINTR)
+      return -1;
+
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+      return -1;
+    if (now.tv_sec > deadline.tv_sec ||
+        (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec))
+    {
+      errno = ETIMEDOUT;
+      return -1;
+    }
+
+    struct timespec pause = {0, 1000000L};
+    while (nanosleep(&pause, &pause) != 0 && errno == EINTR)
+      ;
+  }
+}
 
 static int
 sys_ptrace(int request, pid_t pid, caddr_t addr, int data)
@@ -143,8 +198,12 @@ int pt_attach(pid_t pid)
     return -1;
   }
 
-  if (waitpid(pid, 0, 0) < 0)
+  if (pt_wait_stopped(pid, 2000U) < 0)
   {
+    int saved_errno = errno;
+    (void)pt_detach(pid, SIGCONT);
+    (void)kill(pid, SIGCONT);
+    errno = saved_errno;
     return -1;
   }
 
@@ -193,7 +252,7 @@ pid_t pt_await_child(pid_t pid)
   memset(&lwpinfo, 0, sizeof(lwpinfo));
   while (!(lwpinfo.pl_flags & PL_FLAG_FORKED))
   {
-    if (waitpid(pid, NULL, 0) == -1)
+    if (pt_wait_stopped(pid, 2000U) < 0)
     {
       return -1;
     }
@@ -204,7 +263,7 @@ pid_t pt_await_child(pid_t pid)
     }
   }
 
-  if (waitpid(lwpinfo.pl_child_pid, NULL, 0) == -1)
+  if (pt_wait_stopped(lwpinfo.pl_child_pid, 2000U) < 0)
   {
     return -1;
   }
@@ -219,7 +278,7 @@ int pt_await_exec(pid_t pid)
   memset(&lwpinfo, 0, sizeof(lwpinfo));
   while (!(lwpinfo.pl_flags & PL_FLAG_EXEC))
   {
-    if (waitpid(pid, NULL, 0) == -1)
+    if (pt_wait_stopped(pid, 2000U) < 0)
     {
       return -1;
     }
@@ -240,7 +299,7 @@ int pt_step(int pid)
     return -1;
   }
 
-  if (waitpid(pid, 0, 0) < 0)
+  if (pt_wait_stopped(pid, 2000U) < 0)
   {
     return -1;
   }

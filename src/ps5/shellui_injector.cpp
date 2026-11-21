@@ -241,9 +241,30 @@ bool ensure_shellui_renderer() {
     static bool retry_allowed = true;
     static unsigned retry_delay_ticks = 0;
     static unsigned discovery_failures = 0;
+    static unsigned injection_attempts = 0;
     static bool renderer_quarantined = false;
+    static bool firmware_gate_checked = false;
+    static bool firmware_supported = false;
 
     if (renderer_quarantined)
+        return false;
+
+    /* Reject unknown or unsupported firmware before touching ShellUI. */
+    if (!firmware_gate_checked) {
+        firmware_gate_checked = true;
+        const std::uint32_t sdk = firmware_sdk_version();
+        firmware_supported = sdk != 0 &&
+            (shellui_hook_backend(sdk, false) != ShellUiHookBackend::Unsupported ||
+             shellui_main_thread_guard_backend(sdk) != ShellUiHookBackend::Unsupported);
+        if (!firmware_supported) {
+            log_line(
+                "ShellUI injection blocked: firmware SDK 0x%08x has no supported renderer backend",
+                sdk);
+        } else {
+            log_line("ShellUI firmware preflight passed sdk=0x%08x", sdk);
+        }
+    }
+    if (!firmware_supported)
         return false;
 
     /*
@@ -319,6 +340,17 @@ bool ensure_shellui_renderer() {
         return false;
     }
 
+    constexpr unsigned kMaxInjectionAttempts = 3;
+    if (injection_attempts >= kMaxInjectionAttempts) {
+        renderer_quarantined = true;
+        retry_allowed = false;
+        log_line(
+            "ShellUI injection quarantined after %u attempts for this payload lifetime",
+            injection_attempts);
+        return false;
+    }
+
+    ++injection_attempts;
     attempted_result = false;
     clear_shellui_hook_protocol_files();
     (void)unlink(kShellUiStagePath);
@@ -356,12 +388,21 @@ bool ensure_shellui_renderer() {
         static_cast<unsigned long long>(now_ms() - inject_started_ms));
 
     if (!injected.pthread_create_ok || !injected.auth_restored) {
-        /* Do not stack another copy if the remote image may already exist. */
-        retry_allowed = !injected.elf_loaded;
-        retry_delay_ticks = retry_allowed ? 5U : 0U;
+        /* Never retry after a remote image may exist or auth restoration failed. */
+        retry_allowed = injected.auth_restored &&
+            !injected.elf_loaded &&
+            injection_attempts < kMaxInjectionAttempts;
+        retry_delay_ticks = retry_allowed
+            ? (5U << (injection_attempts - 1U))
+            : 0U;
+        if (!injected.auth_restored ||
+            injection_attempts >= kMaxInjectionAttempts)
+            renderer_quarantined = true;
         log_line(
-            "ShellUI stable bootstrap failed pid=%d retry=%s",
+            "ShellUI stable bootstrap failed pid=%d attempts=%u/%u retry=%s",
             pid,
+            injection_attempts,
+            kMaxInjectionAttempts,
             retry_allowed ? "yes" : "no");
         return false;
     }

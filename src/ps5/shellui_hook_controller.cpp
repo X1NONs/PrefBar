@@ -210,10 +210,12 @@ ShellUiHookPollResult poll_and_apply_shellui_hook(
                 if (mdbg_copyin(shellui_pid, bytes + offset, address, size) == 0)
                     return 0;
             }
+            const std::uint64_t write_address =
+                request.method_address + offset;
             const std::uint64_t page_start =
-                request.method_address & ~(kPs5CodePageSize - 1ULL);
+                write_address & ~(kPs5CodePageSize - 1ULL);
             const std::uint64_t page_end =
-                (request.method_address + size + (kPs5CodePageSize - 1ULL)) &
+                (write_address + size + (kPs5CodePageSize - 1ULL)) &
                 ~(kPs5CodePageSize - 1ULL);
             const std::size_t prot_len =
                 static_cast<std::size_t>(page_end - page_start);
