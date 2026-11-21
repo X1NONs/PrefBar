@@ -401,7 +401,12 @@ bool write_config_atomically(const char* data, std::size_t size) noexcept {
 bool send_all(int socket_fd, const char* data, std::size_t size) noexcept {
     std::size_t sent = 0;
     while (sent < size) {
-        const ssize_t count = send(socket_fd, data + sent, size - sent, 0);
+        #ifdef MSG_NOSIGNAL
+        constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+        constexpr int kSendFlags = 0;
+#endif
+        const ssize_t count = send(socket_fd, data + sent, size - sent, kSendFlags);
         if (count > 0) {
             sent += static_cast<std::size_t>(count);
             continue;
@@ -668,7 +673,7 @@ void handle_api_request(int socket_fd,
         }
 
         if (std::strcmp(request.target, "/api/v1/config") == 0) {
-            char body[kMaxConfigBytes];
+            static char body[kMaxConfigBytes];
             std::size_t size = 0;
             const FileReadResult result = read_file(
                 kConfigPath, body, sizeof(body), &size);
@@ -686,7 +691,7 @@ void handle_api_request(int socket_fd,
         }
 
         if (std::strcmp(request.target, "/api/v1/status") == 0) {
-            char body[kMaxStatusBytes];
+            static char body[kMaxStatusBytes];
             std::size_t size = 0;
             const FileReadResult result = read_file(
                 kStatusPath, body, sizeof(body), &size);
@@ -704,7 +709,7 @@ void handle_api_request(int socket_fd,
         }
 
         if (std::strcmp(request.target, "/api/v1/diagnostics") == 0) {
-            char body[kMaxDiagnosticResponseBytes];
+            static char body[kMaxDiagnosticResponseBytes];
             std::size_t used = 0;
             append_diagnostic_section(body, sizeof(body), &used,
                                       "boot.log", kBootLogPath);
@@ -782,7 +787,7 @@ void handle_client(int client_fd) noexcept {
     (void)setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO,
                      &timeout, sizeof(timeout));
 
-    char storage[kMaxHeaderBytes + kMaxBodyBytes + 1];
+    static char storage[kMaxHeaderBytes + kMaxBodyBytes + 1];
     HttpRequest request{};
     const int parse_status = read_request(
         client_fd, storage, sizeof(storage), &request);

@@ -88,6 +88,7 @@ void write_boot_stage(const char* stage, int web_rc, int telemetry_rc) noexcept 
 
 /* Delay startup notifications until PrefBar's attribution toast has had its
  * normal opportunity to appear. */
+#ifndef PREFBAR_NO_WEB
 void* startup_notification_worker(void* opaque) noexcept {
     (void)usleep(4'000'000);
     const auto* state =
@@ -174,6 +175,8 @@ void write_startup_record(
 
     std::fclose(fp);
 }
+
+#endif
 
 [[noreturn]] void run_controller() noexcept {
     pid_t stable_shellui_pid = -1;
@@ -269,6 +272,7 @@ void write_startup_record(
 
         const std::uint64_t now = monotonic_us();
 
+        #ifndef PREFBAR_NO_WEB
         if (!prefbar::web::is_running() && now >= next_web_retry_us) {
             next_web_retry_us = now + kWebRetryIntervalUs;
             const int web_rc = prefbar::web::start();
@@ -286,6 +290,7 @@ void write_startup_record(
                     "Control Center listener retry failed (rc=%d)", web_rc);
             }
         }
+        #endif
 
         if (game_ready && reported_game_pid != stable_game_pid) {
             reported_game_pid = stable_game_pid;
@@ -387,9 +392,11 @@ extern "C" int main() {
         "after_thread_name", static_cast<int>(process_name_rc),
         process_name_errno);
 
+    int web_rc = -1;
+    #ifndef PREFBAR_NO_WEB
     /* Start the Control Center before telemetry so it can report failures. */
     write_boot_stage("before_web_start", -1, -1);
-    int web_rc = prefbar::web::start();
+    web_rc = prefbar::web::start();
     write_boot_stage("after_web_start", web_rc, errno);
     if (web_rc == 0) {
         prefbar_debug_event(
@@ -403,6 +410,8 @@ extern "C" int main() {
             web_rc);
     }
 
+    #endif
+
     int telemetry_rc = prefbar_telemetry_embedded_start();
     write_boot_stage("telemetry_start", web_rc, telemetry_rc);
 
@@ -412,6 +421,7 @@ extern "C" int main() {
         "main thread name request rc=%ld errno=%d",
         process_name_rc, process_name_errno);
 
+    #ifndef PREFBAR_NO_WEB
     g_startup_notification_state.web_rc.store(web_rc, std::memory_order_release);
     g_startup_notification_state.telemetry_rc.store(
         telemetry_rc, std::memory_order_release);
@@ -427,6 +437,8 @@ extern "C" int main() {
             PBDBG_WARN, "startup.notice.thread",
             "could not schedule startup notification (rc=%d)", notice_rc);
     }
+
+    #endif
 
     if (telemetry_rc != 0) {
         prefbar_debug_event(
