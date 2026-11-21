@@ -156,7 +156,7 @@ StableInjectionResult inject_shellui_stable(
                 MAP_ANONYMOUS | MAP_PRIVATE,
                 -1,
                 0);
-            if (remote_stager <= 0)
+            if (remote_stager < 0x1000)
                 break;
 
             if (kernel_mprotect(
@@ -190,7 +190,7 @@ StableInjectionResult inject_shellui_stable(
                 MAP_ANONYMOUS | MAP_PRIVATE,
                 -1,
                 0);
-            if (remote_functions <= 0)
+            if (remote_functions < 0x1000)
                 break;
 
             if (pt_copyin(
