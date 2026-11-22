@@ -46,7 +46,10 @@ PrefBar is designed to be a universal payload for jailbroken PS5 consoles. Howev
 
 | Firmware       | Status                          |
 | -------------- | ------------------------------- |
-| **Below 7.XX** | 🟡 Unverified or might not work
+| **Below 3.XX** | 🟡 Unverified or might not work
+| **4.XX**       | ✅ Supported
+| **5.XX**       | ✅ Supported
+| **6.XX**       | ✅ Supported
 | **7.XX**       | ✅ Supported
 | **8.XX**       | ✅ Supported
 | **9.XX**       | ✅ Supported
