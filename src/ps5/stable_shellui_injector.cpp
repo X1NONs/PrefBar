@@ -156,7 +156,7 @@ StableInjectionResult inject_shellui_stable(
                 MAP_ANONYMOUS | MAP_PRIVATE,
                 -1,
                 0);
-            if (remote_stager <= 0)
+            if (remote_stager < 0x1000)
                 break;
 
             if (kernel_mprotect(
@@ -190,7 +190,7 @@ StableInjectionResult inject_shellui_stable(
                 MAP_ANONYMOUS | MAP_PRIVATE,
                 -1,
                 0);
-            if (remote_functions <= 0)
+            if (remote_functions < 0x1000)
                 break;
 
             if (pt_copyin(
@@ -206,10 +206,13 @@ StableInjectionResult inject_shellui_stable(
              * thread's original RSP/RBP. The stager reaches INT3 before return.
              */
             result.target_stack_preserved = true;
-            (void)call_until_breakpoint_on_target_stack(
-                shellui_pid,
-                static_cast<std::uintptr_t>(remote_stager),
-                static_cast<std::uint64_t>(remote_functions));
+            if (call_until_breakpoint_on_target_stack(
+                    shellui_pid,
+                    static_cast<std::uintptr_t>(remote_stager),
+                    static_cast<std::uint64_t>(remote_functions)) == -1) {
+                /* Do not read bootstrap state while the stager may still run. */
+                break;
+            }
 
             RemoteBootstrapFunctions readback{};
             readback.pthread_create_rc = -777;

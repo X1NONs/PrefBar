@@ -167,7 +167,7 @@ elfldr_load(pid_t pid, uint8_t *elf, intptr_t *baseaddr) {
 
   // Reserve an address space of sufficient size.
   if((ctx.base_addr=pt_mmap(pid, ctx.base_addr, ctx.base_size, prot,
-			    flags, -1, 0)) == -1) {
+			    flags, -1, 0)) < 0x1000) {
     pt_perror(pid, "pt_mmap");
     return 0;
   }
@@ -273,7 +273,7 @@ elfldr_set_environ(pid_t pid, char** envp) {
   // allocate memory
   if((envp_addr=pt_mmap(pid, 0, size, PROT_WRITE | PROT_READ,
 			MAP_ANONYMOUS | MAP_PRIVATE,
-			-1, 0)) == -1) {
+			-1, 0)) < 0x1000) {
     pt_perror(pid, "pt_mmap");
     return -1;
   }
@@ -335,7 +335,7 @@ elfldr_payload_args(pid_t pid) {
   int pipe1;
 
   if((buf=pt_mmap(pid, 0, PAGE_SIZE, PROT_READ | PROT_WRITE,
-		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) == -1) {
+		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) < 0x1000) {
     pt_perror(pid, "pt_mmap");
     return 0;
   }
@@ -457,7 +457,7 @@ elfldr_set_cwd(pid_t pid, const char* cwd) {
   }
 
   if((buf=pt_mmap(pid, 0, PAGE_SIZE, PROT_READ | PROT_WRITE,
-		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) == -1) {
+		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) < 0x1000) {
     pt_perror(pid, "pt_mmap");
     return -1;
   }
@@ -476,7 +476,7 @@ elfldr_set_procname(pid_t pid, const char* name) {
   intptr_t buf;
 
   if((buf=pt_mmap(pid, 0, PAGE_SIZE, PROT_READ | PROT_WRITE,
-		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) == -1) {
+		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) < 0x1000) {
     pt_perror(pid, "pt_mmap");
     return -1;
   }

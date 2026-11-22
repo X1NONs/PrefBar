@@ -36,6 +36,26 @@ int main() {
         assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, 0));
     }
 
+    /* Issue #17: no Application.Update detour below FW 7.00. The one-byte
+     * main-thread guard must stay available there as the fallback. */
+    for (const std::uint32_t sdk : {0x03000000U, 0x04030000U, 0x04510000U,
+                                   0x05500000U, 0x06500000U}) {
+        assert(prefbar::shellui_hook_backend(sdk, false) ==
+               ShellUiHookBackend::Unsupported);
+        assert(prefbar::shellui_hook_backend(sdk, true) ==
+               ShellUiHookBackend::Unsupported);
+        assert(prefbar::shellui_main_thread_guard_backend(sdk) ==
+               ShellUiHookBackend::Mdbg);
+        assert(shellui_hook_probe_backend(sdk) == ShellUiHookBackend::Mdbg);
+    }
+
+    /* Firmware that already used the detour keeps it. */
+    for (const std::uint32_t sdk : {0x07000000U, 0x07600000U, 0x08200000U,
+                                   0x11600000U, 0x12000000U, 0x13400000U}) {
+        assert(prefbar::shellui_hook_backend(sdk, false) ==
+               ShellUiHookBackend::Mdbg);
+    }
+
     for (const std::uint32_t sdk : {0U, 0x08200000U, 0x09000000U,
                                    0x11000000U, 0x14000000U}) {
         assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));

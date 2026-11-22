@@ -22,7 +22,9 @@
  *   FPS source : /dev/dce flip counter - ioctl, arguments and counter offset
  *                from etaHEN/OnionHEN fps_dce.cpp
  *                (c) 2026 OnionHEN / LightningMods, following PHU Games
- *                Tools by ArkSama.
+ *                Tools by ArkSama. Older firmware keeps the counter in
+ *                another field; searching for it follows the adaptive DCE
+ *                sampler of Common FPS for PS5 (c) 2026 porhe911.
  *   CPU usage  : etaHEN shellui/src/prx.cpp - per-core usage from the
  *                SceIdleCpu0..7 idle threads via sceKernelGetCpuUsage.
  *   RAM / VRAM : etaHEN shellui/src/prx.cpp - get_page_table_stats(1, type).
@@ -1001,14 +1003,21 @@ void prefbar_debug_event(int level, const char *key, const char *fmt, ...)
 #endif
 
 /* ------------------------------------------------------- /dev/dce source */
+/* The reply is read as aligned 64-bit fields. The flip counter is normally
+ * field 1 (out + 8); dce_pick_t below handles firmware where it is not. */
+#define DCE_WORDS 12            /* fields scanned: the first 0x60 bytes */
+#define DCE_PREFERRED_WORD 1    /* flip counter at out + 8              */
+
 #ifndef PREFBAR_SIM
 
 #define DCE_IOCTL_ZERO 0x0000000080308217UL /* conventional zero extension */
 #define DCE_IOCTL_SIGN 0xFFFFFFFF80308217UL /* PHU passes it sign-extended */
 #define DCE_ARG0 0x10000000AULL
 #define DCE_ARG1 0x8000000000ULL
-#define DCE_OUT_BYTES 0x60
-#define DCE_COUNT_OFF 8 /* flip counter at out + 8     */
+/* Only DCE_WORDS * 8 bytes are used, but the kernel decides how much it
+ * writes (0x80 bytes has been reported on 13.60), so leave head room. */
+#define DCE_OUT_BYTES 0x100
+typedef char dce_out_size_check[(DCE_OUT_BYTES >= DCE_WORDS * 8) ? 1 : -1];
 
 struct dce_arg
 { /* must be 0x30 bytes          */
@@ -1050,10 +1059,10 @@ static int dce_ioctl_once(dce_t *d, unsigned long req, unsigned char *out)
     return ioctl(d->fd, req, &a);
 }
 
-/* returns 0 and the flip count on success, -1 on failure */
-static int dce_read(dce_t *d, uint64_t *count)
+/* returns 0 and the reply's first DCE_WORDS fields on success, -1 on failure */
+static int dce_read(dce_t *d, uint64_t words[DCE_WORDS])
 {
-    unsigned char out[DCE_OUT_BYTES];
+    unsigned char out[DCE_OUT_BYTES] = {0};
     if (dce_open(d) != 0)
         return -1;
 
@@ -1071,15 +1080,17 @@ static int dce_read(dce_t *d, uint64_t *count)
     if (rc < 0)
     {
         d->last_errno = err;
-        if (err == EBADF)
+        if (err == EBADF || err == ENODEV || err == ENXIO)
         {
+            /* The device/descriptor is no longer usable; reopen on the next
+             * poll instead of retrying the stale descriptor forever. */
             close(d->fd);
             d->fd = -1;
         }
         return -1;
     }
     d->abi = (req == DCE_IOCTL_SIGN) ? 2 : 1;
-    memcpy(count, out + DCE_COUNT_OFF, sizeof *count);
+    memcpy(words, out, DCE_WORDS * sizeof words[0]);
     return 0;
 }
 
@@ -1095,7 +1106,7 @@ typedef struct
 } dce_t;
 #define SIM_FRAMES 4000
 
-static int dce_read(dce_t *d, uint64_t *count)
+static int dce_read(dce_t *d, uint64_t words[DCE_WORDS])
 {
     static double stamp[SIM_FRAMES];
     static int init;
@@ -1115,10 +1126,144 @@ static int dce_read(dce_t *d, uint64_t *count)
     uint64_t n = 0;
     while (n < SIM_FRAMES && stamp[n] <= ms)
         n++;
-    *count = 1000 + n; /* arbitrary non-zero base */
+    memset(words, 0, DCE_WORDS * sizeof words[0]);
+    words[DCE_PREFERRED_WORD] = 1000 + n; /* arbitrary non-zero base */
     return 0;
 }
 #endif
+
+/* ------------------------------------------------ flip-counter field
+ * Newer firmware keeps the flip counter at out + 8. On older firmware
+ * (4.03 and 5.50 in issue #17, 4.51 in Common FPS for PS5) the ioctl still
+ * succeeds but that field never moves, so FPS stays at "--"; Common FPS
+ * found the counter at out + 0x10 on 4.51. Instead of a per-firmware
+ * table, out + 8 stays the choice and the other fields are only examined
+ * while it has not moved yet in the current game. Another field is taken
+ * when it rises at a steady 10..250 per second for two half-second windows
+ * in a row (the lower bound keeps small cycling values such as a buffer
+ * index out); it is dropped again after three windows without movement or
+ * as soon as out + 8 starts moving. Once out + 8 has moved in a game, it is
+ * kept for the rest of that game, so firmware that already works behaves
+ * exactly as before.
+ */
+#define DCE_PICK_WINDOW_NS 500000000ull     /* judge fields every 0.5 s   */
+#define DCE_PICK_STALE_NS 3000000000ull     /* longer gap: start over      */
+#define DCE_PICK_MIN_FPS 10.0               /* slowest rate adopted        */
+#define DCE_PICK_MAX_FPS 250.0              /* faster is not a frame count */
+#define DCE_PICK_STREAK 2                   /* good windows before a switch */
+#define DCE_PICK_DRIFT_FPS 12.0             /* allowed change between them */
+#define DCE_PICK_DROP 3                     /* bad windows before dropping */
+
+typedef struct
+{
+    int word;           /* field used as the flip counter               */
+    int preferred_ok;   /* out + 8 has moved in this game: keep it      */
+    int have_base;
+    unsigned bad;       /* bad windows in a row for a non-preferred field */
+    uint64_t base_ns;
+    uint64_t base[DCE_WORDS];
+    unsigned streak[DCE_WORDS];
+    double last_fps[DCE_WORDS];
+} dce_pick_t;
+
+static void dce_pick_reset(dce_pick_t *p)
+{
+    memset(p, 0, sizeof *p);
+    p->word = DCE_PREFERRED_WORD;
+}
+
+static void dce_pick_rebase(dce_pick_t *p, const uint64_t words[DCE_WORDS], uint64_t t_ns)
+{
+    memcpy(p->base, words, sizeof p->base);
+    p->base_ns = t_ns;
+    p->have_base = 1;
+}
+
+/* 1 when the field rose by at least one at no more than DCE_PICK_MAX_FPS */
+static int dce_pick_plausible(double fps)
+{
+    return fps >= DCE_PICK_MIN_FPS && fps <= DCE_PICK_MAX_FPS;
+}
+
+/* stricter test for adopting a field that is not in use yet */
+static int dce_pick_candidate(double fps)
+{
+    return fps >= DCE_PICK_MIN_FPS && fps <= DCE_PICK_MAX_FPS;
+}
+
+/* Feeds one successful read. Returns 1 when p->word changed, so the caller
+ * can restart its frame history instead of counting the jump between two
+ * unrelated fields as frames. */
+static int dce_pick_update(dce_pick_t *p, const uint64_t words[DCE_WORDS], uint64_t t_ns)
+{
+    if (!p->have_base || t_ns < p->base_ns)
+    {
+        dce_pick_rebase(p, words, t_ns);
+        return 0;
+    }
+    const uint64_t dt = t_ns - p->base_ns;
+    if (dt < DCE_PICK_WINDOW_NS)
+        return 0;
+    if (dt > DCE_PICK_STALE_NS)
+    { /* reads stopped for a while: these deltas say nothing about frames */
+        memset(p->streak, 0, sizeof p->streak);
+        dce_pick_rebase(p, words, t_ns);
+        return 0;
+    }
+
+    double fps[DCE_WORDS];
+    for (int i = 0; i < DCE_WORDS; i++)
+        fps[i] = words[i] >= p->base[i]
+                     ? (double)(words[i] - p->base[i]) * 1e9 / (double)dt
+                     : -1.0; /* went backwards: reset or not a counter */
+
+    const int old = p->word;
+    if (dce_pick_plausible(fps[DCE_PREFERRED_WORD]))
+        p->preferred_ok = 1;
+
+    if (p->preferred_ok)
+    {
+        p->word = DCE_PREFERRED_WORD;
+    }
+    else
+    {
+        if (p->word != DCE_PREFERRED_WORD)
+        {
+            if (dce_pick_plausible(fps[p->word]))
+                p->bad = 0;
+            else if (++p->bad >= DCE_PICK_DROP)
+                p->word = DCE_PREFERRED_WORD;
+        }
+        if (p->word == DCE_PREFERRED_WORD)
+        {
+            int best = -1;
+            for (int i = 0; i < DCE_WORDS; i++)
+            {
+                if (i == DCE_PREFERRED_WORD || !dce_pick_candidate(fps[i]))
+                {
+                    p->streak[i] = 0;
+                    continue;
+                }
+                const double drift = fps[i] > p->last_fps[i] ? fps[i] - p->last_fps[i]
+                                                             : p->last_fps[i] - fps[i];
+                p->streak[i] = (p->streak[i] && drift <= DCE_PICK_DRIFT_FPS) ? p->streak[i] + 1 : 1;
+                p->last_fps[i] = fps[i];
+                if (p->streak[i] >= DCE_PICK_STREAK &&
+                    (best < 0 || p->streak[i] > p->streak[best]))
+                    best = i;
+            }
+            if (best >= 0)
+            {
+                p->word = best;
+                p->bad = 0;
+            }
+        }
+    }
+    if (p->word != old)
+        memset(p->streak, 0, sizeof p->streak);
+    dce_pick_rebase(p, words, t_ns);
+    return p->word != old;
+}
 
 /* ------------------------------------------------- sensor API bindings
  * Real build: the sceKernel* / get_page_table_stats symbols are declared WEAK,
@@ -1399,10 +1544,16 @@ static void stats_update(stats_t *s, uint64_t count, uint64_t t_ns)
     {
         /* frametime is quantised by the poll interval; if several flips
          * happened between two polls, spread the interval evenly */
-        if (flips > MAX_FLIPS_PER_POLL)
-            flips = MAX_FLIPS_PER_POLL;
-        float ms = (float)(t_ns - s->last_flip_ns) / 1e6f / (float)flips;
-        for (uint64_t i = 0; i < flips; i++)
+        const uint64_t observed_flips = flips;
+        const uint64_t samples = observed_flips > MAX_FLIPS_PER_POLL
+                                     ? MAX_FLIPS_PER_POLL
+                                     : observed_flips;
+        /* Divide by the real counter delta; cap only the number of samples
+         * inserted after a delayed poll. Otherwise a one-second sampler stall
+         * turns into eight fabricated 125 ms hitches. */
+        const float ms =
+            (float)(t_ns - s->last_flip_ns) / 1e6f / (float)observed_flips;
+        for (uint64_t i = 0; i < samples; i++)
             stats_push(s, ms);
         s->last_count = count;
         s->last_flip_ns = t_ns;
@@ -1489,10 +1640,10 @@ typedef struct
 { /* CPU-usage tracking state */
     uint32_t idle_tid[NCORES];
     int idle_mask; /* bit i = idle thread i known */
-    int scanned;   /* thread names already scanned */
+    int scanned;   /* complete idle-thread scan; retry while cores are missing */
     double prev_idle_s[NCORES];
-    uint64_t prev_t_ns;
-    int have_prev;
+    uint64_t prev_t_ns[NCORES];
+    unsigned prev_core_mask;
     ps_ts raw_user[NCORES], raw_sys[NCORES]; /* last raw idle-thread times (diag) */
     int raw_found, raw_nthreads;
 } cpuu_t;
@@ -1511,8 +1662,10 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
     if (n > MAX_THREADS)
         n = MAX_THREADS;
 
-    /* find the per-core idle threads ("SceIdleCpu0".."SceIdleCpu7") once */
-    if (!c->scanned && SYM_PRESENT(sceKernelGetThreadName))
+    /* Discover idle threads once all cores are known; retry incomplete scans. */
+    const unsigned all_cores_mask = (1u << NCORES) - 1u;
+    if ((!c->scanned || (unsigned)c->idle_mask != all_cores_mask) &&
+        SYM_PRESENT(sceKernelGetThreadName))
     {
         for (int i = 0; i < n; i++)
         {
@@ -1521,13 +1674,14 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
             memset(name, 0, sizeof name);
             if (sceKernelGetThreadName(g_threads[i].td_tid, name) == 0 &&
                 sscanf(name, "SceIdleCpu%d", &core) == 1 &&
-                core >= 0 && core < NCORES)
+                core >= 0 && core < NCORES &&
+                !(c->idle_mask & (1 << core)))
             {
                 c->idle_tid[core] = g_threads[i].td_tid;
                 c->idle_mask |= 1 << core;
             }
         }
-        c->scanned = 1;
+        c->scanned = (unsigned)c->idle_mask == all_cores_mask;
     }
     if (!c->idle_mask)
         return;
@@ -1553,17 +1707,31 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
 
     c->raw_found = found;
     c->raw_nthreads = n;
-    if (c->have_prev && t_ns > c->prev_t_ns)
+    double sum = 0.0;
+    int cnt = 0;
+    for (int core = 0; core < NCORES; core++)
     {
-        double dt = (double)(t_ns - c->prev_t_ns) / 1e9;
-        double sum = 0.0;
-        int cnt = 0;
-        for (int core = 0; core < NCORES; core++)
+        const unsigned bit = 1u << core;
+        s->core_ok[core] = 0;
+        if (!(found & (int)bit))
         {
-            s->core_ok[core] = 0;
-            if (!(found & (1 << core)))
-                continue;
-            double idle = (idle_s[core] - c->prev_idle_s[core]) / dt;
+            /* A disappeared idle thread must be rediscovered, not replaced
+             * by a zero-valued sample that corrupts its next delta. */
+            if (c->idle_mask & (int)bit)
+            {
+                c->idle_mask &= ~(int)bit;
+                c->prev_core_mask &= ~bit;
+                c->scanned = 0;
+            }
+            continue;
+        }
+
+        if ((c->prev_core_mask & bit) && t_ns > c->prev_t_ns[core])
+        {
+            const double dt =
+                (double)(t_ns - c->prev_t_ns[core]) / 1e9;
+            double idle =
+                (idle_s[core] - c->prev_idle_s[core]) / dt;
             s->dbg_ratio[core] = (float)idle; /* before clamping */
             s->dbg_dt = dt;
             s->dbg_have = 1;
@@ -1576,17 +1744,19 @@ static void cpu_usage_sample(cpuu_t *c, sensors_t *s, uint64_t t_ns)
             sum += s->core[core];
             cnt++;
         }
-        if (cnt)
-        {
-            s->cpu_avg = (float)(sum / cnt);
-            s->ncores_known = cnt;
-            s->have_cpu = 1;
-        }
-    }
-    for (int core = 0; core < NCORES; core++)
+
+        /* Update only cores present in this sample. Each core keeps its own
+         * timestamp so a temporarily missing thread does not skew the delta. */
         c->prev_idle_s[core] = idle_s[core];
-    c->prev_t_ns = t_ns;
-    c->have_prev = 1;
+        c->prev_t_ns[core] = t_ns;
+        c->prev_core_mask |= bit;
+    }
+    if (cnt)
+    {
+        s->cpu_avg = (float)(sum / cnt);
+        s->ncores_known = cnt;
+        s->have_cpu = 1;
+    }
 }
 
 /* Validate memory-pool readings before displaying them. */
@@ -2709,6 +2879,8 @@ static int prefbar_run(int install_signals, int lock)
     dce_t dce;
     memset(&dce, 0, sizeof dce);
     dce.fd = -1;
+    dce_pick_t pick;
+    dce_pick_reset(&pick);
 
     static stats_t st; /* static: keeps the stack small */
     memset(&st, 0, sizeof st);
@@ -2723,7 +2895,8 @@ static int prefbar_run(int install_signals, int lock)
     uint64_t last_count = 0;
     uint64_t next_report = now_ns() + REPORT_NS;
     uint64_t last_notify = 0;
-    int fail_ticks = 0;
+    uint64_t dce_fail_since_ns = 0;
+    int dce_error_reported = 0;
 
     /* diagnostics scheduling */
     const uint64_t t_start = now_ns();
@@ -2809,7 +2982,7 @@ static int prefbar_run(int install_signals, int lock)
             }
         }
 #endif
-        uint64_t count;
+        uint64_t words[DCE_WORDS];
         int game_active = 1;
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
         game_active = prefbar_game_process_ready() != 0;
@@ -2837,8 +3010,10 @@ static int prefbar_run(int install_signals, int lock)
                 dce.fd = -1;
             }
             dce.abi = 0;
+            dce_pick_reset(&pick);
             dce_state = -1;
-            fail_ticks = 0;
+            dce_fail_since_ns = 0;
+            dce_error_reported = 0;
         }
         else
         {
@@ -2847,11 +3022,13 @@ static int prefbar_run(int install_signals, int lock)
             {
                 memset(&st, 0, sizeof st);
                 last_count = 0;
-                fail_ticks = 0;
+                dce_pick_reset(&pick);
+                dce_fail_since_ns = 0;
+                dce_error_reported = 0;
                 dce_state = -1;
             }
 
-            if (dce_read(&dce, &count) == 0)
+            if (dce_read(&dce, words) == 0)
             {
                 if (dce_state != 1)
                 {
@@ -2859,9 +3036,17 @@ static int prefbar_run(int install_signals, int lock)
                     dbg_event(DBG_TRACE, "dce.ok", "display counter readable (/dev/dce, abi=%s)",
                               dce.abi == 2 ? "sign-ext" : "zero-ext");
                 }
-                fail_ticks = 0;
-                last_count = count;
-                stats_update(&st, count, t);
+                dce_fail_since_ns = 0;
+                dce_error_reported = 0;
+                if (dce_pick_update(&pick, words, t))
+                {
+                    /* different field: its value is unrelated to the old one */
+                    memset(&st, 0, sizeof st);
+                    dbg_event(DBG_TRACE, "dce.counter", "flip counter now read at /dev/dce offset 0x%x",
+                              (unsigned)(pick.word * 8));
+                }
+                last_count = words[pick.word];
+                stats_update(&st, last_count, t);
             }
             else
             {
@@ -2870,12 +3055,15 @@ static int prefbar_run(int install_signals, int lock)
                     dce_state = 0;
                     dbg_event(DBG_TRACE, "dce.fail1", "/dev/dce read failed (errno %d)", dce.last_errno);
                 }
-                if (++fail_ticks == 2000)
-                { /* ~4 s of failure during a confirmed game */
-                    write_file_atomic("status.txt",
-                                      "PrefBar: cannot read /dev/dce during an active game\n");
-                    dbg_event(DBG_ERR, "dce.fail", "cannot read /dev/dce for ~4 s during active game (errno %d) - no FPS", dce.last_errno);
-                    fail_ticks = 0;
+                if (dce_fail_since_ns == 0)
+                    dce_fail_since_ns = t ? t : 1;
+                if (!dce_error_reported && t >= dce_fail_since_ns &&
+                    t - dce_fail_since_ns >= 4ull * 1000000000ull)
+                {
+                    dce_error_reported = 1;
+                    dbg_event(DBG_ERR, "dce.fail",
+                              "cannot read /dev/dce for 4 s during active game (errno %d) - no FPS",
+                              dce.last_errno);
                 }
             }
         }
@@ -2980,6 +3168,9 @@ static int prefbar_run(int install_signals, int lock)
                 app(txt, sizeof txt, "%s\n", l2);
             if (l3[0])
                 app(txt, sizeof txt, "%s\n", l3);
+            if (dce_error_reported)
+                app(txt, sizeof txt,
+                    "PrefBar: cannot read /dev/dce during an active game\n");
             write_file_atomic("status.txt", txt);
 
             format_kv(&r, &sens, kv, sizeof kv);

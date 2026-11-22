@@ -6,6 +6,8 @@
  */
 
 #include "ps5_injection.hpp"
+#include "ps5_platform.hpp"
+#include "prefbar/crash_strikes.hpp"
 #include "prefbar/shellui_stage.hpp"
 
 extern const std::uint8_t prefbar_shellui_elf[];
@@ -27,7 +29,10 @@ namespace {
 constexpr const char* kMarker = "/system_tmp/prefbar_shellui.pid";
 constexpr const char* kLog = "/data/prefbar/injector.log";
 constexpr const char* kShellUiName = "SceShellUI";
+constexpr const char* kStrikeDir = "/data/prefbar";
+constexpr const char* kForceRendererPath = "/data/prefbar/force_renderer";
 pid_t g_last_shellui_pid = -1;
+char g_strike_path[96]{}; /* empty until the SDK version is known */
 
 std::uint64_t now_ms() noexcept {
     timeval tv{};
@@ -236,10 +241,59 @@ bool ensure_shellui_renderer() {
     static bool retry_allowed = true;
     static unsigned retry_delay_ticks = 0;
     static unsigned discovery_failures = 0;
+    static unsigned injection_attempts = 0;
     static bool renderer_quarantined = false;
+    static bool firmware_gate_checked = false;
+    static bool firmware_supported = false;
 
     if (renderer_quarantined)
         return false;
+
+    /* Reject unknown or unsupported firmware before touching ShellUI. */
+    if (!firmware_gate_checked) {
+        firmware_gate_checked = true;
+        const std::uint32_t sdk = firmware_sdk_version();
+        firmware_supported = sdk != 0 &&
+            (shellui_hook_backend(sdk, false) != ShellUiHookBackend::Unsupported ||
+             shellui_main_thread_guard_backend(sdk) != ShellUiHookBackend::Unsupported);
+        if (!firmware_supported) {
+            log_line(
+                "ShellUI injection blocked: firmware SDK 0x%08x has no supported renderer backend",
+                sdk);
+        } else {
+            log_line("ShellUI firmware preflight passed sdk=0x%08x", sdk);
+        }
+    }
+    if (!firmware_supported)
+        return false;
+
+    /*
+     * Crash-loop protection: if ShellUI already died while PrefBar was starting
+     * on this firmware in earlier launches, do not inject again until the user
+     * deletes the strike file or creates the force-renderer file.
+     */
+    static bool strike_gate_checked = false;
+    if (!strike_gate_checked) {
+        strike_gate_checked = true;
+        const std::uint32_t sdk = firmware_sdk_version();
+        if (sdk != 0) {
+            renderer_crash_strike_path(
+                sdk, kStrikeDir, g_strike_path, sizeof(g_strike_path));
+            const bool force = access(kForceRendererPath, F_OK) == 0;
+            if (renderer_crash_blocked(g_strike_path, force)) {
+                log_line(
+                    "ShellUI renderer disabled: firmware sdk=0x%08x crashed "
+                    "ShellUI during %u earlier launches. Delete %s to retry, "
+                    "or create %s to ignore this protection.",
+                    sdk,
+                    renderer_crash_strikes(g_strike_path),
+                    g_strike_path,
+                    kForceRendererPath);
+                renderer_quarantined = true;
+                return false;
+            }
+        }
+    }
 
     const ShellUiLookupResult lookup = find_shellui_pid();
     if (lookup.pid <= 0) {
@@ -286,6 +340,17 @@ bool ensure_shellui_renderer() {
         return false;
     }
 
+    constexpr unsigned kMaxInjectionAttempts = 3;
+    if (injection_attempts >= kMaxInjectionAttempts) {
+        renderer_quarantined = true;
+        retry_allowed = false;
+        log_line(
+            "ShellUI injection quarantined after %u attempts for this payload lifetime",
+            injection_attempts);
+        return false;
+    }
+
+    ++injection_attempts;
     attempted_result = false;
     clear_shellui_hook_protocol_files();
     (void)unlink(kShellUiStagePath);
@@ -323,12 +388,21 @@ bool ensure_shellui_renderer() {
         static_cast<unsigned long long>(now_ms() - inject_started_ms));
 
     if (!injected.pthread_create_ok || !injected.auth_restored) {
-        /* Do not stack another copy if the remote image may already exist. */
-        retry_allowed = !injected.elf_loaded;
-        retry_delay_ticks = retry_allowed ? 5U : 0U;
+        /* Never retry after a remote image may exist or auth restoration failed. */
+        retry_allowed = injected.auth_restored &&
+            !injected.elf_loaded &&
+            injection_attempts < kMaxInjectionAttempts;
+        retry_delay_ticks = retry_allowed
+            ? (5U << (injection_attempts - 1U))
+            : 0U;
+        if (!injected.auth_restored ||
+            injection_attempts >= kMaxInjectionAttempts)
+            renderer_quarantined = true;
         log_line(
-            "ShellUI stable bootstrap failed pid=%d retry=%s",
+            "ShellUI stable bootstrap failed pid=%d attempts=%u/%u retry=%s",
             pid,
+            injection_attempts,
+            kMaxInjectionAttempts,
             retry_allowed ? "yes" : "no");
         return false;
     }
@@ -337,10 +411,12 @@ bool ensure_shellui_renderer() {
     for (int i = 0; i < 3500; ++i) {
         if (marker_matches(pid)) {
             attempted_result = true;
+            injection_attempts = 0; /* a healthy renderer starts a fresh retry budget */
             log_line(
                 "ShellUI renderer online pid=%d total_ms=%llu",
                 pid,
                 static_cast<unsigned long long>(now_ms() - inject_started_ms));
+            renderer_crash_strikes_clear(g_strike_path);
             return true;
         }
 
@@ -356,6 +432,13 @@ bool ensure_shellui_renderer() {
                     last_stage_for(pid, stage));
                 renderer_quarantined = true;
                 retry_allowed = false;
+                const unsigned strikes = renderer_crash_strike_add(g_strike_path);
+                if (strikes != 0)
+                    log_line(
+                        "ShellUI crash strike %u/%u recorded in %s",
+                        strikes,
+                        kRendererCrashStrikeLimit,
+                        g_strike_path);
                 return false;
             }
         }

@@ -76,7 +76,7 @@ static int prefbar_trace_stop(pid_t pid) {
         return 0;
     if (kill(pid, SIGSTOP) != 0)
         return -1;
-    if (waitpid(pid, 0, 0) < 0)
+    if (pt_wait_stopped(pid, 2000U) < 0)
         return -1;
     g_trace_stopped = true;
     return 0;
@@ -298,7 +298,7 @@ intptr_t prefbar_stable_elfldr_load(pid_t pid, uint8_t* elf) {
         flags,
         -1,
         0);
-    if (ctx.base_addr == -1)
+    if (ctx.base_addr < 0x1000)
         return 0;
 
     if (prefbar_trace_continue(pid) != 0)

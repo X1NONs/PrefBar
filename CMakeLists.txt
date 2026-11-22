@@ -161,6 +161,15 @@ else()
         target_link_libraries(prefbar_pool_tests PRIVATE Threads::Threads)
         add_test(NAME prefbar_pool_tests COMMAND prefbar_pool_tests)
 
+        add_executable(prefbar_dce_tests
+            scripts/tests/prefbar_dce_selftest.c)
+        target_include_directories(prefbar_dce_tests PRIVATE include)
+        target_compile_definitions(prefbar_dce_tests PRIVATE
+            PREFBAR_SIM=1 PREFBAR_EMBED=1)
+        target_compile_options(prefbar_dce_tests PRIVATE -Wall -Wextra -UNDEBUG)
+        target_link_libraries(prefbar_dce_tests PRIVATE Threads::Threads)
+        add_test(NAME prefbar_dce_tests COMMAND prefbar_dce_tests)
+
         add_executable(prefbar_touchpad_tests
             scripts/tests/test_touchpad_toggle.cpp)
         target_include_directories(prefbar_touchpad_tests PRIVATE include)
@@ -172,5 +181,10 @@ else()
         target_include_directories(prefbar_hook_protocol_tests PRIVATE include)
         target_compile_options(prefbar_hook_protocol_tests PRIVATE -Wall -Wextra -UNDEBUG)
         add_test(NAME prefbar_hook_protocol_tests COMMAND prefbar_hook_protocol_tests)
+        add_executable(prefbar_crash_strike_tests
+            scripts/tests/test_crash_strikes.cpp)
+        target_include_directories(prefbar_crash_strike_tests PRIVATE include)
+        target_compile_options(prefbar_crash_strike_tests PRIVATE -Wall -Wextra -UNDEBUG)
+        add_test(NAME prefbar_crash_strike_tests COMMAND prefbar_crash_strike_tests)
     endif()
 endif()
