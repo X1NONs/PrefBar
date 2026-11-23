@@ -10,7 +10,7 @@
 
 A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games, without requiring a separate renderer payload.
 
-Make the overlay yours with PrefBar's built-in Web Control Center. Adjust colors, text size, shadow, position, and layout; choose exactly which telemetry metrics appear; and preview your changes before saving—all without hand-editing a configuration file.
+Make the overlay yours with PrefBar's built-in Web Control Center.
 
 ## Why This Exists
 
@@ -39,7 +39,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 
 1. Download `Prefbar_V0.3.0.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.0).
 2. Load the ELF on your jailbroken PS5 using your usual payload loader.
-3. From a browser on the same trusted local network, open the PrefBar Web Control Center at `http://<PS5-IP>:8998/`. Use it to configure the overlay and save your settings. The page includes a preview that updates as you adjust the controls.
+3. From a browser on the same local network, open the PrefBar Web Control Center at `http://<PS5-IP>:8998/`. Use it to configure the overlay and save your settings. The page includes a preview that updates as you adjust the controls.
 4. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 5. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
 
@@ -66,11 +66,9 @@ please [open an issue](https://github.com/X1NONs/PrefBar/issues) with your resul
 
 ### Web Control Center
 
-The built-in Web Control Center is the easiest way to customize PrefBar. Open `http://<PS5-IP>:8998/` in a browser on the same trusted local network as your PS5. Adjust the overlay appearance and layout, choose which telemetry metrics are shown, and use the preview to see how the layout responds before saving.
+The built-in Web Control Center is the easiest way to customize PrefBar. Open `http://<PS5-IP>:8998/` in a browser on the same local network as your PS5. Adjust the overlay appearance and layout, choose which telemetry metrics are shown, and use the preview to see how the layout responds before saving.
 
 The Save action writes the settings directly to the PS5. Changes are loaded when the next game session starts. The Control Center is included in the normal build; builds made with `PREFBAR_ENABLE_WEB=OFF` do not start the web server.
-
-Use the Control Center only on a trusted network: it has no authentication, and devices that can reach the PS5 on port 8998 can read and change PrefBar settings.
 
 ### Manual configuration
 
