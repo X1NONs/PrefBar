@@ -42,12 +42,6 @@
     .brand-wordmark-fallback span { color: #0879ef; }
     .brand-copy { min-width: 0; padding-left: 4px; }
     .brand-sub { color: #9aabba; font-size: 9px; font-weight: 700; letter-spacing: .17em; text-transform: uppercase; margin-top: 1px; }
-    .brand-palette { display: flex; align-items: center; gap: 5px; margin-top: 8px; height: 8px; width: auto; overflow: visible; }
-    .brand-palette i { display: block; width: 22px; height: 5px; border-radius: 99px; box-shadow: 0 0 0 1px rgba(255,255,255,.13); }
-    .brand-palette i:nth-child(1) { background: #0879EF; }
-    .brand-palette i:nth-child(2) { background: #F5F7FA; }
-    .brand-palette i:nth-child(3) { background: #0D131C; border: 1px solid #526172; }
-    .brand-palette-label { margin-left: 3px; color: #647486; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
     .nav-label { color: #5f7082; font-size: 10px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; padding: 10px 11px; }
     .nav { display: grid; gap: 5px; }
     .nav button { display: flex; align-items: center; gap: 12px; width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 11px 12px; color: #9cabb9; background: transparent; text-align: left; font-size: 13px; font-weight: 600; transition: color .12s ease, background .12s ease; }
@@ -59,7 +53,6 @@
     .sidebar-foot { margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line-soft); }
     .version { color: var(--muted); font-size: 11px; }
     .version strong { color: #d9e6ee; font-weight: 650; }
-    .sidebar-note { margin-top: 7px; color: #647486; font-size: 10px; line-height: 1.5; }
     .main { min-width: 0; }
     .topbar { height: 67px; display: flex; align-items: center; justify-content: space-between; padding: 0 36px; border-bottom: 1px solid var(--line-soft); background: #0b1017; }
     .crumb { color: var(--muted); font-size: 12px; }
@@ -75,7 +68,7 @@
     .lead { margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; max-width: 650px; }
     .file-chip { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; margin-top: 5px; border: 1px solid var(--line); background: rgba(255,255,255,.025); padding: 9px 11px; border-radius: 5px; color: #aab8c5; font-size: 11px; }
     .file-chip code { color: #e5edf2; font-size: 11px; }
-    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 18px; align-items: start; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 34vw, 480px); gap: 18px; align-items: start; }
     .left-col { min-width: 0; display: grid; gap: 17px; }
     .card { border: 1px solid #263342; border-radius: 4px; background: #101720; box-shadow: none; overflow: hidden; }
     .card-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 18px; border-bottom: 1px solid #263342; }
@@ -170,8 +163,11 @@
       .sidebar { padding-left: 12px; padding-right: 12px; }
       .content { padding-left: 23px; padding-right: 23px; }
       .topbar { padding: 0 23px; }
-      .layout { grid-template-columns: minmax(0,1fr) 285px; gap: 13px; }
+      .layout { grid-template-columns: minmax(0,1fr) 320px; gap: 13px; }
       .bottom-bar { left: 205px; padding-left: 23px; padding-right: 23px; }
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: minmax(0,1fr) 285px; }
     }
     @media (max-width: 790px) {
       .app { display: block; }
@@ -215,9 +211,6 @@
         <div class="brand-wordmark-fallback" hidden aria-label="PrefBar">Pref<span>Bar</span></div>
         <div class="brand-copy">
           <div class="brand-sub">Control Center</div>
-          <div class="brand-palette" aria-label="PrefBar logo palette: blue, white, and midnight" title="Logo blue · #0879EF | Logo white · #F5F7FA | Midnight UI · #0D131C">
-            <i></i><i></i><i></i><span class="brand-palette-label">Brand palette</span>
-          </div>
         </div>
       </div>
       <div class="nav-label">Configuration</div>
@@ -228,7 +221,7 @@
         <button data-tab="controls"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 9h10a4 4 0 0 1 3.8 5l-.8 3a2.5 2.5 0 0 1-4.2 1.1L14 16h-4l-1.8 2.1A2.5 2.5 0 0 1 4 17l-.8-3A4 4 0 0 1 7 9Z"/><path d="M8 11v4M6 13h4M16.5 12.5h.01M18.5 14.5h.01"/></svg></span><span>Controls</span></button>
         <button data-tab="advanced"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4m0-12.8L17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span><span>Advanced</span></button>
       </nav>
-      <div class="sidebar-foot"><div class="version">PrefBar <strong>v0.3.0</strong></div><div class="sidebar-note">Configure PrefBar locally.<br>Designed for PS5 and mobile browsers.</div></div>
+      <div class="sidebar-foot"><div class="version">PrefBar <strong>v0.3.0</strong></div></div>
     </aside>
 
     <main class="main">
