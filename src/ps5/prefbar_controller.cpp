@@ -33,7 +33,7 @@ extern "C" int prefbar_telemetry_embedded_start(void);
 namespace {
 
 constexpr const char* kControllerLog = "/data/prefbar/controller.log";
-constexpr const char* kBootLog = "/data/prefbar/boot.log";
+constexpr char kBootLog[] = "/data/prefbar/boot.log";
 constexpr unsigned kStartupRetryIntervalUs = 2'000'000;
 #ifndef PREFBAR_NO_WEB
 constexpr unsigned kWebRetryIntervalUs = 5'000'000;
