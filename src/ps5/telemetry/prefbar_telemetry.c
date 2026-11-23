@@ -880,7 +880,7 @@ static void dbg_startup_tick(void)
     }
     DBG_UNLOCK();
     if (send_attribution)
-        notify("PrefBar made by X1NONs");
+        notify("PrefBar V" PREFBAR_VERSION " by X1NONs");
 #if defined(PREFBAR_EMBED)
     pthread_mutex_unlock(&g_dbg_toast_mu);
 #endif

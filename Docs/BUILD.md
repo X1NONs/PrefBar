@@ -70,6 +70,13 @@ PREFBAR_DEBUG_NOTIFY=OFF make payload
 
 This controls the optional notification implementation at build time. Runtime notification preferences are separately configured in `/data/prefbar/prefbar.conf`.
 
+The embedded Web Control Center can also be excluded from the PS5 build:
+
+```sh
+PREFBAR_ENABLE_WEB=OFF make payload
+```
+
+This omits the embedded `web/index.html` asset and the Control Center HTTP server. The PS5 controller, telemetry worker, and embedded ShellUI renderer are still built. Set `PREFBAR_ENABLE_WEB=ON` (the default) to include the Web Control Center.
 ## Cleanup
 
 ```sh

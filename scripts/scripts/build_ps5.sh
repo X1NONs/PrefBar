@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 PREFBAR_DEBUG_NOTIFY="${PREFBAR_DEBUG_NOTIFY:-ON}"
+PREFBAR_ENABLE_WEB="${PREFBAR_ENABLE_WEB:-ON}"
 
 if [[ ! -x "${PS5_PAYLOAD_SDK}/bin/prospero-cmake" ]]; then
   echo "ERROR: PS5 Payload SDK not found at ${PS5_PAYLOAD_SDK}" >&2
@@ -44,7 +45,8 @@ fi
   -DCMAKE_BUILD_TYPE=Release \
   -DPREFBAR_BUILD_PS5=ON \
   -DBUILD_TESTING=OFF \
-  -DPREFBAR_DEBUG_NOTIFY="${PREFBAR_DEBUG_NOTIFY}"
+  -DPREFBAR_DEBUG_NOTIFY="${PREFBAR_DEBUG_NOTIFY}" \
+  -DPREFBAR_ENABLE_WEB="${PREFBAR_ENABLE_WEB}"
 
 if command -v nproc >/dev/null 2>&1; then
   JOBS="$(nproc)"
@@ -113,4 +115,4 @@ else
 fi
 
 printf '\nRelease payload: %s\n' "${DIST}/${OUTPUT_NAME}"
-echo "dist/ contains the single combined PrefBar payload."
+echo "dist/ contains the PrefBar PS5 payload."

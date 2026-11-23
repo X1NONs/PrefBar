@@ -58,8 +58,8 @@ def main() -> int:
          "renderer must not send system notifications"),
         ((b"cxml://psnotification" in controller) == enabled("PREFBAR_DEBUG_NOTIFY"),
          "debug notification code does not match PREFBAR_DEBUG_NOTIFY"),
-        ((b"PrefBar made by X1NONs" in controller) == enabled("PREFBAR_DEBUG_NOTIFY"),
-         "startup attribution toast does not match PREFBAR_DEBUG_NOTIFY"),
+        ((b"PrefBar V0.3.0 by X1NONs" in controller) == enabled("PREFBAR_DEBUG_NOTIFY"),
+         "versioned startup attribution toast does not match PREFBAR_DEBUG_NOTIFY"),
     ]
 
     failed = [message for ok, message in checks if not ok]
