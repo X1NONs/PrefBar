@@ -341,7 +341,7 @@ static void test_config_file_and_values(void)
         fclose(f);
     }
     CHECK(strcmp(migrated_header, PREFBAR_CONFIG_HEADER "\n") == 0,
-          "migrating a 0.2.0 config should update its header to 0.3.0");
+          "migrating an older config should update its header to 0.3.1");
 
     f = fopen(PREFBAR_CONFIG_PATH, "w");
     CHECK(f != NULL, "open config with explicit individual settings");
@@ -403,7 +403,8 @@ static void test_config_header_upgrades_any_release(void)
         "0.2.0",
         "0.2.1",
         "0.2.10", /* older, longer version proves the rewrite is not length-dependent */
-        "0.3.0"    /* current version must remain unchanged */
+        "0.3.0",   /* previous release header must be upgraded */
+        "0.3.1"    /* current version must remain unchanged */
     };
     static const char config_body[] =
         "# Keep this user comment and every setting below intact.\n"
@@ -525,7 +526,7 @@ static void test_duplicate_migration_cleanup(void)
     CHECK(strstr(config_text, "overlay_format=compact\n") != NULL &&
               strstr(config_text, "overlay_format=long") == NULL,
           "the last overlay format value should be preserved");
-    CHECK(strstr(config_text, "# PrefBar 0.3.0 configuration\n") == config_text,
+    CHECK(strstr(config_text, "# PrefBar 0.3.1 configuration\n") == config_text,
           "duplicate cleanup should also update the old config header");
 
     config_t cfg;

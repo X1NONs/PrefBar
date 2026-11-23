@@ -145,7 +145,7 @@ void write_startup_record(
 
     std::fprintf(
         fp,
-        "PrefBar V0.3.0 controller\n"
+        "PrefBar V0.3.1 controller\n"
         "Mode=%s\n"
         "Startup web_rc=%d telemetry_rc=%d http_port=%u\n"
         "Game gate=%u consecutive samples; ShellUI gate=%u consecutive samples; "

@@ -4,7 +4,7 @@
 
 [![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge)](https://github.com/X1NONs/PrefBar/releases)
 
-**Version 0.3.0**
+**Version 0.3.1**
 (**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
 
 
@@ -37,7 +37,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 
 ## How to use it
 
-1. Download `Prefbar_V0.3.0.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.0).
+1. Download `Prefbar_V0.3.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.1).
 2. Load the payload ELF on your jailbroken PS5 using your usual payload loader.
 3. From a browser on the same local network, open the PrefBar Web Control Center at `http://<PS5-IP>:8998/`. Use it to configure the overlay and save your settings. The page includes a preview that updates as you adjust the controls.
 4. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.

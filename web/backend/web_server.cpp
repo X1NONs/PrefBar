@@ -429,7 +429,7 @@ void send_response(int socket_fd,
     const int header_size = std::snprintf(
         header, sizeof(header),
         "HTTP/1.1 %d %s\r\n"
-        "Server: PrefBar/0.3.0\r\n"
+        "Server: PrefBar/0.3.1\r\n"
         "Content-Type: %s\r\n"
         "Content-Length: %zu\r\n"
         "Connection: close\r\n"
@@ -662,7 +662,7 @@ void handle_api_request(int socket_fd,
             char body[192];
             const int length = std::snprintf(
                 body, sizeof(body),
-                "{\"ok\":true,\"service\":\"PrefBar\",\"version\":\"0.3.0\","
+                "{\"ok\":true,\"service\":\"PrefBar\",\"version\":\"0.3.1\","
                 "\"port\":%u}\n",
                 static_cast<unsigned>(kDefaultPort));
             if (length > 0)
