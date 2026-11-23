@@ -35,7 +35,7 @@ Host tests are optional and do not produce a PS5 payload:
 make test
 ```
 
-The test sources are under `scripts/tests/`; test executables are created under `build-host/`. The seven host tests cover wire-format validation, diagnostics/configuration, telemetry-pool behavior, adaptive DCE counter selection, touchpad input, ShellUI hook-protocol handling, and crash-strike tracking.
+The test sources are under `scripts/tests/`; test executables are created under `build-host/`. The seven host tests cover wire-format validation, diagnostics/configuration, telemetry-pool behavior, adaptive DCE counter selection, touchpad input, ShellUI hook-protocol handling, and crash-strike tracking. They do not compile or exercise the PS5-only Web Control Center backend; that still needs a PS5 SDK build and testing against the server on a console.
 
 ## Runtime architecture
 
@@ -242,7 +242,7 @@ The controller starts the native HTTP server from `web/backend/web_server.cpp`. 
 | GET | `/api/v1/config` | Current `prefbar.conf` as INI text |
 | PUT | `/api/v1/config` | Validates and atomically replaces `prefbar.conf` |
 | GET | `/api/v1/status` | Current `status.kv` telemetry snapshot |
-| GET | `/api/v1/diagnostics` | Bounded snapshots of controller, debug, and diagnostic logs; an oversized log is reported unavailable rather than truncated |
+| GET | `/api/v1/diagnostics` | Bounded snapshots of `boot.log`, `controller.log`, `debug.log`, and `diag.txt`; an oversized log is reported unavailable rather than truncated |
 
 The Control Center loads the saved INI when opened. Its Save action sends the complete generated INI document using `PUT /api/v1/config`; when the page is hosted somewhere without the PrefBar API, the action falls back to downloading `prefbar.conf`. The server rejects duplicate, missing, unknown, malformed, and out-of-range settings. A successful write uses a temporary file, flushes it, and renames it over the existing configuration.
 
@@ -255,7 +255,7 @@ The server binds to all IPv4 interfaces and does not restrict client addresses o
 
 ## Diagnostics and hook-probe logs
 
-The controller writes startup information to `/data/prefbar/controller.log`; the injector writes `/data/prefbar/injector.log`. The renderer writes `/system_tmp/prefbar_shellui.log` and records its latest startup stage in `/system_tmp/prefbar_shellui.stage`.
+The controller writes startup information to `/data/prefbar/controller.log` and timestamped startup checkpoints to `/data/prefbar/boot.log` (rotated to `boot.log.1` after it grows beyond 32 KiB). The injector writes `/data/prefbar/injector.log`. The renderer writes `/system_tmp/prefbar_shellui.log` and records its latest startup stage in `/system_tmp/prefbar_shellui.stage`. The Control Center diagnostics endpoint returns bounded snapshots of `boot.log`, `controller.log`, `debug.log`, and `diag.txt`; it does not expose the injector or renderer log paths.
 
 The hook-probe diagnostic record distinguishes the wrapper return (`read_rc`), raw ptrace syscall result (`read_raw_rc`), whether the read was attempted, the captured `errno`, and the requested/reported I/O descriptor length. For a probe-only request, `write_attempted=0`; the default `write_rc=-1` is a sentinel and does not mean that a write failed.
 
@@ -275,7 +275,7 @@ This instrumentation improves diagnosis; it is not itself a fix for firmware-spe
 | `src/ps5/shellui_payload/` | Embedded ShellUI renderer |
 | `src/ps5/compat/` | Bundled compatibility sources, including ptrace and ELF-loader code |
 | `scripts/scripts/` | PS5 build entry-point script |
-| `scripts/tools/` | Renderer embedding and release verification helpers |
+| `scripts/tools/` | Renderer/Web Control Center asset embedding and release verification helpers |
 | `scripts/tests/` | Host-side self-tests |
 | `web/index.html` | Embedded Web Control Center interface |
 | `web/backend/` | Native HTTP server and Control Center API |
