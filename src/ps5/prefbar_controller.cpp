@@ -35,7 +35,9 @@ namespace {
 constexpr const char* kControllerLog = "/data/prefbar/controller.log";
 constexpr const char* kBootLog = "/data/prefbar/boot.log";
 constexpr unsigned kStartupRetryIntervalUs = 2'000'000;
+#ifndef PREFBAR_NO_WEB
 constexpr unsigned kWebRetryIntervalUs = 5'000'000;
+#endif
 constexpr unsigned kShellUiStableSamples = 10;
 constexpr unsigned kGameStableSamples = 3;
 constexpr unsigned kGameExitGraceSamples = 10; /* 500 ms at the controller poll rate */
@@ -56,6 +58,7 @@ std::uint64_t monotonic_us() noexcept {
         static_cast<std::uint64_t>(ts.tv_nsec) / 1'000ULL;
 }
 
+#ifndef PREFBAR_NO_WEB
 struct StartupNotificationState {
     std::atomic<int> web_rc{-1};
     std::atomic<int> telemetry_rc{-1};
@@ -63,6 +66,7 @@ struct StartupNotificationState {
 
 /* Static storage: the detached notification worker may outlive startup. */
 StartupNotificationState g_startup_notification_state{};
+#endif
 
 void write_boot_stage(const char* stage, int web_rc, int telemetry_rc) noexcept {
     struct stat st{};
@@ -128,6 +132,7 @@ void* startup_notification_worker(void* opaque) noexcept {
     }
     return nullptr;
 }
+#endif
 
 void write_startup_record(
     pid_t first_shellui,
@@ -150,6 +155,12 @@ void write_startup_record(
         "Overlay=loopback UDP rows only; port=39028\n"
         "Worker pid=%d ppid=%d first_shellui_pid=%d first_game_pid=%d "
         "title_id=%s sysctl=%d/%d errno=%d bytes=%zu records=%u malformed=%u\n",
+#ifdef PREFBAR_NO_WEB
+        "single-controller embedded-telemetry shellui-renderer; web disabled",
+        web_rc,
+        telemetry_rc,
+        0U,
+#else
         telemetry_rc == 0
             ? "single-controller embedded-telemetry shellui-renderer"
             : web_rc == 0
@@ -158,6 +169,7 @@ void write_startup_record(
         web_rc,
         telemetry_rc,
         static_cast<unsigned>(prefbar::web::kDefaultPort),
+#endif
         kGameStableSamples,
         kShellUiStableSamples,
         static_cast<unsigned>(kPollIntervalUs / 1000U),
@@ -176,8 +188,6 @@ void write_startup_record(
     std::fclose(fp);
 }
 
-#endif
-
 [[noreturn]] void run_controller() noexcept {
     pid_t stable_shellui_pid = -1;
     unsigned stable_shellui_samples = 0;
@@ -190,7 +200,9 @@ void write_startup_record(
     std::uint64_t next_renderer_warning_us = 0;
     pid_t reported_game_pid = -1;
     pid_t reported_shellui_pid = -1;
+#ifndef PREFBAR_NO_WEB
     std::uint64_t next_web_retry_us = 0;
+#endif
 
     prefbar_debug_event(
         PBDBG_INFO, "controller.start",
@@ -454,6 +466,7 @@ extern "C" int main() {
     while (telemetry_rc != 0) {
         (void)usleep(kStartupRetryIntervalUs);
 
+#ifndef PREFBAR_NO_WEB
         if (!prefbar::web::is_running()) {
             web_rc = prefbar::web::start();
             g_startup_notification_state.web_rc.store(
@@ -462,10 +475,13 @@ extern "C" int main() {
         } else {
             web_rc = 0;
         }
+#endif
 
         telemetry_rc = prefbar_telemetry_embedded_start();
+#ifndef PREFBAR_NO_WEB
         g_startup_notification_state.telemetry_rc.store(
             telemetry_rc, std::memory_order_release);
+#endif
         write_boot_stage("telemetry_retry", web_rc, telemetry_rc);
     }
 
