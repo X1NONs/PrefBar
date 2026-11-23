@@ -114,5 +114,5 @@ else
   echo "WARNING: neither sha256sum nor shasum found; skipped checksum display." >&2
 fi
 
-printf '\nPrefBar build output: %s\n' "${DIST}/${OUTPUT_NAME}"
-echo "dist/ contains the release-ready PrefBar PS5 executable."
+printf '\nRelease payload: %s\n' "${DIST}/${OUTPUT_NAME}"
+echo "dist/ contains the PrefBar PS5 payload."
