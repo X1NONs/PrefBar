@@ -17,7 +17,7 @@ Make the overlay yours with PrefBar's built-in Web Control Center.
 The built-in performance bars available in some PS5 homebrew setups can conflict with other kernel-level components or payloads, such as kstuff and etaHEN. PrefBar was created as an independent alternative: a standalone payload with its own ShellUI renderer, designed to provide in-game telemetry without depending on another payload for rendering.
 
 ![PrefBar overlay in action](Docs/image3.png)
-![PrefBar overlay in action](Docs/image1.png)
+![PrefBar overlay in action](Docs/web.png)
 > Want yours to get displayed? Check out [Screenshot Discussion](https://github.com/X1NONs/PrefBar/discussions/13).
 
 ## Features
