@@ -134,6 +134,8 @@ constexpr ConfigRule kConfigRules[] = {
     {"show_ram", ValueKind::Boolean, 0, 1, nullptr},
     {"show_vram", ValueKind::Boolean, 0, 1, nullptr},
     {"show_power", ValueKind::Boolean, 0, 1, nullptr},
+    {"show_m2_temp", ValueKind::Boolean, 0, 1, nullptr},
+    {"m2_temp_label", ValueKind::Choice, 0, 0, "m2|ssd"},
 
     {"touchpad_toggle", ValueKind::Boolean, 0, 1, nullptr},
     {"diag", ValueKind::Boolean, 0, 1, nullptr},

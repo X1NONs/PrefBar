@@ -16,16 +16,16 @@
 #include <stdint.h>
 
 #define PREFBAR_WIRE_MAGIC   0x52414250u   /* bytes 'P','B','A','R' (little endian) */
-#define PREFBAR_WIRE_VERSION 5u
+#define PREFBAR_WIRE_VERSION 6u
 #define PREFBAR_WIRE_PORT    39028u
 #define PREFBAR_CONTROL_PORT     39029u   /* ShellUI -> controller debug/control events */
-#define PREFBAR_ROWS         14
+#define PREFBAR_ROWS         15
 #define PREFBAR_ROW_LEN      96            /* incl. NUL */
 #define PREFBAR_CORNER_TL    0             /* top-left */
 #define PREFBAR_CORNER_TR    1             /* top-right */
 #define PREFBAR_CORNER_BL    2             /* bottom-left */
 #define PREFBAR_CORNER_BR    3             /* bottom-right */
-#define PREFBAR_WIRE_BYTES   1389u
+#define PREFBAR_WIRE_BYTES   1485u
 #define PREFBAR_WIRE_FLAG_TEXT_SHADOW       0x01u
 #define PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE   0x02u
 #define PREFBAR_WIRE_FLAG_OVERLAY_ENABLED   0x04u

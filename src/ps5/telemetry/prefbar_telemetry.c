@@ -378,6 +378,8 @@ static int migration_config_key_index(const char *line)
         "show_ram",
         "show_vram",
         "show_power",
+        "show_m2_temp",
+        "m2_temp_label",
         "show_cpu_clock",
         "show_gpu_clock",
         "gpu_temp_label",
@@ -411,7 +413,7 @@ static int migration_config_key_index(const char *line)
  */
 static void deduplicate_migrated_config_options(void)
 {
-    enum { KEY_COUNT = 17 };
+    enum { KEY_COUNT = 19 };
     config_migration_line_t *lines =
         (config_migration_line_t *)calloc(PREFBAR_CONFIG_MAX_LINES, sizeof(*lines));
     if (!lines)
@@ -663,6 +665,10 @@ static void migrate_config_options(void)
         !read_config_value("show_vram", value, sizeof(value));
     const int add_show_power =
         !read_config_value("show_power", value, sizeof(value));
+    const int add_show_m2_temp =
+        !read_config_value("show_m2_temp", value, sizeof(value));
+    const int add_m2_temp_label =
+        !read_config_value("m2_temp_label", value, sizeof(value));
     const int add_show_cpu_clock =
         !read_config_value("show_cpu_clock", value, sizeof(value));
     const int add_show_gpu_clock =
@@ -677,8 +683,8 @@ static void migrate_config_options(void)
         !add_show_frametime &&
         !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
-        !add_show_power && !add_show_cpu_clock && !add_show_gpu_clock &&
-        !add_gpu_temp_label)
+        !add_show_power && !add_show_m2_temp && !add_m2_temp_label &&
+        !add_show_cpu_clock && !add_show_gpu_clock && !add_gpu_temp_label)
     {
         update_config_header();
         return;
@@ -711,7 +717,8 @@ static void migrate_config_options(void)
 
     if (add_show_frametime || add_show_1percent_low || add_show_cpu_usage ||
         add_show_cpu_temp || add_show_gpu_temp || add_show_ram || add_show_vram ||
-        add_show_power || add_show_cpu_clock || add_show_gpu_clock || add_gpu_temp_label)
+        add_show_power || add_show_m2_temp || add_m2_temp_label ||
+        add_show_cpu_clock || add_show_gpu_clock || add_gpu_temp_label)
     {
         (void)fputs("\n[telemetry]\n", f);
         if (add_show_frametime)
@@ -730,6 +737,10 @@ static void migrate_config_options(void)
             fprintf(f, "show_vram=%d\n", legacy_show_memory);
         if (add_show_power)
             (void)fputs("show_power=1\n", f);
+        if (add_show_m2_temp)
+            (void)fputs("show_m2_temp=1\n", f);
+        if (add_m2_temp_label)
+            (void)fputs("m2_temp_label=m2\n", f);
         if (add_show_cpu_clock)
             (void)fputs("show_cpu_clock=1\n", f);
         if (add_show_gpu_clock)
@@ -789,7 +800,9 @@ static void ensure_default_config_file(void)
         "show_fan_duty=1\n"
         "show_ram=1\n"
         "show_vram=1\n"
-        "show_power=1\n\n"
+        "show_power=1\n"
+        "show_m2_temp=1\n"
+        "m2_temp_label=m2\n\n"
         "[input]\n"
         "touchpad_toggle=1\n\n"
         "[diagnostics]\n"
@@ -1420,9 +1433,17 @@ static int sceKernelGetCpuTemperature(int *t)
     *t = 60 + (int)sim_elapsed();
     return 0;
 }
+static int g_sim_m2_temp_rc = 0;
+static int g_sim_m2_temp_value = -1;
 static int sceKernelGetSocSensorTemperature(int id, int *t)
 {
-    (void)id;
+    if (id == 2)
+    {
+        if (g_sim_m2_temp_rc != 0)
+            return g_sim_m2_temp_rc;
+        *t = g_sim_m2_temp_value >= 0 ? g_sim_m2_temp_value : 55 + (int)sim_elapsed();
+        return 0;
+    }
     *t = 55 + (int)sim_elapsed();
     return 0;
 }
@@ -1622,6 +1643,8 @@ typedef struct
 {
     int have_cpu_temp, cpu_temp;
     int have_soc_temp, soc_temp;
+    int have_m2_temp, m2_temp;
+    int m2_temp_api_present, m2_temp_rc, m2_temp_raw;
     int have_cpu_clock, cpu_clock_mhz;
     int have_gpu_clock, gpu_clock_mhz;
     int have_fan, fan;
@@ -1833,6 +1856,22 @@ static void sensors_read(sensors_t *s, cpuu_t *c, uint64_t t_ns)
         s->soc_temp = v;
     }
 
+    /* SoC sensor channel 2 is used for the M.2 NVMe expansion drive. Keep
+     * it independent from sensor 0 and reject implausible/unavailable values. */
+    s->m2_temp_rc = -1;
+    if (SYM_PRESENT(sceKernelGetSocSensorTemperature))
+    {
+        s->m2_temp_api_present = 1;
+        v = 0;
+        s->m2_temp_rc = sceKernelGetSocSensorTemperature(2, &v);
+        s->m2_temp_raw = v;
+        if (s->m2_temp_rc == 0 && v >= 20 && v <= 130)
+        {
+            s->have_m2_temp = 1;
+            s->m2_temp = v;
+        }
+    }
+
     /* CPU frequency API returns Hz; SoC clock domain 20 reports GPU MHz. */
     if (cpu_frequency_api_present())
     {
@@ -1932,7 +1971,7 @@ static void format_perf(const report_t *r, char *buf, size_t n)
             r->fps, r->avg_ms, r->low1_fps, r->max_ms, r->hitches);
 }
 
-static void format_sensors(const sensors_t *s, int gpu_temp_label_soc, char *buf, size_t n)
+static void format_sensors(const sensors_t *s, int gpu_temp_label_soc, int m2_temp_label_ssd, char *buf, size_t n)
 {
     buf[0] = 0;
     const char *sep = "";
@@ -1990,6 +2029,11 @@ static void format_sensors(const sensors_t *s, int gpu_temp_label_soc, char *buf
         app(buf, n, "%sVRAM %.0f%% (%d/%d MB)", sep, s->vram_pct, s->vram_used_mb, s->vram_total_mb);
         sep = " | ";
     }
+    if (s->have_m2_temp)
+    {
+        app(buf, n, "%s%s %dC", sep, m2_temp_label_ssd ? "SSD" : "M.2", s->m2_temp);
+        sep = " | ";
+    }
     if (!*sep)
         app(buf, n, "sensors: none available");
 }
@@ -2014,6 +2058,13 @@ static void format_kv(const report_t *r, const sensors_t *s, char *buf, size_t n
     buf[0] = 0;
     app(buf, n, "ts=%lld\n", (long long)time(NULL));
     app(buf, n, "idle=%d\n", r->idle);
+    app(buf, n, "m2_temp_available=%d\nm2_temp_api_present=%d\nm2_temp_rc=%d\n",
+        s->have_m2_temp, s->m2_temp_api_present,
+        s->m2_temp_api_present ? s->m2_temp_rc : -1);
+    if (s->m2_temp_api_present)
+        app(buf, n, "m2_temp_raw_c=%d\n", s->m2_temp_raw);
+    if (s->have_m2_temp)
+        app(buf, n, "m2_temp_c=%d\n", s->m2_temp);
     if (!r->idle)
     {
         app(buf, n, "fps=%.1f\nframetime_ms=%.2f\nlow1_fps=%.1f\nmax_ms=%.2f\nhitches=%d\n",
@@ -2077,6 +2128,7 @@ typedef struct
     int show_gpu_temp, show_gpu_clock, show_fan_duty;
     int gpu_temp_label_soc;
     int show_ram, show_vram, show_power;
+    int show_m2_temp, m2_temp_label_ssd;
     int overlay_horizontal, overlay_horizontal_spacing, overlay_horizontal_align;
     int overlay_format;
     int touchpad_toggle;
@@ -2182,6 +2234,7 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
     int n = 0;
     char row[PREFBAR_ROW_LEN];
     char values[PREFBAR_ROW_LEN];
+    const char *m2_label = cfg->m2_temp_label_ssd ? "SSD" : "M.2";
     memset(rows, 0, sizeof(char) * PREFBAR_ROWS * PREFBAR_ROW_LEN);
 
     if (cfg->overlay_format == PREFBAR_OVERLAY_FORMAT_CLASSIC)
@@ -2253,6 +2306,14 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
         snprintf(row, sizeof row, "PWR %.0fW", s->power_w);
         append_overlay_row(rows, &n, row);
     }
+    if (cfg->sensors && cfg->show_m2_temp && s->m2_temp_api_present)
+    {
+        if (s->have_m2_temp)
+            snprintf(row, sizeof row, "%s %dC", m2_label, s->m2_temp);
+        else
+            snprintf(row, sizeof row, "%s N/A", m2_label);
+        append_overlay_row(rows, &n, row);
+    }
 
     }
     else
@@ -2318,6 +2379,13 @@ static int build_rows(const config_t *cfg, const report_t *r, const sensors_t *s
             append_compact_value(values, sizeof values, "FAN %d%%", s->fan);
         if (cfg->sensors && cfg->show_power && s->have_power)
             append_compact_value(values, sizeof values, "PWR %.0fW", s->power_w);
+        if (cfg->sensors && cfg->show_m2_temp && s->m2_temp_api_present)
+        {
+            if (s->have_m2_temp)
+                append_compact_value(values, sizeof values, "%s %dC", m2_label, s->m2_temp);
+            else
+                append_compact_value(values, sizeof values, "%s N/A", m2_label);
+        }
         if (values[0]) {
             snprintf(row, sizeof row, "SYS: %s", values);
             append_overlay_row(rows, &n, row);
@@ -2561,6 +2629,9 @@ static void diag_capture(const char *tag, int idx, uint64_t t_ns, uint64_t t0_ns
     dlog("fan: called=%d rc=%d duty_q10=%u chassis_info=0x%016llx duty_pct=%d\n",
          s->fan_called, s->fan_rc, (unsigned)s->fan_duty_q10,
          (unsigned long long)s->fan_chassis, s->have_fan ? s->fan : -1);
+    dlog("m2_temp: api_present=%d channel=2 rc=%d raw_c=%d available=%d value_c=%d\n",
+         s->m2_temp_api_present, s->m2_temp_rc, s->m2_temp_raw,
+         s->have_m2_temp, s->have_m2_temp ? s->m2_temp : -1);
 
     /* 3. memory: the pools etaHEN labels RAM/VRAM, plus a few neighbours */
     if (SYM_PRESENT(get_page_table_stats))
@@ -2633,6 +2704,8 @@ static void config_defaults(config_t *c)
     c->show_ram = 1;
     c->show_vram = 1;
     c->show_power = 1;
+    c->show_m2_temp = 1;
+    c->m2_temp_label_ssd = 0;
     c->overlay_horizontal = 0;
     c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
     c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;
@@ -2727,6 +2800,15 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("show_ram", show_ram, 1, 0, 1)
     CONFIG_INT("show_vram", show_vram, 1, 0, 1)
     CONFIG_INT("show_power", show_power, 1, 0, 1)
+    CONFIG_INT("show_m2_temp", show_m2_temp, 1, 0, 1)
+    if (strcmp(key, "m2_temp_label") == 0)
+    {
+        if (strcmp(value, "m2") == 0)
+            c->m2_temp_label_ssd = 0;
+        else if (strcmp(value, "ssd") == 0)
+            c->m2_temp_label_ssd = 1;
+        return;
+    }
     CONFIG_INT("overlay_horizontal", overlay_horizontal, 0, 0, 1)
     if (strcmp(key, "overlay_format") == 0)
     {
@@ -3168,7 +3250,7 @@ static int prefbar_run(int install_signals, int lock)
             l2[0] = l3[0] = 0;
             if (cfg.sensors)
             {
-                format_sensors(&sens, cfg.gpu_temp_label_soc, l2, sizeof l2);
+                format_sensors(&sens, cfg.gpu_temp_label_soc, cfg.m2_temp_label_ssd, l2, sizeof l2);
                 format_cores(&sens, l3, sizeof l3);
             }
             snprintf(txt, sizeof txt, "%s\n", l1);

@@ -35,6 +35,8 @@ static void reset(const char *conf)
     }
     memset(&g_dbg, 0, sizeof g_dbg);
     g_sim_toasts = 0;
+    g_sim_m2_temp_rc = 0;
+    g_sim_m2_temp_value = -1;
 }
 
 static long file_size(const char *path)
@@ -257,7 +259,8 @@ static void test_config_file_and_values(void)
     CHECK(cfg.show_fps && cfg.show_frametime && cfg.show_1percent_low &&
               cfg.show_cpu_usage && cfg.show_cpu_temp && cfg.show_cpu_clock &&
               cfg.show_gpu_temp && cfg.show_gpu_clock && cfg.show_fan_duty &&
-              cfg.show_ram && cfg.show_vram && cfg.show_power && !cfg.gpu_temp_label_soc,
+              cfg.show_ram && cfg.show_vram && cfg.show_power && cfg.show_m2_temp &&
+              !cfg.gpu_temp_label_soc && !cfg.m2_temp_label_ssd,
           "each independent telemetry toggle should default to enabled");
 
     FILE *defaults_file = fopen(PREFBAR_CONFIG_PATH, "r");
@@ -273,12 +276,14 @@ static void test_config_file_and_values(void)
     char *horizontal_spacing_option = strstr(defaults_text, "overlay_horizontal_spacing=medium");
     char *horizontal_align_option = strstr(defaults_text, "overlay_horizontal_align=center");
     char *gpu_temp_label_option = strstr(defaults_text, "gpu_temp_label=gpu");
+    char *m2_temp_option = strstr(defaults_text, "show_m2_temp=1");
+    char *m2_label_option = strstr(defaults_text, "m2_temp_label=m2");
     CHECK(overlay_section && telemetry_section && horizontal_option &&
               horizontal_spacing_option && horizontal_align_option && gpu_temp_label_option &&
               overlay_section < horizontal_option &&
               horizontal_option < horizontal_spacing_option &&
               horizontal_spacing_option < horizontal_align_option &&
-              horizontal_align_option < telemetry_section,
+              horizontal_align_option < telemetry_section && m2_temp_option && m2_label_option,
           "horizontal mode, spacing, and alignment should be grouped under [overlay]");
     CHECK(strstr(defaults_text, "show_cpu_usage=1") &&
               strstr(defaults_text, "show_cpu_temp=1") &&
@@ -313,7 +318,7 @@ static void test_config_file_and_values(void)
               cfg.show_cpu_usage == 0 && cfg.show_cpu_temp == 0 &&
               cfg.show_gpu_temp == 0 && cfg.show_ram == 0 && cfg.show_vram == 0 &&
               cfg.show_cpu_clock == 0 && cfg.show_gpu_clock == 0 &&
-              cfg.show_fan_duty == 0 && cfg.show_power == 0,
+              cfg.show_fan_duty == 0 && cfg.show_power == 0 && cfg.show_m2_temp == 1,
           "legacy group switches should seed all corresponding new controls as disabled");
     CHECK(cfg.gpu_temp_label_soc == 0,
           "missing temperature label option should migrate to the user-facing GPU label");
@@ -336,6 +341,9 @@ static void test_config_file_and_values(void)
           "migration should add exactly one disabled warning-notification setting");
     CHECK(text_occurrences(migrated_text, "text_opacity=100") == 1,
           "migration should add exactly one default text-opacity setting");
+    CHECK(text_occurrences(migrated_text, "show_m2_temp=1") == 1 &&
+              text_occurrences(migrated_text, "m2_temp_label=m2") == 1,
+          "migration should add the M.2 metric and label exactly once");
 
     char migrated_header[128] = {0};
     f = fopen(PREFBAR_CONFIG_PATH, "r");
@@ -853,6 +861,7 @@ static void test_clock_sensor_and_row(void)
     cfg.show_cpu_clock = 1;
     cfg.show_gpu_clock = 1;
     cfg.show_gpu_temp = 1;
+    cfg.show_m2_temp = 0;
     cfg.show_fan_duty = 0;
     cfg.show_ram = 0;
     cfg.show_vram = 0;
@@ -865,12 +874,12 @@ static void test_clock_sensor_and_row(void)
           "CPU clock, GPU clock, and default GPU temperature label should be independent rows (n=%d)", n);
 
     char sensor_text[256];
-    format_sensors(&sens, cfg.gpu_temp_label_soc, sensor_text, sizeof sensor_text);
+    format_sensors(&sens, cfg.gpu_temp_label_soc, cfg.m2_temp_label_ssd, sensor_text, sizeof sensor_text);
     CHECK(strstr(sensor_text, "GPU 55C 2150MHz"),
           "human-readable status should use the GPU label by default: '%s'", sensor_text);
     cfg.gpu_temp_label_soc = 1;
     n = build_rows(&cfg, &report, &sens, rows);
-    format_sensors(&sens, cfg.gpu_temp_label_soc, sensor_text, sizeof sensor_text);
+    format_sensors(&sens, cfg.gpu_temp_label_soc, cfg.m2_temp_label_ssd, sensor_text, sizeof sensor_text);
     CHECK(n == 3 && strstr(rows[2], "SoC 55C") &&
               strstr(sensor_text, "GPU 2150MHz | SoC 55C"),
           "SoC label option should apply to both overlay and status text");
@@ -882,6 +891,70 @@ static void test_clock_sensor_and_row(void)
               strstr(kv, "gpu_temp_c=55\n") &&
               strstr(kv, "soc_temp_c=55\n"),
           "status.kv should expose new keys and retain the legacy temperature key");
+}
+
+static void test_m2_sensor_and_row(void)
+{
+    reset("show_m2_temp=0\nm2_temp_label=ssd\n");
+    config_t cfg;
+    CHECK(load_config(&cfg) == 1 && cfg.show_m2_temp == 0 && cfg.m2_temp_label_ssd == 1,
+          "M.2 visibility and SSD label should parse from config");
+    reset(NULL);
+    CHECK(load_config(&cfg) == 1, "default M.2 config should load");
+    CHECK(cfg.show_m2_temp == 1 && cfg.m2_temp_label_ssd == 0,
+          "M.2 temperature should be enabled and use the M.2 label by default");
+    sensors_t sens;
+    cpuu_t cpuu = {0};
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.m2_temp_api_present && sens.have_m2_temp && sens.m2_temp >= 20 && sens.m2_temp <= 130,
+          "SoC channel 2 should provide a plausible M.2 expansion-drive temperature");
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
+    cfg.show_fps = cfg.show_frametime = cfg.show_1percent_low = 0;
+    cfg.show_cpu_usage = cfg.show_cpu_temp = cfg.show_cpu_clock = 0;
+    cfg.show_gpu_temp = cfg.show_gpu_clock = cfg.show_fan_duty = 0;
+    cfg.show_ram = cfg.show_vram = cfg.show_power = 0;
+    report_t report = {0};
+    char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
+    int n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && strncmp(rows[0], "M.2 ", 4) == 0,
+          "classic overlay should show M.2 temperature as its own row");
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_COMPACT;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && strncmp(rows[0], "SYS: M.2 ", 9) == 0,
+          "compact overlay should include the M.2 reading in the system row");
+    cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
+    char status[512];
+    format_sensors(&sens, cfg.gpu_temp_label_soc, cfg.m2_temp_label_ssd, status, sizeof status);
+    CHECK(strstr(status, "M.2 ") != NULL, "status text should use the default M.2 label");
+    char kv[1024];
+    format_kv(&report, &sens, kv, sizeof kv);
+    CHECK(strstr(kv, "m2_temp_available=1\n") && strstr(kv, "m2_temp_c="),
+          "status.kv should expose M.2 temperature and availability");
+    cfg.m2_temp_label_ssd = 1;
+    n = build_rows(&cfg, &report, &sens, rows);
+    format_sensors(&sens, cfg.gpu_temp_label_soc, cfg.m2_temp_label_ssd, status, sizeof status);
+    CHECK(n == 1 && strncmp(rows[0], "SSD ", 4) == 0 && strstr(status, "SSD "),
+          "SSD label option should apply to overlay and status text");
+    g_sim_m2_temp_rc = -1;
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(sens.m2_temp_api_present && !sens.have_m2_temp,
+          "failed channel-2 read should be marked unavailable");
+    cfg.m2_temp_label_ssd = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && strcmp(rows[0], "M.2 N/A") == 0,
+          "unavailable M.2 reading should show N/A");
+    g_sim_m2_temp_rc = 0;
+    g_sim_m2_temp_value = 10;
+    sensors_read(&sens, &cpuu, now_ns());
+    CHECK(!sens.have_m2_temp && sens.m2_temp_api_present,
+          "implausible channel-2 temperatures should be rejected");
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && strcmp(rows[0], "M.2 N/A") == 0,
+          "rejected readings should use the same N/A presentation");
+    cfg.show_m2_temp = 0;
+    n = build_rows(&cfg, &report, &sens, rows);
+    CHECK(n == 1 && rows[0][0] == 0,
+          "disabling the M.2 metric should remove its row");
 }
 
 static void test_power_sensor_and_row(void)
@@ -915,6 +988,7 @@ static void test_power_sensor_and_row(void)
     cfg.show_ram = 0;
     cfg.show_vram = 0;
     cfg.show_power = 1;
+    cfg.show_m2_temp = 0;
     cfg.overlay_format = PREFBAR_OVERLAY_FORMAT_CLASSIC;
     report_t report = {0};
     char rows[PREFBAR_ROWS][PREFBAR_ROW_LEN];
@@ -952,6 +1026,9 @@ static void test_power_sensor_and_row(void)
     sens.vram_pct = 25.0f;
     sens.have_power = 1;
     sens.power_w = 150.0f;
+    sens.have_m2_temp = 1;
+    sens.m2_temp = 42;
+    sens.m2_temp_api_present = 1;
     sens.dbg_have = 1;
     for (int i = 0; i < NCORES; ++i) {
         sens.core_ok[i] = 1;
@@ -960,7 +1037,7 @@ static void test_power_sensor_and_row(void)
     }
     n = build_rows(&cfg, &report, &sens, rows);
     CHECK(n == PREFBAR_ROWS,
-          "all 12 independent metrics plus two diagnostics should fit (%d/%d)", n, PREFBAR_ROWS);
+          "all 13 independent metrics plus two diagnostics should fit (%d/%d)", n, PREFBAR_ROWS);
 }
 
 static void test_reload_config_preserves_last_good(void)
@@ -1037,6 +1114,7 @@ int main(void)
     test_compact_overlay_rows();
     test_overlay_format_and_compact_groups();
     test_clock_sensor_and_row();
+    test_m2_sensor_and_row();
     test_power_sensor_and_row();
     test_reload_config_preserves_last_good();
     test_toast_cap();

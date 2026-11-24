@@ -289,16 +289,18 @@
                     <div class="metric-item"><div><div class="metric-title">GPU clock</div><div class="metric-sub">GFXCLK in MHz</div></div><label class="switch"><input type="checkbox" id="show_gpu_clock" checked><span class="track"></span></label></div>
                     <div class="metric-item"><div><div class="metric-title">Fan duty</div><div class="metric-sub">Fan duty percentage, not RPM</div></div><label class="switch"><input type="checkbox" id="show_fan_duty" checked><span class="track"></span></label></div>
                   </div>
-                  <div class="section-kicker" style="margin-top:21px">Memory & power</div>
+                  <div class="section-kicker" style="margin-top:21px">Memory, storage & power</div>
                   <div class="metric-grid">
                     <div class="metric-item"><div><div class="metric-title">RAM</div><div class="metric-sub">System memory usage</div></div><label class="switch"><input type="checkbox" id="show_ram" checked><span class="track"></span></label></div>
                     <div class="metric-item"><div><div class="metric-title">VRAM</div><div class="metric-sub">Video memory usage</div></div><label class="switch"><input type="checkbox" id="show_vram" checked><span class="track"></span></label></div>
                     <div class="metric-item"><div><div class="metric-title">SoC power</div><div class="metric-sub">APU power in watts</div></div><label class="switch"><input type="checkbox" id="show_power" checked><span class="track"></span></label></div>
+                    <div class="metric-item"><div><div class="metric-title">M.2 SSD temperature</div><div class="metric-sub">Expansion-slot NVMe sensor (SoC channel 2)</div></div><label class="switch"><input type="checkbox" id="show_m2_temp" checked><span class="track"></span></label></div>
                   </div>
                   <div class="field" style="margin-top:19px;max-width:310px"><div class="field-label">GPU temperature label</div><select class="select" id="gpu_temp_label"><option value="gpu">GPU (recommended)</option><option value="soc">SoC</option></select></div>
+                  <div class="field" style="margin-top:12px;max-width:310px"><div class="field-label">M.2 temperature label</div><select class="select" id="m2_temp_label"><option value="m2">M.2 (default)</option><option value="ssd">SSD</option></select></div>
                 </div>
               </div>
-              <div class="inline-info"><span style="color:var(--accent);font-size:14px">ⓘ</span><div><strong>Unavailable metrics:</strong> readings that the current firmware or system interface cannot provide are omitted automatically. Fan duty is a percentage, not a tachometer RPM value.</div></div>
+              <div class="inline-info"><span style="color:var(--accent);font-size:14px">ⓘ</span><div><strong>Unavailable metrics:</strong> readings that the current firmware or system interface cannot provide are usually omitted automatically. An exposed M.2 sensor channel with no valid drive reading displays N/A. Fan duty is a percentage, not a tachometer RPM value.</div></div>
             </section>
 
             <section class="panel" id="panel-notifications">
@@ -386,7 +388,7 @@
       overlay: true, text_color: '#F2F2F2', text_opacity: '100', text_shadow: true, overlay_mode: '0', overlay_font: '26', overlay_corner: '0', overlay_x: '24', overlay_y: '24',
       overlay_format: 'compact', overlay_horizontal: '0', overlay_horizontal_spacing: 'medium', overlay_horizontal_align: 'center',
       sensors: true, show_fps: true, show_frametime: true, show_1percent_low: true, show_cpu_usage: true, show_cpu_temp: true, show_cpu_clock: true,
-      show_gpu_temp: true, gpu_temp_label: 'gpu', show_gpu_clock: true, show_fan_duty: true, show_ram: true, show_vram: true, show_power: true,
+      show_gpu_temp: true, gpu_temp_label: 'gpu', show_gpu_clock: true, show_fan_duty: true, show_ram: true, show_vram: true, show_power: true, show_m2_temp: true, m2_temp_label: 'm2',
       notifications: true, startup_notification: true, error_notifications: true, warning_notifications: false, debug_notifications: true, debug_notify: '3', notify_sec: '0',
       touchpad_toggle: true, diag: false, poll_us: '2000'
     };
@@ -435,7 +437,8 @@
         ram: sensor && s.show_ram ? 'RAM 8420/16384 MB' : '',
         vram: sensor && s.show_vram ? 'VRAM 58%' : '',
         fan: sensor && s.show_fan_duty ? 'Fan: 44%' : '',
-        power: sensor && s.show_power ? 'PWR 118 W' : ''
+        power: sensor && s.show_power ? 'PWR 118 W' : '',
+        m2Temp: sensor && s.show_m2_temp ? `${s.m2_temp_label === 'ssd' ? 'SSD' : 'M.2'} 43C` : ''
       };
 
       if (s.overlay_format === 'classic') {
@@ -456,6 +459,7 @@
         if (metrics.fan) rows.push(metrics.fan);
         push([metrics.ram, metrics.vram]);
         if (metrics.power) rows.push(metrics.power);
+        if (metrics.m2Temp) rows.push(metrics.m2Temp);
       } else {
         push([metrics.fps, metrics.ft, metrics.low], ' | ');
         if ([metrics.cpuUsage, metrics.cpuTemp, metrics.cpuClock].some(Boolean)) {
@@ -472,8 +476,8 @@
         if (metrics.ram || metrics.vram) {
           push([`MEM: ${[metrics.ram, metrics.vram].filter(Boolean).join(' | ')}`], '');
         }
-        if (metrics.fan || metrics.power) {
-          push([`SYS: ${[metrics.fan, metrics.power].filter(Boolean).join(' | ')}`], '');
+        if (metrics.fan || metrics.power || metrics.m2Temp) {
+          push([`SYS: ${[metrics.fan, metrics.power, metrics.m2Temp].filter(Boolean).join(' | ')}`], '');
         }
       }
 
@@ -600,7 +604,7 @@
     function generateConfig() {
       const s = readState();
       const bool = v => v ? '1' : '0';
-      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_opacity=${s.text_opacity}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
+      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_opacity=${s.text_opacity}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\nshow_m2_temp=${bool(s.show_m2_temp)}\nm2_temp_label=${s.m2_temp_label}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
     }
     $('copyConfig').addEventListener('click', async () => {
       const value = $('config-output').textContent;

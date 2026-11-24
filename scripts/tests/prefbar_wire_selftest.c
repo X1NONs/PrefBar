@@ -62,6 +62,9 @@ int main(void)
     p = good(); p.a = -0.01f;          CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.a = 1.01f;           CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.a = NAN;             CHECK(!prefbar_wire_valid(&p, sizeof p));
+    CHECK(PREFBAR_WIRE_VERSION == 6u);
+    CHECK(PREFBAR_ROWS == 15);
+    CHECK(sizeof(prefbar_wire_t) == 1485u);
     printf(fails ? "PrefBar wire selftest: %d FAILED\n" : "PrefBar wire selftest: all passed\n", fails);
     return fails != 0;
 }
