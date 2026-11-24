@@ -147,7 +147,7 @@ All boolean values use `0` (off) or `1` (on).
 | `text_shadow` | Draw a text shadow | `0` or `1`; default `1` |
 | `overlay_mode` | `0` compact layout, `1` extended diagnostic rows | `0` or `1`; default `0` |
 | `overlay_font` | Text font size in pixels | `10`–`96`; default `26` |
-| `overlay_corner` | Overlay anchor: `0` top-left, `2` bottom-left | `0` or `2`; default `0` |
+| `overlay_corner` | Overlay anchor: `0` top-left, `1` top-right, `2` bottom-left, `3` bottom-right | `0`–`3`; default `0` |
 | `overlay_x` | Horizontal margin in pixels | `0`–`1800`; default `24` |
 | `overlay_y` | Vertical margin in pixels | `0`–`1000`; default `24` |
 | `overlay_format` | Metric presentation: related metrics grouped into compact rows or one metric per row | `compact` or `classic`; default `compact` |
@@ -172,6 +172,8 @@ All boolean values use `0` (off) or `1` (on).
 | `diag` | Enable diagnostic captures | `0` or `1`; default `0` in the embedded PS5 build |
 | `poll_us` | Telemetry polling interval in microseconds | `500`–`20000`; default `2000` |
 
+For vertical overlays, top-right and bottom-right align each populated row to the right screen margin. Horizontal bars continue to use `overlay_horizontal_align` for left, center, or right placement; `overlay_corner` selects their top or bottom edge.
+
 Legacy keys `show_cpu`, `show_soc_temp`, and `show_memory` are read during migration to seed the new independent switches. `gpu_temp_label` is added as `gpu` to existing configurations that do not already define it. Set it to `soc` to use the previous SoC label.
 
 Example configuration:
@@ -194,6 +196,7 @@ text_color=#F2F2F2
 text_shadow=1
 overlay_mode=0
 overlay_font=26
+# 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
 overlay_corner=0
 overlay_x=24
 overlay_y=24

@@ -21,8 +21,10 @@
 #define PREFBAR_CONTROL_PORT     39029u   /* ShellUI -> controller debug/control events */
 #define PREFBAR_ROWS         14
 #define PREFBAR_ROW_LEN      96            /* incl. NUL */
-#define PREFBAR_CORNER_TL    0             /* vertical anchor: top-left */
-#define PREFBAR_CORNER_BL    2             /* vertical anchor: bottom-left */
+#define PREFBAR_CORNER_TL    0             /* top-left */
+#define PREFBAR_CORNER_TR    1             /* top-right */
+#define PREFBAR_CORNER_BL    2             /* bottom-left */
+#define PREFBAR_CORNER_BR    3             /* bottom-right */
 #define PREFBAR_WIRE_BYTES   1389u
 #define PREFBAR_WIRE_FLAG_TEXT_SHADOW       0x01u
 #define PREFBAR_WIRE_FLAG_TOUCHPAD_TOGGLE   0x02u
@@ -44,7 +46,7 @@ typedef struct prefbar_wire {
     uint16_t version;
     uint16_t size;                 /* == sizeof(prefbar_wire_t) */
     uint64_t sequence;             /* non-zero */
-    uint8_t  corner;               /* PREFBAR_CORNER_TL / PREFBAR_CORNER_BL */
+    uint8_t  corner;               /* PREFBAR_CORNER_TL / TR / BL / BR */
     uint8_t  rows;                 /* 1..PREFBAR_ROWS used rows */
     uint8_t  flags;                /* PREFBAR_WIRE_FLAG_* */
     uint16_t font_size;            /* px, 10..96 */
@@ -77,7 +79,7 @@ static inline int prefbar_wire_valid(const prefbar_wire_t *p, size_t len)
     if (!(p->flags & PREFBAR_WIRE_FLAG_HORIZONTAL) &&
         (p->flags & (PREFBAR_WIRE_FLAG_HORIZONTAL_GAP_MASK |
                      PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_MASK))) return 0;
-    if (p->corner != PREFBAR_CORNER_TL && p->corner != PREFBAR_CORNER_BL) return 0;
+    if (p->corner > PREFBAR_CORNER_BR) return 0;
     if (p->font_size < 10 || p->font_size > 96) return 0;
     if (!(p->margin_x >= 0.0f && p->margin_x <= 1800.0f)) return 0;
     if (!(p->margin_y >= 0.0f && p->margin_y <= 1000.0f)) return 0;

@@ -2683,11 +2683,10 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("overlay_font", ov_font, 26, 10, 96)
     if (strcmp(key, "overlay_corner") == 0)
     {
-        const int corner = config_int_value(value, PREFBAR_CORNER_TL,
-                                            PREFBAR_CORNER_TL, PREFBAR_CORNER_BL);
-        c->ov_corner = corner == PREFBAR_CORNER_BL
-                           ? PREFBAR_CORNER_BL
-                           : PREFBAR_CORNER_TL;
+        c->ov_corner = config_int_value(value,
+                                        PREFBAR_CORNER_TL,
+                                        PREFBAR_CORNER_TL,
+                                        PREFBAR_CORNER_BR);
         return;
     }
     CONFIG_INT("overlay_x", ov_x, 24, 0, 1800)

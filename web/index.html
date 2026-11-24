@@ -120,6 +120,7 @@
     .overlay-sample.horizontal { flex-direction: row; align-items: flex-start; flex-wrap: nowrap; gap: 0 var(--sample-gap, 10px); width: max-content; max-width: 96%; }
     .overlay-sample.align-center { transform: translateX(-50%); }
     .overlay-sample.align-right { transform: translateX(-100%); }
+    .overlay-sample.vertical-right { align-items: flex-end; transform: translateX(-100%); }
     .overlay-line { display: block; white-space: nowrap; }
     .overlay-sample.hidden { display: none; }
     .overlay-empty { color: rgba(255,255,255,.65); font: 600 8px/1.3 ui-sans-serif, system-ui, sans-serif; white-space: normal; }
@@ -248,7 +249,7 @@
                     <div class="field"><div class="field-label">Font size <span class="hint">10–96 px</span></div><div class="range-wrap"><input id="overlay_font" type="range" min="10" max="96" value="26"><span class="range-value" id="font_value">26 px</span></div></div>
                     <div class="field"><div class="field-label">Overlay format</div><div class="segmented" data-setting="overlay_format" data-value="compact"><button class="selected" data-value="compact">Compact</button><button data-value="classic">Classic</button></div><div class="hint format-help" id="format-help">Groups related readings into category rows.</div></div>
                     <div class="field"><div class="field-label">Orientation</div><div class="segmented" data-setting="overlay_horizontal" data-value="0"><button class="selected" data-value="0">Vertical</button><button data-value="1">Horizontal</button></div></div>
-                    <div class="field"><div class="field-label">Anchor position</div><select id="overlay_corner" class="select"><option value="0">Top-left</option><option value="2">Bottom-left</option></select></div>
+                    <div class="field"><div class="field-label">Anchor position</div><select id="overlay_corner" class="select"><option value="0">Top-left</option><option value="1">Top-right</option><option value="2">Bottom-left</option><option value="3">Bottom-right</option></select><div class="hint">Right-side anchors apply to vertical layouts. Horizontal bars use the separate alignment control.</div></div>
                     <div class="field"><div class="field-label">Text shadow</div><div class="toggle-row" style="padding:0;border:0;min-height:36px"><span class="hint">Improve readability over gameplay.</span><label class="switch"><input id="text_shadow" type="checkbox" checked><span class="track"></span></label></div></div>
                     <div class="field full" id="horizontal-options" style="display:none"><div class="field-label">Horizontal alignment</div><div class="segmented" data-setting="overlay_horizontal_align" data-value="center"><button data-value="left">Left</button><button class="selected" data-value="center">Center</button><button data-value="right">Right</button></div></div>
                     <div class="field" id="spacing-field" style="display:none"><div class="field-label">Metric spacing</div><div class="segmented" data-setting="overlay_horizontal_spacing" data-value="medium"><button data-value="short">Short</button><button class="selected" data-value="medium">Medium</button><button data-value="long">Long</button></div></div>
@@ -505,8 +506,11 @@
       const horizontal = s.overlay_horizontal === '1';
       sample.classList.toggle('horizontal', horizontal);
       sample.classList.toggle('hidden', !s.overlay);
+      const bottomCorner = s.overlay_corner === '2' || s.overlay_corner === '3';
+      const rightVerticalAnchor = !horizontal && (s.overlay_corner === '1' || s.overlay_corner === '3');
       sample.classList.toggle('align-center', horizontal && s.overlay_horizontal_align === 'center');
       sample.classList.toggle('align-right', horizontal && s.overlay_horizontal_align === 'right');
+      sample.classList.toggle('vertical-right', rightVerticalAnchor);
       sample.style.setProperty('--sample-color', /^#[0-9A-F]{6}$/.test(s.text_color) ? s.text_color : '#F2F2F2');
       // The preview is downscaled from a 1080p game frame; keep text legible while tracking the configured size.
       const previewScale = Math.max(0.1, screen.clientWidth / 1920);
@@ -528,13 +532,20 @@
         }
       }
       sample.style.textShadow = s.text_shadow ? `${1.5 * previewScale}px ${1.5 * previewScale}px 0 rgba(0,0,0,.82)` : 'none';
-      sample.style.left = horizontal && s.overlay_horizontal_align !== 'left'
-        ? (s.overlay_horizontal_align === 'center' ? '50%' : `calc(100% - ${Math.max(3, x)}px)`)
-        : `${Math.max(3, x)}px`;
-      sample.style.top = s.overlay_corner === '2' ? 'auto' : `${Math.max(3, y)}px`;
-      sample.style.bottom = s.overlay_corner === '2' ? `${Math.max(3, y)}px` : 'auto';
-      if (horizontal && s.overlay_horizontal_align === 'right') sample.style.left = `calc(100% - ${Math.max(3, x)}px)`;
-      if (!horizontal) sample.style.left = `${Math.max(3, x)}px`;
+      const marginX = Math.max(3, x);
+      if (horizontal) {
+        sample.style.left = s.overlay_horizontal_align === 'center'
+          ? '50%'
+          : s.overlay_horizontal_align === 'right'
+            ? `calc(100% - ${marginX}px)`
+            : `${marginX}px`;
+      } else {
+        sample.style.left = rightVerticalAnchor
+          ? `calc(100% - ${marginX}px)`
+          : `${marginX}px`;
+      }
+      sample.style.top = bottomCorner ? 'auto' : `${Math.max(3, y)}px`;
+      sample.style.bottom = bottomCorner ? `${Math.max(3, y)}px` : 'auto';
       $('horizontal-options').style.display = horizontal ? '' : 'none';
       $('spacing-field').style.display = horizontal ? '' : 'none';
       markDirty();

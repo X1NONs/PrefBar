@@ -27,6 +27,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Fan telemetry:** Fan-duty percentage. This is not an RPM reading.
 - **Memory:** RAM and VRAM usage when the relevant system interfaces are available.
 - **SoC power:** APU power consumption displayed in watts when the relevant kernel API is available.
+- **Four-corner positioning:** Place vertical overlays at the top-left, top-right, bottom-left, or bottom-right of the screen. Horizontal overlays use their separate left/center/right alignment setting.
 - **Horizontal overlay:** Display all enabled metrics in one horizontal bar, centered by default, with configurable left/center/right alignment and short, medium, or long spacing.
 - **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, and SoC power separately. The GPU temperature label defaults to the familiar "GPU" wording; set `gpu_temp_label=soc` to use the previous SoC label.
 - **Compact and classic metric formats:** Compact groups related metrics; classic preserves the previous one-metric-per-row layout. Disabled or unavailable metrics are omitted in either format.

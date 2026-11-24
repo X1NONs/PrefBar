@@ -378,6 +378,33 @@ static void test_config_file_and_values(void)
               cfg.error_notifications == 0 && cfg.warning_notifications == 0 &&
               cfg.debug_notifications == 0 && cfg.touchpad_toggle == 0,
           "notification and input switches should parse");
+
+    static const struct
+    {
+        const char *value;
+        int expected;
+    } corner_cases[] = {
+        {"0", PREFBAR_CORNER_TL},
+        {"1", PREFBAR_CORNER_TR},
+        {"2", PREFBAR_CORNER_BL},
+        {"3", PREFBAR_CORNER_BR},
+    };
+    for (unsigned i = 0; i < sizeof corner_cases / sizeof *corner_cases; ++i)
+    {
+        char corner_config[48];
+        snprintf(corner_config, sizeof corner_config,
+                 "overlay_corner=%s\n", corner_cases[i].value);
+        reset(corner_config);
+        CHECK(load_config(&cfg) == 1,
+              "overlay corner %s config should load", corner_cases[i].value);
+        CHECK(cfg.ov_corner == corner_cases[i].expected,
+              "overlay_corner=%s should parse as %d, got %d",
+              corner_cases[i].value, corner_cases[i].expected, cfg.ov_corner);
+    }
+
+    reset("overlay_corner=4\n");
+    CHECK(load_config(&cfg) == 1 && cfg.ov_corner == PREFBAR_CORNER_TL,
+          "out-of-range overlay_corner should safely fall back to top-left");
 }
 
 static void *hammer(void *arg)
