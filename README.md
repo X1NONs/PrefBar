@@ -8,9 +8,9 @@
 (**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
 
 
-A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games, without requiring a separate renderer payload.
+A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games.
 
-Make the overlay yours with PrefBar's built-in Web Control Center.
+**customize the overlay** with PrefBar's built in Web Control Center.
 
 ## Why This Exists
 
