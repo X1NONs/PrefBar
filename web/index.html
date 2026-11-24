@@ -89,7 +89,11 @@
     .select:focus, .text-input:focus { border-color: rgba(8,121,239,.65); box-shadow: none; }
     .range-wrap { display: flex; align-items: center; gap: 12px; }
     input[type="range"] { width: 100%; accent-color: var(--accent); }
+    .range-wrap input[type="range"] { flex: 1; min-width: 0; }
     .range-value { min-width: 42px; color: #EAF3FF; font-size: 11px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+    .range-number { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; color: #8c9aaa; font-size: 11px; }
+    .range-number input { width: 61px; min-height: 34px; padding: 7px 8px; border: 1px solid #2a3949; border-radius: 4px; color: #EAF3FF; background: #0d151f; text-align: right; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; outline: none; }
+    .range-number input:focus { border-color: rgba(8,121,239,.65); }
     .color-control { display: flex; align-items: center; gap: 9px; }
     input[type="color"] { appearance: none; width: 37px; height: 34px; padding: 3px; border: 1px solid #344557; border-radius: 4px; background: #0d151f; cursor: pointer; }
     input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
@@ -247,6 +251,7 @@
                   <div class="field-grid">
                     <div class="field"><div class="field-label">Text color</div><div class="color-control"><input id="text_color_picker" type="color" value="#f2f2f2"><input id="text_color" class="text-input" value="#F2F2F2" maxlength="7" spellcheck="false"></div></div>
                     <div class="field"><div class="field-label">Font size <span class="hint">10–96 px</span></div><div class="range-wrap"><input id="overlay_font" type="range" min="10" max="96" value="26"><span class="range-value" id="font_value">26 px</span></div></div>
+                    <div class="field"><div class="field-label"><label for="text_opacity">Text opacity</label><span class="hint">0–100%</span></div><div class="range-wrap"><input id="text_opacity" type="range" min="0" max="100" step="1" value="100" aria-label="Text opacity"><div class="range-number"><input id="text_opacity_value" type="number" min="0" max="100" step="1" value="100" inputmode="numeric" aria-label="Text opacity percentage"><span aria-hidden="true">%</span></div></div></div>
                     <div class="field"><div class="field-label">Overlay format</div><div class="segmented" data-setting="overlay_format" data-value="compact"><button class="selected" data-value="compact">Compact</button><button data-value="classic">Classic</button></div><div class="hint format-help" id="format-help">Groups related readings into category rows.</div></div>
                     <div class="field"><div class="field-label">Orientation</div><div class="segmented" data-setting="overlay_horizontal" data-value="0"><button class="selected" data-value="0">Vertical</button><button data-value="1">Horizontal</button></div></div>
                     <div class="field"><div class="field-label">Anchor position</div><select id="overlay_corner" class="select"><option value="0">Top-left</option><option value="1">Top-right</option><option value="2">Bottom-left</option><option value="3">Bottom-right</option></select><div class="hint">Right-side anchors apply to vertical layouts. Horizontal bars use the separate alignment control.</div></div>
@@ -378,7 +383,7 @@
     const $ = (id) => document.getElementById(id);
     const segmentedValue = (key) => document.querySelector(`[data-setting="${key}"] .selected`)?.dataset.value ?? '';
     const defaults = {
-      overlay: true, text_color: '#F2F2F2', text_shadow: true, overlay_mode: '0', overlay_font: '26', overlay_corner: '0', overlay_x: '24', overlay_y: '24',
+      overlay: true, text_color: '#F2F2F2', text_opacity: '100', text_shadow: true, overlay_mode: '0', overlay_font: '26', overlay_corner: '0', overlay_x: '24', overlay_y: '24',
       overlay_format: 'compact', overlay_horizontal: '0', overlay_horizontal_spacing: 'medium', overlay_horizontal_align: 'center',
       sensors: true, show_fps: true, show_frametime: true, show_1percent_low: true, show_cpu_usage: true, show_cpu_temp: true, show_cpu_clock: true,
       show_gpu_temp: true, gpu_temp_label: 'gpu', show_gpu_clock: true, show_fan_duty: true, show_ram: true, show_vram: true, show_power: true,
@@ -489,7 +494,7 @@
         ? 'Legacy grouped rows: frame metrics, CPU/GPU, fan, memory, and power.'
         : 'Adds compact category labels and groups related readings.';
       $('meta-orientation').textContent = s.overlay_horizontal === '1' ? 'Horizontal' : 'Vertical';
-      $('meta-color').textContent = s.text_color;
+      $('meta-color').textContent = `${s.text_color} · ${s.text_opacity}%`;
       $('meta-font').textContent = `${s.overlay_font} px`;
 
       sample.replaceChildren();
@@ -511,7 +516,10 @@
       sample.classList.toggle('align-center', horizontal && s.overlay_horizontal_align === 'center');
       sample.classList.toggle('align-right', horizontal && s.overlay_horizontal_align === 'right');
       sample.classList.toggle('vertical-right', rightVerticalAnchor);
-      sample.style.setProperty('--sample-color', /^#[0-9A-F]{6}$/.test(s.text_color) ? s.text_color : '#F2F2F2');
+      const previewColor = /^#[0-9A-F]{6}$/.test(s.text_color) ? s.text_color : '#F2F2F2';
+      const previewOpacity = Math.max(0, Math.min(100, Number(s.text_opacity) || 0)) / 100;
+      const previewRgb = [1, 3, 5].map(offset => parseInt(previewColor.slice(offset, offset + 2), 16));
+      sample.style.setProperty('--sample-color', `rgba(${previewRgb.join(', ')}, ${previewOpacity})`);
       // The preview is downscaled from a 1080p game frame; keep text legible while tracking the configured size.
       const previewScale = Math.max(0.1, screen.clientWidth / 1920);
       const requestedPreviewFont = Number(s.overlay_font) * previewScale;
@@ -565,8 +573,24 @@
       if (el.id === 'text_color') {
         if (/^#[0-9A-Fa-f]{6}$/.test(el.value)) $('text_color_picker').value = el.value;
       }
+      if (el.id === 'text_opacity') $('text_opacity_value').value = el.value;
+      if (el.id === 'text_opacity_value' && el.value !== '') {
+        const typedOpacity = Number(el.value);
+        if (Number.isFinite(typedOpacity)) {
+          $('text_opacity').value = String(Math.round(Math.max(0, Math.min(100, typedOpacity))));
+        }
+      }
       updatePreview();
     }));
+    $('text_opacity_value').addEventListener('change', () => {
+      const rawOpacity = $('text_opacity_value').value;
+      const opacity = rawOpacity === ''
+        ? Number($('text_opacity').value)
+        : Math.round(Math.max(0, Math.min(100, Number(rawOpacity))));
+      $('text_opacity').value = String(opacity);
+      $('text_opacity_value').value = String(opacity);
+      updatePreview();
+    });
     $('rawOpen').addEventListener('click', openConfig);
     $('rawOpenBottom').addEventListener('click', openConfig);
     $('modalClose').addEventListener('click', closeConfig);
@@ -576,7 +600,7 @@
     function generateConfig() {
       const s = readState();
       const bool = v => v ? '1' : '0';
-      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
+      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_opacity=${s.text_opacity}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
     }
     $('copyConfig').addEventListener('click', async () => {
       const value = $('config-output').textContent;
@@ -660,6 +684,7 @@
         else $(key).value = value;
       }
       $('text_color_picker').value = defaults.text_color;
+      $('text_opacity_value').value = $('text_opacity').value;
       updatePreview(); toast('Settings reset to PrefBar defaults.');
     });
     function applyRemoteConfig(documentText) {
@@ -679,6 +704,14 @@
       for (const [key, defaultValue] of Object.entries(defaults)) {
         const value = values[key];
         if (value === undefined) continue;
+        if (key === 'text_opacity') {
+          if (!/^(?:100|[1-9]?\d)$/.test(value)) continue;
+          const opacity = Number(value);
+          if (!Number.isInteger(opacity) || opacity < 0 || opacity > 100) continue;
+          $(key).value = String(opacity);
+          $('text_opacity_value').value = String(opacity);
+          continue;
+        }
         if (segmentedKeys.includes(key)) {
           const group = document.querySelector(`[data-setting="${key}"]`);
           if (!group || !Array.from(group.querySelectorAll('button'))

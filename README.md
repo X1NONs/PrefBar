@@ -32,7 +32,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, and SoC power separately. The GPU temperature label defaults to the familiar "GPU" wording; set `gpu_temp_label=soc` to use the previous SoC label.
 - **Compact and classic metric formats:** Compact groups related metrics; classic preserves the previous one-metric-per-row layout. Disabled or unavailable metrics are omitted in either format.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
-- **Customizable overlay:** Change text color, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
+- **Customizable overlay:** Change text color and opacity, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
 - **Quick toggle:** Triple-click the DualSense touchpad to show or hide the overlay. This can be disabled in the configuration.
 
@@ -82,7 +82,7 @@ The Web Control Center is the preferred method. For builds without it, or if you
 /data/prefbar/prefbar.conf
 ```
 
-You can edit this file with [PS5 Web File Manager](https://github.com/owendswang/ps5-web-file-manager) or any other file-management method. It supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, compact/classic metric formats, and independent visibility switches for every telemetry metric. You can also configure SoC power monitoring, touchpad controls, notifications, and diagnostics.
+You can edit this file with [PS5 Web File Manager](https://github.com/owendswang/ps5-web-file-manager) or any other file-management method. It supports overlay visibility, text color and opacity (text_opacity, from 0–100%), text shadow, font size, layout, screen position, horizontal alignment and spacing, compact/classic metric formats, and independent visibility switches for every telemetry metric. You can also configure SoC power monitoring, touchpad controls, notifications, and diagnostics.
 
 Configuration changes are automatically reloaded when a new game session starts. This behavior has been available since v0.2.1.
 
@@ -120,6 +120,7 @@ Set the `text_color` value to a six-digit hexadecimal color in `#RRGGBB` format.
 
 ```ini
 text_color=#00E5FF
+text_opacity=100
 text_shadow=1
 overlay_horizontal=1
 overlay_horizontal_align=center

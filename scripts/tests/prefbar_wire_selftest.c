@@ -56,6 +56,11 @@ int main(void)
     p = good(); p.margin_y = -1.0f;    CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.margin_x = INFINITY; CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.r = 1.5f;            CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.a = 0.0f;            CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.a = 0.5f;            CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.a = 1.0f;            CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.a = -0.01f;          CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.a = 1.01f;           CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.a = NAN;             CHECK(!prefbar_wire_valid(&p, sizeof p));
     printf(fails ? "PrefBar wire selftest: %d FAILED\n" : "PrefBar wire selftest: all passed\n", fails);
     return fails != 0;

@@ -174,6 +174,7 @@ struct TelemetryLayout {
     float r;
     float g;
     float b;
+    float a;
     bool shadow;
     bool horizontal;
     bool valid;
@@ -1233,6 +1234,7 @@ void prefbar_draw_text() {
     if (g_telemetry_layout.mx != mx || g_telemetry_layout.my != my) why |= 16u;
     if (g_telemetry_layout.r != pkt.r || g_telemetry_layout.g != pkt.g ||
         g_telemetry_layout.b != pkt.b) why |= 64u;
+    if (g_telemetry_layout.a != pkt.a) why |= 1024u;
     const bool want_shadow = (pkt.flags & PREFBAR_WIRE_FLAG_TEXT_SHADOW) != 0;
     if (g_telemetry_layout.shadow != want_shadow) why |= 128u;
     if (g_telemetry_layout.horizontal != horizontal) why |= 256u;
@@ -1301,7 +1303,7 @@ void prefbar_draw_text() {
                  g_row_rebuild_count, why, created, PREFBAR_ROWS, font_px, corner, rows);
         g_telemetry_layout = TelemetryLayout{
             font_px, requested_font, corner, layout_rows, mx, my,
-            screen_width, screen_height, pkt.r, pkt.g, pkt.b,
+            screen_width, screen_height, pkt.r, pkt.g, pkt.b, pkt.a,
             want_shadow, horizontal, created == PREFBAR_ROWS};
     }
 

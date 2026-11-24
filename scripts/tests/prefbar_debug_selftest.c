@@ -291,6 +291,8 @@ static void test_config_file_and_values(void)
           "default notifications and touchpad toggle should be enabled");
     CHECK(cfg.warning_notifications == 0 && cfg.debug_notify == 3,
           "warnings should be muted by default without lowering information verbosity");
+    CHECK(cfg.text_opacity == 100,
+          "default text opacity should be fully opaque");
 
     /* An older config's grouped toggles seed the new individual toggles. */
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");
@@ -332,6 +334,8 @@ static void test_config_file_and_values(void)
           "migration should merge notification settings into one section");
     CHECK(text_occurrences(migrated_text, "warning_notifications=0") == 1,
           "migration should add exactly one disabled warning-notification setting");
+    CHECK(text_occurrences(migrated_text, "text_opacity=100") == 1,
+          "migration should add exactly one default text-opacity setting");
 
     char migrated_header[128] = {0};
     f = fopen(PREFBAR_CONFIG_PATH, "r");
@@ -347,7 +351,7 @@ static void test_config_file_and_values(void)
     CHECK(f != NULL, "open config with explicit individual settings");
     if (f)
     {
-        fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=short\noverlay_horizontal_align=right\n"
+        fputs("[overlay]\noverlay=0\ntext_color=#123456\ntext_opacity=37\ntext_shadow=0\noverlay_font=32\noverlay_corner=2\noverlay_x=44\noverlay_y=55\noverlay_horizontal=1\noverlay_horizontal_spacing=short\noverlay_horizontal_align=right\n"
               "[notifications]\nnotifications=0\nstartup_notification=0\nerror_notifications=0\ndebug_notifications=0\ndebug_notify=0\n"
               "[telemetry]\nshow_fps=0\nshow_frametime=1\nshow_1percent_low=0\nshow_cpu_usage=0\nshow_cpu_temp=1\nshow_cpu_clock=0\nshow_gpu_temp=1\ngpu_temp_label=soc\nshow_gpu_clock=0\nshow_fan_duty=0\nshow_ram=0\nshow_vram=1\nshow_power=0\n"
               "[input]\ntouchpad_toggle=0\n", f);
@@ -367,6 +371,8 @@ static void test_config_file_and_values(void)
           "explicit horizontal alignment and spacing should be parsed");
     CHECK(cfg.overlay == 0 && cfg.text_shadow == 0,
           "overlay and text shadow settings should parse");
+    CHECK(cfg.text_opacity == 37,
+          "text_opacity=37 should parse as 37 percent");
     CHECK(cfg.ov_font == 32 && cfg.ov_corner == PREFBAR_CORNER_BL &&
               cfg.ov_x == 44 && cfg.ov_y == 55,
           "overlay geometry should parse");
@@ -405,6 +411,38 @@ static void test_config_file_and_values(void)
     reset("overlay_corner=4\n");
     CHECK(load_config(&cfg) == 1 && cfg.ov_corner == PREFBAR_CORNER_TL,
           "out-of-range overlay_corner should safely fall back to top-left");
+
+    static const struct
+    {
+        const char *value;
+        int expected;
+    } opacity_cases[] = {
+        {"0", 0},
+        {"37", 37},
+        {"100", 100},
+    };
+    for (unsigned i = 0; i < sizeof opacity_cases / sizeof *opacity_cases; ++i)
+    {
+        char opacity_config[48];
+        snprintf(opacity_config, sizeof opacity_config,
+                 "text_opacity=%s\n", opacity_cases[i].value);
+        reset(opacity_config);
+        CHECK(load_config(&cfg) == 1 &&
+                  cfg.text_opacity == opacity_cases[i].expected,
+              "text_opacity=%s should parse as %d (got %d)",
+              opacity_cases[i].value, opacity_cases[i].expected,
+              cfg.text_opacity);
+    }
+
+    reset("text_opacity=101\n");
+    CHECK(load_config(&cfg) == 1 && cfg.text_opacity == 100,
+          "out-of-range text opacity should fall back to 100 percent");
+    reset("text_opacity=-1\n");
+    CHECK(load_config(&cfg) == 1 && cfg.text_opacity == 100,
+          "negative text opacity should fall back to 100 percent");
+    reset("text_opacity=invalid\n");
+    CHECK(load_config(&cfg) == 1 && cfg.text_opacity == 100,
+          "invalid text opacity should fall back to 100 percent");
 }
 
 static void *hammer(void *arg)
