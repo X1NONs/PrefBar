@@ -4,18 +4,20 @@
 
 [![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge)](https://github.com/X1NONs/PrefBar/releases)
 
-**Version 0.3.0**
+**Version 0.3.1**
 (**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
 
 
-A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games, without requiring a separate renderer payload.
+A standalone on-screen performance overlay for jailbroken PlayStation 5 consoles. PrefBar displays live performance and system telemetry directly over your games.
+
+**customize the overlay** with PrefBar's built in Web Control Center.
 
 ## Why This Exists
 
 The built-in performance bars available in some PS5 homebrew setups can conflict with other kernel-level components or payloads, such as kstuff and etaHEN. PrefBar was created as an independent alternative: a standalone payload with its own ShellUI renderer, designed to provide in-game telemetry without depending on another payload for rendering.
 
 ![PrefBar overlay in action](Docs/image3.png)
-![PrefBar overlay in action](Docs/image1.png)
+![PrefBar overlay in action](Docs/web.png)
 > Want yours to get displayed? Check out [Screenshot Discussion](https://github.com/X1NONs/PrefBar/discussions/13).
 
 ## Features
@@ -35,10 +37,13 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 
 ## How to use it
 
-1. Download `Prefbar_V0.3.0.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.0).
-2. Load the combined ELF on your jailbroken PS5 using your usual payload loader.
-3. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
-4. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
+1. Download `Prefbar_V0.3.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.1).
+2. Load the payload ELF on your jailbroken PS5 using your usual payload loader.
+3. From a browser on the same local network, open the PrefBar Web Control Center at `http://<PS5-IP>:8998/`. Use it to configure the overlay and save your settings. The page includes a preview that updates as you adjust the controls.
+4. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
+5. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
+
+The Web Control Center is embedded in the payload and starts with PrefBar. It has no authentication, so keep the PS5 on a trusted network. If you built PrefBar with the Web Control Center disabled, use the manual configuration method below instead.
 
 ## Compatibility
 
@@ -60,19 +65,23 @@ PrefBar is designed to be a universal payload for jailbroken PS5 consoles. Howev
 
 please [open an issue](https://github.com/X1NONs/PrefBar/issues) with your result so this table can be updated.
 
-## Customization and colors
+## Customization
 
-PrefBar reads its runtime settings from:
+### Web Control Center
+
+The built-in Web Control Center is the easiest way to customize PrefBar. Open `http://<PS5-IP>:8998/` in a browser on the same local network as your PS5. Adjust the overlay appearance and layout, choose which telemetry metrics are shown, and use the preview to see how the layout responds before saving.
+
+The Save action writes the settings directly to the PS5. Changes are loaded when the next game session starts. The Control Center is included in the normal build; builds made with `PREFBAR_ENABLE_WEB=OFF` do not start the web server.
+
+### Manual configuration
+
+The Web Control Center is the preferred method. For builds without it, or if you prefer editing the file yourself, PrefBar stores its runtime settings at:
 
 ```text
 /data/prefbar/prefbar.conf
 ```
 
-The configuration supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, a selectable compact/classic metric format, and independent visibility switches for every telemetry metric.
-
-I recommend using [PS5 Web File Manager](https://github.com/owendswang/ps5-web-file-manager) for changing the config, but any method works too.
-
-You can also enable horizontal layout, SoC power monitoring, control the touchpad toggle, and configure notification and diagnostic options.
+You can edit this file with [PS5 Web File Manager](https://github.com/owendswang/ps5-web-file-manager) or any other file-management method. It supports overlay visibility, text color, text shadow, font size, layout, screen position, horizontal alignment and spacing, compact/classic metric formats, and independent visibility switches for every telemetry metric. You can also configure SoC power monitoring, touchpad controls, notifications, and diagnostics.
 
 Configuration changes are automatically reloaded when a new game session starts. This behavior has been available since v0.2.1.
 

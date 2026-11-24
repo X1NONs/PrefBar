@@ -1,6 +1,6 @@
 # Building PrefBar
 
-This document describes the build workflow for the current 0.3.0 source tree. The PS5 Payload SDK is installed separately from the repository. PrefBar does not vendor or download the SDK during the build; the compatibility sources needed by the project are already present in the source tree.
+This document describes the build workflow for the current 0.3.1 source tree. The PS5 Payload SDK is installed separately from the repository. PrefBar does not vendor or download the SDK during the build; the compatibility sources needed by the project are already present in the source tree.
 
 ## Requirements
 
@@ -36,14 +36,16 @@ The root `Makefile` invokes `scripts/scripts/build_ps5.sh`. That script:
 2. On macOS, locates the Homebrew LLVM 18 compiler binaries.
 3. Configures the repository's root `CMakeLists.txt` with `prospero-cmake` and `PREFBAR_BUILD_PS5=ON`.
 4. Builds the ShellUI renderer ELF and the controller ELF.
-5. Embeds the renderer ELF into the controller build.
+5. Embeds the renderer ELF into the controller build and, when `PREFBAR_ENABLE_WEB=ON` (the default), embeds the Web Control Center page and links its HTTP server into the controller.
 6. Runs static release-artifact verification.
 7. Stages the combined controller payload in `dist/` and writes a SHA-256 checksum file when a supported checksum utility is available.
+
+With `PREFBAR_ENABLE_WEB=OFF`, the page asset and HTTP server are omitted; the controller, telemetry worker, and ShellUI renderer are still built.
 
 The release payload is:
 
 ```text
-dist/Prefbar_V0.3.0.elf
+dist/Prefbar_V0.3.1.elf
 ```
 
 The renderer and controller ELFs under `build-ps5/` are intermediate artifacts. The combined payload is the file intended for release distribution. Do not commit generated build outputs or release binaries to the source repository; publish the final payload through GitHub Releases.
@@ -58,7 +60,7 @@ Host tests do not require the PS5 SDK and do not produce a PS5 payload:
 make test
 ```
 
-This configures the root CMake project with `PREFBAR_BUILD_PS5=OFF`, builds the test executables under `build-host/`, and runs CTest. The four tests cover telemetry wire-format validation, diagnostic-event and configuration behavior, touchpad triple-click handling, and ShellUI hook-protocol validation. The hook-protocol test checks firmware/backend selection, EFAULT diagnostic conditions, and validation of the one-byte main-thread-guard request.
+This configures the root CMake project with `PREFBAR_BUILD_PS5=OFF`, builds the seven test executables under `build-host/`, and runs CTest. The suite covers telemetry wire-format validation, diagnostic-event and configuration behavior, telemetry-pool handling, adaptive DCE counter selection, touchpad triple-click handling, ShellUI hook-protocol validation, and crash-strike tracking. The hook-protocol test checks firmware/backend selection, EFAULT diagnostic conditions, and validation of the one-byte main-thread-guard request.
 
 ## Build options
 
@@ -69,6 +71,14 @@ PREFBAR_DEBUG_NOTIFY=OFF make payload
 ```
 
 This controls the optional notification implementation at build time. Runtime notification preferences are separately configured in `/data/prefbar/prefbar.conf`.
+
+The embedded Web Control Center can also be excluded from the PS5 build:
+
+```sh
+PREFBAR_ENABLE_WEB=OFF make payload
+```
+
+This omits the embedded `web/index.html` asset and the Control Center HTTP server. The PS5 controller, telemetry worker, and embedded ShellUI renderer are still built. Set `PREFBAR_ENABLE_WEB=ON` (the default) to include the Web Control Center.
 
 ## Cleanup
 

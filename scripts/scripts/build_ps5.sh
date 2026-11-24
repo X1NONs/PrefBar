@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PS5_PAYLOAD_SDK="${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}"
 PREFBAR_DEBUG_NOTIFY="${PREFBAR_DEBUG_NOTIFY:-ON}"
+PREFBAR_ENABLE_WEB="${PREFBAR_ENABLE_WEB:-ON}"
 
 if [[ ! -x "${PS5_PAYLOAD_SDK}/bin/prospero-cmake" ]]; then
   echo "ERROR: PS5 Payload SDK not found at ${PS5_PAYLOAD_SDK}" >&2
@@ -44,7 +45,8 @@ fi
   -DCMAKE_BUILD_TYPE=Release \
   -DPREFBAR_BUILD_PS5=ON \
   -DBUILD_TESTING=OFF \
-  -DPREFBAR_DEBUG_NOTIFY="${PREFBAR_DEBUG_NOTIFY}"
+  -DPREFBAR_DEBUG_NOTIFY="${PREFBAR_DEBUG_NOTIFY}" \
+  -DPREFBAR_ENABLE_WEB="${PREFBAR_ENABLE_WEB}"
 
 if command -v nproc >/dev/null 2>&1; then
   JOBS="$(nproc)"
@@ -55,8 +57,8 @@ else
 fi
 cmake --build "${ROOT}/build-ps5" -j"${JOBS}"
 
-CONTROLLER="${ROOT}/build-ps5/PrefBar_controller_v0.3.0.elf"
-RENDERER="${ROOT}/build-ps5/PrefBar_ShellUI_v0.3.0.elf"
+CONTROLLER="${ROOT}/build-ps5/PrefBar_controller_v0.3.1.elf"
+RENDERER="${ROOT}/build-ps5/PrefBar_ShellUI_v0.3.1.elf"
 for artifact in "${CONTROLLER}" "${RENDERER}"; do
   if [[ ! -s "${artifact}" ]]; then
     echo "ERROR: expected build artifact is missing or empty: ${artifact}" >&2
@@ -88,7 +90,7 @@ else
   echo "WARNING: no objdump-compatible tool found; skipped main/fork disassembly check." >&2
 fi
 
-OUTPUT_NAME="Prefbar_V0.3.0.elf"
+OUTPUT_NAME="Prefbar_V0.3.1.elf"
 DIST="${ROOT}/dist"
 mkdir -p "${DIST}"
 TEMP_OUTPUT="${DIST}/.${OUTPUT_NAME}.tmp"
@@ -113,4 +115,4 @@ else
 fi
 
 printf '\nRelease payload: %s\n' "${DIST}/${OUTPUT_NAME}"
-echo "dist/ contains the single combined PrefBar payload."
+echo "dist/ contains the PrefBar PS5 payload."

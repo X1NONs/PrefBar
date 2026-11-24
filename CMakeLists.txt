@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(PrefBar VERSION 0.3.0 LANGUAGES C CXX)
+project(PrefBar VERSION 0.3.1 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(PREFBAR_BUILD_PS5 "Build PrefBar for the PS5 using the Payload SDK" OFF)
 option(PREFBAR_DEBUG_NOTIFY "Compile optional system-toast notifications" ON)
+option(PREFBAR_ENABLE_WEB "Compile the embedded Control Center HTTP server" ON)
 
 if(PREFBAR_BUILD_PS5)
     set(PREFBAR_SDK "$ENV{PS5_PAYLOAD_SDK}")
@@ -25,7 +26,7 @@ if(PREFBAR_BUILD_PS5)
         src/ps5/shellui_payload/prefbar_shellui_entry.cpp
     )
     set_target_properties(prefbar_shellui PROPERTIES
-        OUTPUT_NAME "PrefBar_ShellUI_v0.3.0"
+        OUTPUT_NAME "PrefBar_ShellUI_v0.3.1"
         PREFIX ""
         SUFFIX ".elf"
         NO_SONAME TRUE
@@ -76,6 +77,27 @@ if(PREFBAR_BUILD_PS5)
         VERBATIM
     )
 
+    # Embed the Control Center page only when the web server is enabled.
+    if(PREFBAR_ENABLE_WEB)
+        set(PREFBAR_WEB_BLOB_CPP
+            "${PREFBAR_GENERATED_DIR}/prefbar_web_blob.cpp")
+        add_custom_command(
+            OUTPUT "${PREFBAR_WEB_BLOB_CPP}"
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/embed_binary.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+                "${PREFBAR_WEB_BLOB_CPP}"
+                prefbar_web_index_html
+            DEPENDS web/index.html scripts/tools/embed_binary.py
+            VERBATIM
+        )
+        set(PREFBAR_WEB_SOURCES
+            web/backend/web_server.cpp
+            "${PREFBAR_WEB_BLOB_CPP}")
+    else()
+        set(PREFBAR_WEB_SOURCES)
+    endif()
+
     # Controller, PrefBar telemetry worker, and the generated renderer blob.
     add_executable(prefbar_controller
         src/ps5/prefbar_controller.cpp
@@ -89,14 +111,19 @@ if(PREFBAR_BUILD_PS5)
         src/ps5/compat/pt.c
         src/ps5/telemetry/prefbar_telemetry.c
         "${PREFBAR_SHELLUI_BLOB_CPP}"
+        ${PREFBAR_WEB_SOURCES}
     )
+    if(NOT PREFBAR_ENABLE_WEB)
+        target_compile_definitions(prefbar_controller PRIVATE PREFBAR_NO_WEB=1)
+    endif()
     set_target_properties(prefbar_controller PROPERTIES
-        OUTPUT_NAME "PrefBar_controller_v0.3.0.elf"
+        OUTPUT_NAME "PrefBar_controller_v0.3.1.elf"
     )
     target_include_directories(prefbar_controller PRIVATE
         include
         src/ps5
         src/ps5/compat
+        web/backend
         "${PREFBAR_SDK}"
         "${PREFBAR_SDK}/include"
     )

@@ -77,7 +77,7 @@ extern uint64_t prefbar_game_session_generation(void);
 #define LOCK_PATH "/system_tmp/prefbar.lock"
 #endif
 
-#define PREFBAR_VERSION "0.3.0"
+#define PREFBAR_VERSION "0.3.1"
 #define PREFBAR_CONFIG_PATH DATA_DIR "/prefbar.conf"
 #define PREFBAR_CONFIG_HEADER "# PrefBar " PREFBAR_VERSION " configuration"
 
@@ -880,7 +880,7 @@ static void dbg_startup_tick(void)
     }
     DBG_UNLOCK();
     if (send_attribution)
-        notify("PrefBar made by X1NONs");
+        notify("PrefBar V" PREFBAR_VERSION " by X1NONs");
 #if defined(PREFBAR_EMBED)
     pthread_mutex_unlock(&g_dbg_toast_mu);
 #endif
