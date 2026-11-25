@@ -1,6 +1,6 @@
 # Credits and provenance
 
-PrefBar has its own controller organization, telemetry packet, telemetry worker integration, and current overlay data path. Some low-level PS5 integration code remains derivative of earlier open-source work. Existing file-level copyright headers and SPDX identifiers are retained.
+Some low-level PS5 integration code remains derivative of earlier open-source work. Existing file-level copyright headers and SPDX identifiers are retained.
 
 - **Common FPS for PS5** — porhe911, GPL-3.0-or-later: portions of the ShellUI loader, hook/controller integration and renderer base; its adaptive DCE sampler is the basis for finding the flip counter on older firmware. https://github.com/porhe911/Common-FPS-for-PS5
 - **SimpleFPS** — khalifa007, GPL-3.0-or-later: inherited PS5 firmware compatibility changes. https://github.com/khalifa007/SimpleFPS
@@ -9,5 +9,3 @@ PrefBar has its own controller organization, telemetry packet, telemetry worker 
 - **PS5 Payload SDK** — John Törnblom and contributors: toolchain and system headers. https://github.com/ps5-payload-dev/sdk
 - **PS5 Web File Manager** — owendswang, GPL-3.0-or-later: Media-category launcher registration flow adapted for PrefBar's Control Center shortcut, including the `param.json`/`icon0.png` layout and AppInstUtil title-directory registration with `AppInstallAll` fallback. https://github.com/owendswang/ps5-web-file-manager
 - **etaHEN** — LightningMods and contributors: telemetry API/source reference for DCE, CPU, memory and sensor integrations; it is not a build dependency or separately included source checkout. https://github.com/etaHEN/etaHEN
-
-PrefBar-specific organization is centered on `src/ps5/prefbar_controller.cpp`, `src/ps5/telemetry/prefbar_telemetry.c`, `src/ps5/shellui_payload/`, and `include/prefbar/`.
