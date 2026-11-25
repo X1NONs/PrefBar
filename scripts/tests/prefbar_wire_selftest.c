@@ -17,7 +17,8 @@ static prefbar_wire_t good(void)
     prefbar_wire_t p;
     memset(&p, 0, sizeof p);
     p.magic = PREFBAR_WIRE_MAGIC; p.version = PREFBAR_WIRE_VERSION; p.size = sizeof p;
-    p.sequence = 1; p.corner = PREFBAR_CORNER_TL; p.rows = 3; p.font_size = 24;
+    p.sequence = 1; p.corner = PREFBAR_CORNER_TL; p.rows = 3;
+    p.background_enabled = 1; p.background_opacity = 70; p.font_size = 24;
     p.margin_x = 20; p.margin_y = 20; p.r = p.g = p.b = p.a = 1.0f;
     strcpy(p.text[0], "FPS 60.0");
     return p;
@@ -26,11 +27,11 @@ static prefbar_wire_t good(void)
 int main(void)
 {
     prefbar_wire_t p;
-    CHECK(sizeof(prefbar_wire_t) == 1389);
-    CHECK(offsetof(prefbar_wire_t, text) == 45);
+    CHECK(sizeof(prefbar_wire_t) == 1487);
+    CHECK(offsetof(prefbar_wire_t, text) == 47);
     p = good(); { unsigned char b[4]; memcpy(b, &p.magic, 4); CHECK(!memcmp(b, "PBAR", 4)); }
     p = good(); CHECK(prefbar_wire_valid(&p, sizeof p) == 1);
-    CHECK(offsetof(prefbar_wire_t, text) == 45);
+    CHECK(offsetof(prefbar_wire_t, text) == 47);
     CHECK(prefbar_wire_valid(NULL, sizeof p) == 0);
     p = good(); CHECK(prefbar_wire_valid(&p, sizeof p - 1) == 0);      /* length mismatch */
     p = good(); p.magic ^= 1;          CHECK(!prefbar_wire_valid(&p, sizeof p));
@@ -55,6 +56,10 @@ int main(void)
     p = good(); p.corner = PREFBAR_CORNER_BL; CHECK(prefbar_wire_valid(&p, sizeof p));
     p = good(); p.corner = PREFBAR_CORNER_BR; CHECK(prefbar_wire_valid(&p, sizeof p));
     p = good(); p.corner = PREFBAR_CORNER_BR + 1; CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.background_enabled = 2; CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.background_opacity = 101; CHECK(!prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.background_enabled = 0; p.background_opacity = 0; CHECK(prefbar_wire_valid(&p, sizeof p));
+    p = good(); p.background_opacity = 100; CHECK(prefbar_wire_valid(&p, sizeof p));
     p = good(); p.font_size = 9;       CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.font_size = 97;      CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.margin_x = NAN;      CHECK(!prefbar_wire_valid(&p, sizeof p));
@@ -67,9 +72,9 @@ int main(void)
     p = good(); p.a = -0.01f;          CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.a = 1.01f;           CHECK(!prefbar_wire_valid(&p, sizeof p));
     p = good(); p.a = NAN;             CHECK(!prefbar_wire_valid(&p, sizeof p));
-    CHECK(PREFBAR_WIRE_VERSION == 6u);
+    CHECK(PREFBAR_WIRE_VERSION == 7u);
     CHECK(PREFBAR_ROWS == 15);
-    CHECK(sizeof(prefbar_wire_t) == 1485u);
+    CHECK(sizeof(prefbar_wire_t) == 1487u);
     printf(fails ? "PrefBar wire selftest: %d FAILED\n" : "PrefBar wire selftest: all passed\n", fails);
     return fails != 0;
 }

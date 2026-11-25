@@ -130,7 +130,7 @@ On first start, the telemetry worker creates this file if it does not already ex
 /data/prefbar/prefbar.conf
 ```
 
-It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new `overlay_format=compact` default, `text_opacity=100`, per-metric visibility settings, `gpu_temp_label=gpu` when the label option is absent, and the enabled-by-default M.2 temperature metric with `m2_temp_label=m2`. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU-temperature visibility (`show_gpu_temp`, retained as the current compatibility key for the SoC sensor 0 reading); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
+It does not overwrite an existing file. On upgrade, PrefBar adds any missing options introduced by the new version while preserving existing entries and values. Migration preserves existing values and adds missing horizontal alignment, the new `overlay_format=compact` default, `text_opacity=100`, `background_enabled=1` and `background_opacity=70`, per-metric visibility settings, `gpu_temp_label=gpu` when the label option is absent, and the enabled-by-default M.2 temperature metric with `m2_temp_label=m2`. In older configurations, the new switches inherit the former grouped values: `show_fps` seeds FPS, frametime, and 1% low; `show_cpu` seeds CPU usage and CPU temperature; `show_soc_temp` seeds GPU-temperature visibility (`show_gpu_temp`, retained as the current compatibility key for the SoC sensor 0 reading); and `show_memory` seeds RAM and VRAM. Existing clock, fan, and power switches are preserved. New horizontal alignment defaults to `center`. The new metric format defaults to `compact`; existing configurations receive that setting during migration, while `overlay_format=classic` restores the previous one-metric-per-row presentation. The controller reloads the file once when a new game session is confirmed; there is no continuous polling. A failed read keeps the last successfully loaded settings until the next game session.
 
 The parser reads simple `key=value` lines. Blank lines, comment lines beginning with `#` or `;`, and section labels such as `[overlay]` are ignored. Section labels are for readability only; keys are matched globally, not scoped to a section. Use each key once. Unknown keys and malformed/out-of-range values are ignored and the built-in default is used. Each reload reads one file snapshot, so settings from separate saves are not mixed.
 
@@ -148,6 +148,8 @@ All boolean values use `0` (off) or `1` (on).
 | `overlay` | Show or hide the on-screen overlay | `0` or `1`; default `1` |
 | `text_color` | Overlay text color | `#RRGGBB`; default `#F2F2F2` |
 | `text_opacity` | Overlay text opacity; the text shadow remains controlled separately | `0`–`100` percent; default `100` |
+| `background_enabled` | Show one shared black background panel behind the overlay rows | `0` or `1`; default `1` |
+| `background_opacity` | Opacity of the shared black background panel; independent of text opacity | `0`–`100` percent; default `70` |
 | `text_shadow` | Draw a text shadow | `0` or `1`; default `1` |
 | `overlay_mode` | `0` compact layout, `1` extended diagnostic rows | `0` or `1`; default `0` |
 | `overlay_font` | Text font size in pixels | `10`–`96`; default `26` |
@@ -199,6 +201,9 @@ notify_sec=0
 [overlay]
 overlay=1
 text_color=#F2F2F2
+text_opacity=100
+background_enabled=1
+background_opacity=70
 text_shadow=1
 overlay_mode=0
 overlay_font=26

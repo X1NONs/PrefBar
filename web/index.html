@@ -254,6 +254,8 @@
                     <div class="field"><div class="field-label">Text color</div><div class="color-control"><input id="text_color_picker" type="color" value="#f2f2f2"><input id="text_color" class="text-input" value="#F2F2F2" maxlength="7" spellcheck="false"></div></div>
                     <div class="field"><div class="field-label">Font size <span class="hint">10–96 px</span></div><div class="range-wrap"><input id="overlay_font" type="range" min="10" max="96" value="26"><span class="range-value" id="font_value">26 px</span></div></div>
                     <div class="field"><div class="field-label"><label for="text_opacity">Text opacity</label><span class="hint">0–100%</span></div><div class="range-wrap"><input id="text_opacity" type="range" min="0" max="100" step="1" value="100" aria-label="Text opacity"><div class="range-number"><input id="text_opacity_value" type="number" min="0" max="100" step="1" value="100" inputmode="numeric" aria-label="Text opacity percentage"><span aria-hidden="true">%</span></div></div></div>
+                    <div class="field full"><div class="toggle-row" style="padding:0;border:0;min-height:36px"><div class="toggle-copy"><div class="toggle-name">Black background</div><div class="toggle-help">Show one shared black panel behind the overlay rows.</div></div><label class="switch"><input id="background_enabled" type="checkbox" checked><span class="track"></span></label></div></div>
+                    <div class="field"><div class="field-label"><label for="background_opacity">Background opacity</label><span class="hint">0–100%</span></div><div class="range-wrap"><input id="background_opacity" type="range" min="0" max="100" step="1" value="70" aria-label="Background opacity"><div class="range-number"><input id="background_opacity_value" type="number" min="0" max="100" step="1" value="70" inputmode="numeric" aria-label="Background opacity percentage"><span aria-hidden="true">%</span></div></div></div>
                     <div class="field"><div class="field-label">Overlay format</div><div class="segmented" data-setting="overlay_format" data-value="compact"><button class="selected" data-value="compact">Compact</button><button data-value="classic">Classic</button></div><div class="hint format-help" id="format-help">Groups related readings into category rows.</div></div>
                     <div class="field"><div class="field-label">Orientation</div><div class="segmented" data-setting="overlay_horizontal" data-value="0"><button class="selected" data-value="0">Vertical</button><button data-value="1">Horizontal</button></div></div>
                     <div class="field"><div class="field-label">Anchor position</div><select id="overlay_corner" class="select"><option value="0">Top-left</option><option value="1">Top-right</option><option value="2">Bottom-left</option><option value="3">Bottom-right</option></select><div class="hint">Right-side anchors apply to vertical layouts. Horizontal bars use the separate alignment control.</div></div>
@@ -387,7 +389,7 @@
     const $ = (id) => document.getElementById(id);
     const segmentedValue = (key) => document.querySelector(`[data-setting="${key}"] .selected`)?.dataset.value ?? '';
     const defaults = {
-      overlay: true, text_color: '#F2F2F2', text_opacity: '100', text_shadow: true, overlay_mode: '0', overlay_font: '26', overlay_corner: '0', overlay_x: '24', overlay_y: '24',
+      overlay: true, text_color: '#F2F2F2', text_opacity: '100', background_enabled: true, background_opacity: '70', text_shadow: true, overlay_mode: '0', overlay_font: '26', overlay_corner: '0', overlay_x: '24', overlay_y: '24',
       overlay_format: 'compact', overlay_horizontal: '0', overlay_horizontal_spacing: 'medium', overlay_horizontal_align: 'center',
       sensors: true, show_fps: true, show_frametime: true, show_1percent_low: true, show_cpu_usage: true, show_cpu_temp: true, show_cpu_clock: true,
       show_gpu_temp: true, gpu_temp_label: 'gpu', show_gpu_clock: true, show_fan_duty: true, show_ram: true, show_vram: true, show_power: true, show_m2_temp: true, m2_temp_label: 'm2',
@@ -526,8 +528,17 @@
       const previewOpacity = Math.max(0, Math.min(100, Number(s.text_opacity) || 0)) / 100;
       const previewRgb = [1, 3, 5].map(offset => parseInt(previewColor.slice(offset, offset + 2), 16));
       sample.style.setProperty('--sample-color', `rgba(${previewRgb.join(', ')}, ${previewOpacity})`);
+      const backgroundOpacity = Math.max(0, Math.min(100, Number(s.background_opacity) || 0)) / 100;
+      const previewHasBackground = !!s.background_enabled && rows.length > 0;
       // The preview is downscaled from a 1080p game frame; keep text legible while tracking the configured size.
       const previewScale = Math.max(0.1, screen.clientWidth / 1920);
+      sample.style.backgroundColor = previewHasBackground
+        ? `rgba(0, 0, 0, ${backgroundOpacity})`
+        : 'transparent';
+      sample.style.borderRadius = previewHasBackground ? `${7 * previewScale}px` : '0';
+      sample.style.padding = previewHasBackground
+        ? `${6 * previewScale}px ${10 * previewScale}px`
+        : '0';
       const requestedPreviewFont = Number(s.overlay_font) * previewScale;
       sample.style.setProperty('--sample-font', `${requestedPreviewFont}px`);
       const gapScale = { short: 0.35, medium: 0.72, long: 1.15 }[s.overlay_horizontal_spacing] ?? 0.72;
@@ -580,6 +591,13 @@
         if (/^#[0-9A-Fa-f]{6}$/.test(el.value)) $('text_color_picker').value = el.value;
       }
       if (el.id === 'text_opacity') $('text_opacity_value').value = el.value;
+      if (el.id === 'background_opacity') $('background_opacity_value').value = el.value;
+      if (el.id === 'background_opacity_value' && el.value !== '') {
+        const typedBackgroundOpacity = Number(el.value);
+        if (Number.isFinite(typedBackgroundOpacity)) {
+          $('background_opacity').value = String(Math.round(Math.max(0, Math.min(100, typedBackgroundOpacity))));
+        }
+      }
       if (el.id === 'text_opacity_value' && el.value !== '') {
         const typedOpacity = Number(el.value);
         if (Number.isFinite(typedOpacity)) {
@@ -597,6 +615,15 @@
       $('text_opacity_value').value = String(opacity);
       updatePreview();
     });
+    $('background_opacity_value').addEventListener('change', () => {
+      const rawOpacity = $('background_opacity_value').value;
+      const opacity = rawOpacity === ''
+        ? Number($('background_opacity').value)
+        : Math.round(Math.max(0, Math.min(100, Number(rawOpacity))));
+      $('background_opacity').value = String(opacity);
+      $('background_opacity_value').value = String(opacity);
+      updatePreview();
+    });
     $('rawOpen').addEventListener('click', openConfig);
     $('rawOpenBottom').addEventListener('click', openConfig);
     $('modalClose').addEventListener('click', closeConfig);
@@ -606,7 +633,7 @@
     function generateConfig() {
       const s = readState();
       const bool = v => v ? '1' : '0';
-      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_opacity=${s.text_opacity}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\nshow_m2_temp=${bool(s.show_m2_temp)}\nm2_temp_label=${s.m2_temp_label}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
+      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_opacity=${s.text_opacity}\nbackground_enabled=${bool(s.background_enabled)}\nbackground_opacity=${s.background_opacity}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\nshow_m2_temp=${bool(s.show_m2_temp)}\nm2_temp_label=${s.m2_temp_label}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
     }
     $('copyConfig').addEventListener('click', async () => {
       const value = $('config-output').textContent;
@@ -691,6 +718,7 @@
       }
       $('text_color_picker').value = defaults.text_color;
       $('text_opacity_value').value = $('text_opacity').value;
+      $('background_opacity_value').value = $('background_opacity').value;
       updatePreview(); toast('Settings reset to PrefBar defaults.');
     });
     function applyRemoteConfig(documentText) {
@@ -716,6 +744,14 @@
           if (!Number.isInteger(opacity) || opacity < 0 || opacity > 100) continue;
           $(key).value = String(opacity);
           $('text_opacity_value').value = String(opacity);
+          continue;
+        }
+        if (key === 'background_opacity') {
+          if (!/^(?:100|[1-9]?\d)$/.test(value)) continue;
+          const opacity = Number(value);
+          if (!Number.isInteger(opacity) || opacity < 0 || opacity > 100) continue;
+          $(key).value = String(opacity);
+          $('background_opacity_value').value = String(opacity);
           continue;
         }
         if (segmentedKeys.includes(key)) {

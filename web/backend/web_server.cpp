@@ -110,6 +110,8 @@ constexpr ConfigRule kConfigRules[] = {
     {"overlay", ValueKind::Boolean, 0, 1, nullptr},
     {"text_color", ValueKind::Color, 0, 0, nullptr},
     {"text_opacity", ValueKind::Integer, 0, 100, nullptr},
+    {"background_enabled", ValueKind::Boolean, 0, 1, nullptr},
+    {"background_opacity", ValueKind::Integer, 0, 100, nullptr},
     {"text_shadow", ValueKind::Boolean, 0, 1, nullptr},
     {"overlay_mode", ValueKind::Boolean, 0, 1, nullptr},
     {"overlay_font", ValueKind::Integer, 10, 96, nullptr},

@@ -372,6 +372,8 @@ static int migration_config_key_index(const char *line)
         "overlay_horizontal_align",
         "overlay_format",
         "text_opacity",
+        "background_enabled",
+        "background_opacity",
         "show_frametime",
         "show_1percent_low",
         "show_cpu_usage",
@@ -415,7 +417,7 @@ static int migration_config_key_index(const char *line)
  */
 static void deduplicate_migrated_config_options(void)
 {
-    enum { KEY_COUNT = 19 };
+    enum { KEY_COUNT = 21 };
     config_migration_line_t *lines =
         (config_migration_line_t *)calloc(PREFBAR_CONFIG_MAX_LINES, sizeof(*lines));
     if (!lines)
@@ -650,6 +652,10 @@ static void migrate_config_options(void)
         !read_config_value("overlay_format", value, sizeof(value));
     const int add_text_opacity =
         !read_config_value("text_opacity", value, sizeof(value));
+    const int add_background_enabled =
+        !read_config_value("background_enabled", value, sizeof(value));
+    const int add_background_opacity =
+        !read_config_value("background_opacity", value, sizeof(value));
 
     const int add_show_frametime =
         !read_config_value("show_frametime", value, sizeof(value));
@@ -682,6 +688,7 @@ static void migrate_config_options(void)
 
     if (!add_warning_notifications && !add_overlay_horizontal && !add_overlay_horizontal_spacing &&
         !add_overlay_horizontal_align && !add_overlay_format && !add_text_opacity &&
+        !add_background_enabled && !add_background_opacity &&
         !add_show_frametime &&
         !add_show_1percent_low && !add_show_cpu_usage && !add_show_cpu_temp &&
         !add_show_gpu_temp && !add_show_ram && !add_show_vram &&
@@ -702,7 +709,8 @@ static void migrate_config_options(void)
         (void)fputs("\n[notifications]\nwarning_notifications=0\n", f);
 
     if (add_overlay_horizontal || add_overlay_horizontal_spacing ||
-        add_overlay_horizontal_align || add_overlay_format || add_text_opacity)
+        add_overlay_horizontal_align || add_overlay_format || add_text_opacity ||
+        add_background_enabled || add_background_opacity)
     {
         (void)fputs("\n[overlay]\n", f);
         if (add_overlay_horizontal)
@@ -715,6 +723,10 @@ static void migrate_config_options(void)
             (void)fputs("overlay_format=compact\n", f);
         if (add_text_opacity)
             (void)fputs("text_opacity=100\n", f);
+        if (add_background_enabled)
+            (void)fputs("background_enabled=1\n", f);
+        if (add_background_opacity)
+            (void)fputs("background_opacity=70\n", f);
     }
 
     if (add_show_frametime || add_show_1percent_low || add_show_cpu_usage ||
@@ -778,6 +790,8 @@ static void ensure_default_config_file(void)
         "overlay=1\n"
         "text_color=#F2F2F2\n"
         "text_opacity=100\n"
+        "background_enabled=1\n"
+        "background_opacity=70\n"
         "text_shadow=1\n"
         "overlay_mode=0\n"
         "overlay_font=26\n"
@@ -2146,6 +2160,7 @@ typedef struct
     int warning_notifications, debug_notifications;
     int debug_notify;
     int text_shadow, text_opacity;
+    int background_enabled, background_opacity;
     int show_fps, show_frametime, show_1percent_low;
     int show_cpu_usage, show_cpu_temp, show_cpu_clock;
     int show_gpu_temp, show_gpu_clock, show_fan_duty;
@@ -2494,6 +2509,8 @@ static void overlay_send(const config_t *cfg, char rows[PREFBAR_ROWS][PREFBAR_RO
     p.g = cfg->text_g;
     p.b = cfg->text_b;
     p.a = (float)cfg->text_opacity / 100.0f;
+    p.background_enabled = (uint8_t)cfg->background_enabled;
+    p.background_opacity = (uint8_t)cfg->background_opacity;
     for (int i = 0; i < n; i++)
     {
         size_t len = strnlen(rows[i], PREFBAR_ROW_LEN - 1);
@@ -2714,6 +2731,8 @@ static void config_defaults(config_t *c)
     c->debug_notify = 1;
     c->text_shadow = 1;
     c->text_opacity = 100;
+    c->background_enabled = 1;
+    c->background_opacity = 70;
     c->show_fps = 1;
     c->show_frametime = 1;
     c->show_1percent_low = 1;
@@ -2803,6 +2822,8 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("debug_notify", debug_notify, 1, 0, DBG_TRACE)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
     CONFIG_INT("text_opacity", text_opacity, 100, 0, 100)
+    CONFIG_INT("background_enabled", background_enabled, 1, 0, 1)
+    CONFIG_INT("background_opacity", background_opacity, 70, 0, 100)
     CONFIG_INT("show_fps", show_fps, 1, 0, 1)
     CONFIG_INT("show_frametime", show_frametime, 1, 0, 1)
     CONFIG_INT("show_1percent_low", show_1percent_low, 1, 0, 1)

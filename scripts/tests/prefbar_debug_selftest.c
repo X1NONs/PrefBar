@@ -315,6 +315,11 @@ static void test_config_file_and_values(void)
           "only startup and error notifications should be enabled by default");
     CHECK(cfg.text_opacity == 100,
           "default text opacity should be fully opaque");
+    CHECK(strstr(defaults_text, "background_enabled=1") != NULL &&
+              strstr(defaults_text, "background_opacity=70") != NULL,
+          "default config should enable the black background at 70 percent opacity");
+    CHECK(cfg.background_enabled == 1 && cfg.background_opacity == 70,
+          "background defaults should be enabled with 70 percent opacity");
 
     /* An older config's grouped toggles seed the new individual toggles. */
     FILE *f = fopen(PREFBAR_CONFIG_PATH, "w");
@@ -343,6 +348,8 @@ static void test_config_file_and_values(void)
               cfg.overlay_horizontal_spacing == PREFBAR_HORIZONTAL_SPACING_LONG &&
               cfg.overlay_horizontal_align == PREFBAR_HORIZONTAL_ALIGN_CENTER,
           "migration should preserve existing spacing and default new alignment to center");
+    CHECK(cfg.background_enabled == 1 && cfg.background_opacity == 70,
+          "legacy configs should receive the enabled 70 percent background defaults");
     CHECK(cfg.warning_notifications == 0,
           "legacy configs without warning_notifications should migrate to warnings muted");
     char migrated_text[8192] = {0};
@@ -358,6 +365,9 @@ static void test_config_file_and_values(void)
           "migration should add exactly one disabled warning-notification setting");
     CHECK(text_occurrences(migrated_text, "text_opacity=100") == 1,
           "migration should add exactly one default text-opacity setting");
+    CHECK(text_occurrences(migrated_text, "background_enabled=1") == 1 &&
+              text_occurrences(migrated_text, "background_opacity=70") == 1,
+          "migration should add exactly one background enable and opacity setting");
     CHECK(text_occurrences(migrated_text, "show_m2_temp=1") == 1 &&
               text_occurrences(migrated_text, "m2_temp_label=m2") == 1,
           "migration should add the M.2 metric and label exactly once");

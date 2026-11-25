@@ -33,7 +33,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, SoC power, and M.2 temperature separately. The GPU label can be changed with `gpu_temp_label`; the M.2 label defaults to `m2` and can be changed to `ssd` with `m2_temp_label=ssd`.
 - **Compact and classic metric formats:** Compact groups related metrics; classic preserves the previous one-metric-per-row layout. Disabled metrics are omitted, and an exposed M.2 sensor channel with no valid reading displays N/A.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
-- **Customizable overlay:** Change text color and opacity, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
+- **Customizable overlay:** Change text color and opacity, the shared black background and its independent opacity, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
 - **Quick toggle:** Triple-click the DualSense touchpad to show or hide the overlay. This can be disabled in the configuration.
 
