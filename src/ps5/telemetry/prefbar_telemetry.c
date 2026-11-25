@@ -1,3 +1,4 @@
+// Copyright (C) 2026 X1NONs
 // SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * PrefBar telemetry engine. Runs as a thread inside the controller process.

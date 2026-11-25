@@ -1,4 +1,9 @@
 /*
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/*
  * PrefBar web Control Center server.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

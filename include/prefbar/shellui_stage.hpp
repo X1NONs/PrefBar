@@ -1,6 +1,7 @@
 /*
  * PrefBar PS5 component (derived-source notices in CREDITS.md)
  * Copyright (C) 2026 porhe911
+ * Modifications Copyright (C) 2026 X1NONs
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 

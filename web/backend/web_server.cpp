@@ -1,5 +1,6 @@
 /*
  * PrefBar web Control Center HTTP server.
+ * Copyright (C) 2026 X1NONs
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * The page is embedded into the controller at build time. The server exposes

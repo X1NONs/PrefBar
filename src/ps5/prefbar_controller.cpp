@@ -1,5 +1,6 @@
 /*
  * PrefBar PS5 controller
+ * Copyright (C) 2026 X1NONs
  * Portions of the ShellUI discovery/injection path derive from the GPL sources
  * listed in CREDITS.md and retain their original file-level attribution.
  * SPDX-License-Identifier: GPL-3.0-or-later

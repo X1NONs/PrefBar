@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 #include "prefbar/crash_strikes.hpp"
 
 #include <cassert>

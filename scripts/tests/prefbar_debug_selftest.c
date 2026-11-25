@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later
+/*
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * Host self-test for the prefbar debug-event layer (cooldown, toast cap, level gating,
  * log rotation, thread safety). It includes the telemetry implementation directly to reach the internals.
  *

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 X1NONs
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 cmake_minimum_required(VERSION 3.20)
 project(PrefBar VERSION 0.3.1 LANGUAGES C CXX)
 

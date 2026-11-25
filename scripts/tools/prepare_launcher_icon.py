@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 X1NONs
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Create the square PS5 launcher icon from PrefBar's existing wordmark.
 
 The source logo is a non-interlaced, 8-bit RGB PNG. This converter uses only

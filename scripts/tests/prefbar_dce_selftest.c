@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later
+/*
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * Host self-test for choosing the /dev/dce flip-counter field (issue #17).
  * It includes the telemetry implementation directly to reach the internals.
  *

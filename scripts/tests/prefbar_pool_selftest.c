@@ -1,4 +1,7 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
 #include "../../src/ps5/telemetry/prefbar_telemetry.c"
 
 static int g_fail;

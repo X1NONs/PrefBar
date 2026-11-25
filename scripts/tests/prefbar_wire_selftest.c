@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* build as C and as C++:  cc -I include scripts/tests/prefbar_wire_selftest.c   /  c++ -x c++ ... */
 #include "prefbar/telemetry_wire.h"
 #include <math.h>

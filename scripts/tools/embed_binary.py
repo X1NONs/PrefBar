@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 X1NONs
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Embed a binary file as a C++ byte array for the PS5 controller."""
 
 from pathlib import Path

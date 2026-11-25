@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 #include "ps5_platform.hpp"
 
 #include <sys/sysctl.h>

@@ -1,5 +1,6 @@
 /*
  * PrefBar Media shortcut installer.
+ * Copyright (C) 2026 X1NONs
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 

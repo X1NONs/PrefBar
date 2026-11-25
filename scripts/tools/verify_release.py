@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 X1NONs
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Static checks for the combined PrefBar PS5 release payload."""
 
 from __future__ import annotations

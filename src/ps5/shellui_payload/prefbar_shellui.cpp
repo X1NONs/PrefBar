@@ -4,6 +4,7 @@
  * Modifications Copyright (C) 2026 khalifa007 (SimpleFPS)
  * Modifications Copyright (C) 2026 erickdavestech
  *
+ * Modifications Copyright (C) 2026 X1NONs
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 

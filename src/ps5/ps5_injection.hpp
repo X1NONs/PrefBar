@@ -1,4 +1,8 @@
-/* PrefBar PS5 injection and remote-execution interfaces. */
+/*
+ * PrefBar PS5 injection and remote-execution interfaces.
+ * Copyright (C) 2026 X1NONs
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
 #pragma once
 
 #include "prefbar/shellui_hook_protocol.hpp"

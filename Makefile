@@ -1,3 +1,6 @@
+# Copyright (C) 2026 X1NONs
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 BUILD_HOST ?= build-host
 
 .PHONY: all configure test payload clean distclean
