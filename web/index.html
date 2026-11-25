@@ -310,12 +310,12 @@
                 <div class="card-head"><div><div class="card-title">Notifications</div><div class="card-desc">Control system toasts and the amount of diagnostic chatter.</div></div></div>
                 <div class="card-body">
                   <div class="toggle-row"><div class="toggle-copy"><div class="toggle-name">System notifications</div><div class="toggle-help">Master switch for PrefBar system toasts.</div></div><label class="switch"><input id="notifications" type="checkbox" checked><span class="track"></span></label></div>
-                  <div class="toggle-row"><div class="toggle-copy"><div class="toggle-name">Startup notification</div><div class="toggle-help">Show the delayed startup attribution toast.</div></div><label class="switch"><input id="startup_notification" type="checkbox" checked><span class="track"></span></label></div>
+                  <div class="toggle-row"><div class="toggle-copy"><div class="toggle-name">Startup notifications</div><div class="toggle-help">Show the PrefBar attribution and Control Center startup-status toasts.</div></div><label class="switch"><input id="startup_notification" type="checkbox" checked><span class="track"></span></label></div>
                   <div class="toggle-row"><div class="toggle-copy"><div class="toggle-name">Error notifications</div><div class="toggle-help">Show error toasts when a fault is detected.</div></div><label class="switch"><input id="error_notifications" type="checkbox" checked><span class="track"></span></label></div>
                   <div class="toggle-row"><div class="toggle-copy"><div class="toggle-name">Warning notifications</div><div class="toggle-help">Warnings remain in debug.log when toast display is off.</div></div><label class="switch"><input id="warning_notifications" type="checkbox"><span class="track"></span></label></div>
-                  <div class="toggle-row"><div class="toggle-copy"><div class="toggle-name">Debug notifications</div><div class="toggle-help">Show non-error, non-warning milestones as toasts.</div></div><label class="switch"><input id="debug_notifications" type="checkbox" checked><span class="track"></span></label></div>
+                  <div class="toggle-row"><div class="toggle-copy"><div class="toggle-name">Debug notifications</div><div class="toggle-help">Show non-error, non-warning milestones as toasts.</div></div><label class="switch"><input id="debug_notifications" type="checkbox"><span class="track"></span></label></div>
                   <div class="field-grid" style="margin-top:20px">
-                    <div class="field"><div class="field-label">Maximum toast verbosity</div><select id="debug_notify" class="select"><option value="0">Off</option><option value="1">Errors</option><option value="2">Warnings</option><option value="3" selected>Information</option><option value="4">Trace</option></select></div>
+                    <div class="field"><div class="field-label">Maximum toast verbosity</div><select id="debug_notify" class="select"><option value="0">Off</option><option value="1" selected>Errors</option><option value="2">Warnings</option><option value="3">Information</option><option value="4">Trace</option></select></div>
                     <div class="field"><div class="field-label">Periodic toast interval <span class="hint">seconds · 0 disables</span></div><input id="notify_sec" class="text-input" type="number" min="0" max="3600" value="0"></div>
                   </div>
                 </div>
@@ -391,7 +391,7 @@
       overlay_format: 'compact', overlay_horizontal: '0', overlay_horizontal_spacing: 'medium', overlay_horizontal_align: 'center',
       sensors: true, show_fps: true, show_frametime: true, show_1percent_low: true, show_cpu_usage: true, show_cpu_temp: true, show_cpu_clock: true,
       show_gpu_temp: true, gpu_temp_label: 'gpu', show_gpu_clock: true, show_fan_duty: true, show_ram: true, show_vram: true, show_power: true, show_m2_temp: true, m2_temp_label: 'm2',
-      notifications: true, startup_notification: true, error_notifications: true, warning_notifications: false, debug_notifications: true, debug_notify: '3', notify_sec: '0',
+      notifications: true, startup_notification: true, error_notifications: true, warning_notifications: false, debug_notifications: false, debug_notify: '1', notify_sec: '0',
       touchpad_toggle: true, diag: false, poll_us: '2000'
     };
     let initialSnapshot = '';

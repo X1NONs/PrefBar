@@ -113,8 +113,9 @@ static uint64_t now_ns(void)
 /* ------------------------------------------------------- debug events
  * dbg_event() is the single entry point. Each event is appended to
  * <DATA_DIR>/debug.log and, when its level is <= "debug_notify" from
- * prefbar.conf, shown as a system toast.
- *   debug_notify = 0 off | 1 errors | 2 +warnings | 3 +milestones (default) | 4 +trace
+ * prefbar.conf, shown as a system toast. Startup-category toasts use
+ * "startup_notification" independently of the regular event verbosity.
+ *   debug_notify = 0 off | 1 errors | 2 +warnings | 3 +milestones | 4 +trace
  * Flood protection: one event per key per cooldown, and at most DBG_MAX_TOASTS
  * toasts per run, so a fault loop can never bury the screen in notifications.
  * Safe to call from the controller thread and the sampler thread at once.
@@ -127,7 +128,7 @@ static uint64_t now_ns(void)
 #define DBG_MAX_KEYS 40
 #define DBG_MAX_TOASTS 30
 #define DBG_LOG_MAX (64 * 1024)
-#define DBG_STARTUP_NOTICE_DELAY_NS (3ull * 1000000000ull)
+#define DBG_STARTUP_NOTICE_DELAY_NS (1500000000ull)
 
 #if defined(PREFBAR_SIM)
 /* host simulation: show toasts on stderr so the logic can be tested */
@@ -770,8 +771,8 @@ static void ensure_default_config_file(void)
         "startup_notification=1\n"
         "error_notifications=1\n"
         "warning_notifications=0\n"
-        "debug_notifications=1\n"
-        "debug_notify=3\n"
+        "debug_notifications=0\n"
+        "debug_notify=1\n"
         "notify_sec=0\n\n"
         "[overlay]\n"
         "overlay=1\n"
@@ -848,12 +849,12 @@ static void dbg_init_locked(void)
     g_dbg.notify_level = DBG_INFO;
     g_dbg.t0 = now_ns();
     ensure_default_config_file();
-    g_dbg.notify_level = read_config_int("debug_notify", 3, 0, DBG_TRACE);
+    g_dbg.notify_level = read_config_int("debug_notify", 1, 0, DBG_TRACE);
     g_dbg.notifications_enabled = read_config_int("notifications", 1, 0, 1);
     g_dbg.startup_notification = read_config_int("startup_notification", 1, 0, 1);
     g_dbg.error_notifications = read_config_int("error_notifications", 1, 0, 1);
     g_dbg.warning_notifications = read_config_int("warning_notifications", 0, 0, 1);
-    g_dbg.debug_notifications = read_config_int("debug_notifications", 1, 0, 1);
+    g_dbg.debug_notifications = read_config_int("debug_notifications", 0, 0, 1);
 }
 
 /* caller holds the lock; keeps debug.log under DBG_LOG_MAX (+ one .1 backup) */
@@ -893,7 +894,7 @@ static void dbg_startup_tick(void)
     {
         g_dbg.startup_notice_sent = 1;
         if (g_dbg.notifications_enabled && g_dbg.startup_notification &&
-            g_dbg.notify_level >= DBG_INFO && g_dbg.toasts < DBG_MAX_TOASTS)
+            g_dbg.toasts < DBG_MAX_TOASTS)
         {
             ++g_dbg.toasts;
             send_attribution = 1;
@@ -908,7 +909,8 @@ static void dbg_startup_tick(void)
 #endif
 }
 
-static void dbg_vevent(int level, const char *key, const char *fmt, va_list ap)
+static void dbg_vevent_category(
+    int level, const char *key, const char *fmt, va_list ap, int startup_category)
 {
     dbg_startup_tick();
     uint32_t h = dbg_hash(key);
@@ -957,21 +959,24 @@ static void dbg_vevent(int level, const char *key, const char *fmt, va_list ap)
         snprintf(msg + l, sizeof msg - l, " (+%u more)", supp);
     }
     dbg_log_locked(t, level, key, msg);
-    const int category_enabled = (level == DBG_ERR)
-                                      ? g_dbg.error_notifications
-                                      : level == DBG_WARN
-                                            ? g_dbg.warning_notifications
-                                            : g_dbg.debug_notifications;
+    const int category_enabled = startup_category
+                                      ? g_dbg.startup_notification
+                                      : (level == DBG_ERR)
+                                            ? g_dbg.error_notifications
+                                            : level == DBG_WARN
+                                                  ? g_dbg.warning_notifications
+                                                  : g_dbg.debug_notifications;
+    const int verbosity_enabled = startup_category || level <= g_dbg.notify_level;
 #if defined(PREFBAR_SIM)
     if (g_dbg.notifications_enabled && category_enabled &&
-        level <= g_dbg.notify_level && g_dbg.toasts < DBG_MAX_TOASTS)
+        verbosity_enabled && g_dbg.toasts < DBG_MAX_TOASTS)
     {
         g_dbg.toasts++;
         toast = 1;
     }
 #else
     if (g_dbg.startup_notice_sent && g_dbg.notifications_enabled && category_enabled &&
-        level <= g_dbg.notify_level && g_dbg.toasts < DBG_MAX_TOASTS)
+        verbosity_enabled && g_dbg.toasts < DBG_MAX_TOASTS)
     {
         g_dbg.toasts++;
         toast = 1;
@@ -996,12 +1001,29 @@ static void dbg_vevent(int level, const char *key, const char *fmt, va_list ap)
     }
 }
 
+static void dbg_vevent(int level, const char *key, const char *fmt, va_list ap)
+{
+    dbg_vevent_category(level, key, fmt, ap, 0);
+}
+
 static void dbg_event(int level, const char *key, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 static void dbg_event(int level, const char *key, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
     dbg_vevent(level, key, fmt, ap);
+    va_end(ap);
+}
+
+/* Controller lifecycle success toasts belong to the startup category, not
+ * the general informational/debug category. */
+void prefbar_startup_event(const char *key, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+void prefbar_startup_event(const char *key, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    dbg_vevent_category(DBG_INFO, key, fmt, ap, 1);
     va_end(ap);
 }
 
@@ -2688,8 +2710,8 @@ static void config_defaults(config_t *c)
     c->startup_notification = 1;
     c->error_notifications = 1;
     c->warning_notifications = 0;
-    c->debug_notifications = 1;
-    c->debug_notify = 3;
+    c->debug_notifications = 0;
+    c->debug_notify = 1;
     c->text_shadow = 1;
     c->text_opacity = 100;
     c->show_fps = 1;
@@ -2777,8 +2799,8 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     CONFIG_INT("startup_notification", startup_notification, 1, 0, 1)
     CONFIG_INT("error_notifications", error_notifications, 1, 0, 1)
     CONFIG_INT("warning_notifications", warning_notifications, 0, 0, 1)
-    CONFIG_INT("debug_notifications", debug_notifications, 1, 0, 1)
-    CONFIG_INT("debug_notify", debug_notify, 3, 0, DBG_TRACE)
+    CONFIG_INT("debug_notifications", debug_notifications, 0, 0, 1)
+    CONFIG_INT("debug_notify", debug_notify, 1, 0, DBG_TRACE)
     CONFIG_INT("text_shadow", text_shadow, 1, 0, 1)
     CONFIG_INT("text_opacity", text_opacity, 100, 0, 100)
     CONFIG_INT("show_fps", show_fps, 1, 0, 1)

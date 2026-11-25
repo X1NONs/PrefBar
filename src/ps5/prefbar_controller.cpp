@@ -32,6 +32,9 @@
 extern "C" void prefbar_debug_event(
     int level, const char* key, const char* fmt, ...)
     __attribute__((format(printf, 3, 4)));
+extern "C" void prefbar_startup_event(
+    const char* key, const char* fmt, ...)
+    __attribute__((format(printf, 2, 3)));
 extern "C" int prefbar_telemetry_embedded_start(void);
 
 namespace {
@@ -110,8 +113,8 @@ void* startup_notification_worker(void* opaque) noexcept {
     const bool web_running = prefbar::web::is_running();
 
     if (web_running && telemetry_rc == 0) {
-        prefbar_debug_event(
-            PBDBG_INFO, "web.ready",
+        prefbar_startup_event(
+            "web.ready",
             "Control Center ready; listening on port %u",
             static_cast<unsigned>(prefbar::web::kDefaultPort));
     } else if (web_running) {

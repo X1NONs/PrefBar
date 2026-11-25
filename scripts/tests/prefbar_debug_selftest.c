@@ -127,10 +127,10 @@ static void test_levels(void)
         {"warning_notifications=1\ndebug_notify=2\n", 2},
         {"warning_notifications=1\ndebug_notify=3\n", 3},
         {"warning_notifications=1\ndebug_notify=4\n", 4},
-        {NULL, 2}, /* default: errors + information, no warning toasts */
-        {"warning_notifications=1\ndebug_notify=9\n", 3},
-        {"warning_notifications=1\ndebug_notify=-1\n", 3},
-        {"warning_notifications=1\ndebug_notify=abc\n", 3},
+        {NULL, 1}, /* default: errors only; startup toasts use their own category */
+        {"warning_notifications=1\ndebug_notify=9\n", 1},
+        {"warning_notifications=1\ndebug_notify=-1\n", 1},
+        {"warning_notifications=1\ndebug_notify=abc\n", 1},
     };
     for (unsigned c = 0; c < sizeof cases / sizeof *cases; c++)
     {
@@ -242,6 +242,17 @@ static void test_notification_switches(void)
     prefbar_debug_event(DBG_ERR, "allowed.error", "error");
     prefbar_debug_event(DBG_INFO, "muted.info", "info");
     CHECK(g_sim_toasts == 1, "debug_notifications=0 should preserve error toasts only, got %d", g_sim_toasts);
+
+    reset("notifications=1\nstartup_notification=1\ndebug_notifications=0\ndebug_notify=0\n");
+    prefbar_startup_event("web.ready", "Control Center ready");
+    prefbar_debug_event(DBG_INFO, "muted.info", "info");
+    CHECK(g_sim_toasts == 1,
+          "startup-category events should ignore debug verbosity and debug_notifications");
+
+    reset("notifications=1\nstartup_notification=0\ndebug_notifications=1\ndebug_notify=4\n");
+    prefbar_startup_event("web.ready", "Control Center ready");
+    CHECK(g_sim_toasts == 0,
+          "startup_notification=0 should suppress Control Center startup events");
 }
 
 static void test_config_file_and_values(void)
@@ -292,12 +303,16 @@ static void test_config_file_and_values(void)
               strstr(defaults_text, "show_ram=1") &&
               strstr(defaults_text, "show_vram=1"),
           "default config should expose separate CPU, RAM, and VRAM controls");
-    CHECK(strstr(defaults_text, "warning_notifications=0") != NULL,
-          "new default config should disable warning toasts explicitly");
-    CHECK(cfg.notifications == 1 && cfg.touchpad_toggle == 1,
-          "default notifications and touchpad toggle should be enabled");
-    CHECK(cfg.warning_notifications == 0 && cfg.debug_notify == 3,
-          "warnings should be muted by default without lowering information verbosity");
+    CHECK(strstr(defaults_text, "warning_notifications=0") != NULL &&
+              strstr(defaults_text, "debug_notifications=0") != NULL &&
+              strstr(defaults_text, "debug_notify=1") != NULL,
+          "new default config should disable warning/debug toasts and limit events to errors");
+    CHECK(cfg.notifications == 1 && cfg.startup_notification == 1 &&
+              cfg.error_notifications == 1 && cfg.touchpad_toggle == 1,
+          "default master, startup, error notifications and touchpad toggle should be enabled");
+    CHECK(cfg.warning_notifications == 0 && cfg.debug_notifications == 0 &&
+              cfg.debug_notify == 1,
+          "only startup and error notifications should be enabled by default");
     CHECK(cfg.text_opacity == 100,
           "default text opacity should be fully opaque");
 
