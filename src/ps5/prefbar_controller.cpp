@@ -8,6 +8,9 @@
 #include "ps5_platform.hpp"
 #include "ps5_injection.hpp"
 #include "web_server.hpp"
+#ifndef PREFBAR_NO_WEB
+#include "app_launcher.hpp"
+#endif
 
 #include <atomic>
 #include <cerrno>
@@ -292,6 +295,7 @@ void write_startup_record(
                 web_rc, std::memory_order_release);
             write_boot_stage("web_watchdog_retry", web_rc, 0);
             if (web_rc == 0) {
+                prefbar::launcher::request_install();
                 prefbar_debug_event(
                     PBDBG_INFO, "web.recovered",
                     "Control Center listener recovered on port %u",
@@ -411,6 +415,7 @@ extern "C" int main() {
     web_rc = prefbar::web::start();
     write_boot_stage("after_web_start", web_rc, errno);
     if (web_rc == 0) {
+        prefbar::launcher::request_install();
         prefbar_debug_event(
             PBDBG_INFO, "web.start",
             "Control Center HTTP server listening on port %u",
@@ -475,6 +480,8 @@ extern "C" int main() {
         } else {
             web_rc = 0;
         }
+        if (web_rc == 0)
+            prefbar::launcher::request_install();
 #endif
 
         telemetry_rc = prefbar_telemetry_embedded_start();

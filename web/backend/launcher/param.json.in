@@ -1,0 +1,11 @@
+{
+  "applicationCategoryType": 65536,
+  "titleId": "@PREFBAR_LAUNCHER_TITLE_ID@",
+  "deeplinkUri": "http://127.0.0.1:@PREFBAR_LAUNCHER_PORT@/",
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "PrefBar"
+    }
+  }
+}

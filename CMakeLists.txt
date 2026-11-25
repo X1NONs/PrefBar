@@ -77,8 +77,18 @@ if(PREFBAR_BUILD_PS5)
         VERBATIM
     )
 
-    # Embed the Control Center page only when the web server is enabled.
+    # Embed the Control Center and its PS5 Media shortcut assets.
     if(PREFBAR_ENABLE_WEB)
+        set(PREFBAR_LAUNCHER_TITLE_ID "PREF00001")
+        set(PREFBAR_LAUNCHER_PORT 8998)
+        file(MAKE_DIRECTORY "${PREFBAR_GENERATED_DIR}")
+
+        configure_file(
+            web/backend/launcher/param.json.in
+            "${PREFBAR_GENERATED_DIR}/prefbar_launcher_param.json"
+            @ONLY
+        )
+
         set(PREFBAR_WEB_BLOB_CPP
             "${PREFBAR_GENERATED_DIR}/prefbar_web_blob.cpp")
         add_custom_command(
@@ -91,9 +101,53 @@ if(PREFBAR_BUILD_PS5)
             DEPENDS web/index.html scripts/tools/embed_binary.py
             VERBATIM
         )
+
+        set(PREFBAR_LAUNCHER_PARAM_CPP
+            "${PREFBAR_GENERATED_DIR}/prefbar_launcher_param_blob.cpp")
+        add_custom_command(
+            OUTPUT "${PREFBAR_LAUNCHER_PARAM_CPP}"
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/embed_binary.py"
+                "${PREFBAR_GENERATED_DIR}/prefbar_launcher_param.json"
+                "${PREFBAR_LAUNCHER_PARAM_CPP}"
+                prefbar_launcher_param_json
+            DEPENDS
+                "${PREFBAR_GENERATED_DIR}/prefbar_launcher_param.json"
+                scripts/tools/embed_binary.py
+            VERBATIM
+        )
+
+        set(PREFBAR_LAUNCHER_ICON_PNG
+            "${PREFBAR_GENERATED_DIR}/prefbar_launcher_icon0.png")
+        add_custom_command(
+            OUTPUT "${PREFBAR_LAUNCHER_ICON_PNG}"
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/prepare_launcher_icon.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/Docs/logo.png"
+                "${PREFBAR_LAUNCHER_ICON_PNG}"
+            DEPENDS Docs/logo.png scripts/tools/prepare_launcher_icon.py
+            VERBATIM
+        )
+
+        set(PREFBAR_LAUNCHER_ICON_CPP
+            "${PREFBAR_GENERATED_DIR}/prefbar_launcher_icon_blob.cpp")
+        add_custom_command(
+            OUTPUT "${PREFBAR_LAUNCHER_ICON_CPP}"
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/embed_binary.py"
+                "${PREFBAR_LAUNCHER_ICON_PNG}"
+                "${PREFBAR_LAUNCHER_ICON_CPP}"
+                prefbar_launcher_icon0_png
+            DEPENDS "${PREFBAR_LAUNCHER_ICON_PNG}" scripts/tools/embed_binary.py
+            VERBATIM
+        )
+
         set(PREFBAR_WEB_SOURCES
             web/backend/web_server.cpp
-            "${PREFBAR_WEB_BLOB_CPP}")
+            web/backend/app_launcher.cpp
+            "${PREFBAR_WEB_BLOB_CPP}"
+            "${PREFBAR_LAUNCHER_PARAM_CPP}"
+            "${PREFBAR_LAUNCHER_ICON_CPP}")
     else()
         set(PREFBAR_WEB_SOURCES)
     endif()
@@ -115,6 +169,11 @@ if(PREFBAR_BUILD_PS5)
     )
     if(NOT PREFBAR_ENABLE_WEB)
         target_compile_definitions(prefbar_controller PRIVATE PREFBAR_NO_WEB=1)
+    else()
+        target_compile_definitions(prefbar_controller PRIVATE
+            PREFBAR_LAUNCHER_TITLE_ID=\"${PREFBAR_LAUNCHER_TITLE_ID}\"
+            PREFBAR_LAUNCHER_PORT=${PREFBAR_LAUNCHER_PORT}
+        )
     endif()
     set_target_properties(prefbar_controller PROPERTIES
         OUTPUT_NAME "PrefBar_controller_v0.3.1.elf"
@@ -148,7 +207,7 @@ if(PREFBAR_BUILD_PS5)
         -Wextra
     )
     target_link_options(prefbar_controller PRIVATE -Wl,--gc-sections)
-    target_link_libraries(prefbar_controller PRIVATE
+    set(PREFBAR_CONTROLLER_LIBRARIES
         kernel_sys
         SceLibcInternal
         SceSystemService
@@ -156,6 +215,12 @@ if(PREFBAR_BUILD_PS5)
         SceSysmodule
         SceUserService
         SceNetCtl
+    )
+    if(PREFBAR_ENABLE_WEB)
+        list(APPEND PREFBAR_CONTROLLER_LIBRARIES SceAppInstUtil)
+    endif()
+    target_link_libraries(prefbar_controller PRIVATE
+        ${PREFBAR_CONTROLLER_LIBRARIES}
     )
 
 else()
