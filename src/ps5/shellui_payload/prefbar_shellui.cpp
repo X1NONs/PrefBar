@@ -1283,8 +1283,8 @@ void prefbar_draw_text() {
     MonoObject* labels[PREFBAR_ROWS]{};
     MonoObject* shadows[PREFBAR_ROWS]{};
     if (!why) {
-        if (background_enabled && !managed_target(g_telemetry_background_handle))
-            why |= 8192u;
+        /* A failed panel factory must not force a full label rebuild every frame.
+         * Layout/config changes still retry panel creation through the normal path. */
         for (int i = 0; i < PREFBAR_ROWS; ++i) {
             labels[i] = managed_target(g_telemetry_row_handle[i]);
             if (want_shadow) shadows[i] = managed_target(g_telemetry_shadow_handle[i]);
