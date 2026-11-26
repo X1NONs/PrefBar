@@ -3,6 +3,8 @@
 </p>
 
 [![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge)](https://github.com/X1NONs/PrefBar/releases)
+![Firmware](https://img.shields.io/badge/FW-1.00%E2%80%9313.60-00E5FF?style=for-the-badge)
+[![Latest release](https://img.shields.io/github/v/release/knutwurst/ps5-patchdl?style=for-the-badge&label=release&color=00E5FF)](https://github.com/knutwurst/ps5-patchdl/releases)
 
 **Version 0.3.1**
 (**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
