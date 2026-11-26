@@ -12,6 +12,7 @@
 #include "prefbar/shellui_hook_protocol.hpp"
 #include "prefbar/telemetry_wire.h"
 #include "prefbar/touchpad_toggle.hpp"
+#include "prefbar/horizontal_layout.hpp"
 
 extern "C" {
 int scePadOpen(int user_id, int type, int index, const void* param);
@@ -28,6 +29,7 @@ int sceUserServiceGetForegroundUser(int* user_id);
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <ctime>
 #include <netinet/in.h>
@@ -184,6 +186,7 @@ struct TelemetryLayout {
     bool valid;
 };
 TelemetryLayout g_telemetry_layout{};
+::prefbar::StableWidthCache<PREFBAR_ROWS> g_horizontal_width_cache{};
 std::atomic<bool> g_telemetry_draw_busy{false};   /* the draw routine must never run twice at once */
 int g_row_rebuild_count = 0;
 
@@ -1297,6 +1300,7 @@ void prefbar_draw_text() {
     const bool rebuild = why != 0;
 
     if (rebuild) {
+        g_horizontal_width_cache.reset();
         prefbar_blank_rows();
         for (auto& h : g_telemetry_row_handle)
             remove_and_release_handle(root, h);
@@ -1394,16 +1398,19 @@ void prefbar_draw_text() {
         if (text[0]) {
             float measured = 0.0f;
             if (!read_float_property(label_class, labels[i], "Width", &measured) ||
-                measured <= 0.0f) {
+                !std::isfinite(measured) || measured <= 0.0f) {
                 measured = estimated_label_width(text, g_telemetry_layout.font);
                 if (!width_warning_logged) {
                     log_line("prefbar: PUI Label.Width unavailable; using guarded width estimate");
                     width_warning_logged = true;
                 }
             }
-            row_width[i] = measured;
+            /* Keep each horizontal slot at its widest observed measurement. */
+            row_width[i] = horizontal
+                ? g_horizontal_width_cache.reserve(static_cast<std::size_t>(i), measured)
+                : measured;
             if (horizontal) {
-                horizontal_text_width += measured;
+                horizontal_text_width += row_width[i];
                 ++horizontal_items;
             }
         }
@@ -1428,6 +1435,7 @@ void prefbar_draw_text() {
                 fitted_font = 10;
         }
 
+        const int previous_effective_font = effective_font;
         if (fitted_font != effective_font) {
             MonoObject* fit_font = create_font(fitted_font);
             if (fit_font && label_class) {
@@ -1443,6 +1451,9 @@ void prefbar_draw_text() {
                 if (font_applied) {
                     effective_font = fitted_font;
                     g_telemetry_layout.font = effective_font;
+                    g_horizontal_width_cache.scale(
+                        static_cast<float>(effective_font) /
+                        static_cast<float>(previous_effective_font));
                     horizontal_text_width = 0.0f;
                     for (int i = 0; i < PREFBAR_ROWS; ++i) {
                         if (!labels[i] || !row_text[i] || !row_text[i][0])
@@ -1451,12 +1462,13 @@ void prefbar_draw_text() {
                         float measured = 0.0f;
                         if (!read_float_property(
                                 label_class, labels[i], "Width", &measured) ||
-                            measured <= 0.0f) {
+                            !std::isfinite(measured) || measured <= 0.0f) {
                             measured = estimated_label_width(
                                 row_text[i], effective_font);
                         }
-                        row_width[i] = measured;
-                        horizontal_text_width += measured;
+                        row_width[i] = g_horizontal_width_cache.reserve(
+                            static_cast<std::size_t>(i), measured);
+                        horizontal_text_width += row_width[i];
                     }
                 } else {
                     log_line("prefbar: could not apply fitted font to every horizontal label");
@@ -1540,8 +1552,12 @@ void prefbar_draw_text() {
 
             (void)read_float_property(label_class, labels[i], "X", &x);
             (void)read_float_property(label_class, labels[i], "Y", &y);
-            if (!read_float_property(label_class, labels[i], "Width", &width) ||
-                width <= 0.0f) {
+            if (horizontal) {
+                /* Match the panel to the reserved slot, not the live text width. */
+                if (!std::isfinite(width) || width <= 0.0f)
+                    width = estimated_label_width(row_text[i], effective_font);
+            } else if (!read_float_property(label_class, labels[i], "Width", &width) ||
+                       !std::isfinite(width) || width <= 0.0f) {
                 width = row_width[i] > 0.0f
                     ? row_width[i]
                     : estimated_label_width(row_text[i], effective_font);

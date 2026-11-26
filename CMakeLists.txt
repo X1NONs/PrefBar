@@ -276,6 +276,14 @@ else()
         target_include_directories(prefbar_hook_protocol_tests PRIVATE include)
         target_compile_options(prefbar_hook_protocol_tests PRIVATE -Wall -Wextra -UNDEBUG)
         add_test(NAME prefbar_hook_protocol_tests COMMAND prefbar_hook_protocol_tests)
+        add_executable(prefbar_horizontal_layout_tests
+            scripts/tests/test_horizontal_layout.cpp)
+        target_include_directories(prefbar_horizontal_layout_tests PRIVATE include)
+        target_compile_options(prefbar_horizontal_layout_tests PRIVATE
+            -Wall -Wextra -Werror -UNDEBUG)
+        add_test(NAME prefbar_horizontal_layout_tests
+            COMMAND prefbar_horizontal_layout_tests)
+
         add_executable(prefbar_crash_strike_tests
             scripts/tests/test_crash_strikes.cpp)
         target_include_directories(prefbar_crash_strike_tests PRIVATE include)
