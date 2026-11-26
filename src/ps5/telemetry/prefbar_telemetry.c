@@ -2937,7 +2937,7 @@ static void apply_debug_config(const config_t *cfg)
     DBG_UNLOCK();
 }
 
-#if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
+#if defined(PREFBAR_EMBED)
 static int reload_config(config_t *active)
 {
     config_t candidate;
