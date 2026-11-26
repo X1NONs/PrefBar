@@ -2,9 +2,9 @@
   <img src="Docs/logo.png" alt="PrefBar Logo" width="90%" height="120">
 </p>
 
-[![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge&color=00E5FF)](https://github.com/X1NONs/PrefBar/releases)
-![Firmware](https://img.shields.io/badge/FW-1.00%E2%80%9313.60-00E5FF?style=for-the-badge)
-[![Latest release](https://img.shields.io/github/v/release/knutwurst/ps5-patchdl?style=for-the-badge&label=release&color=00E5FF)](https://github.com/knutwurst/ps5-patchdl/releases)
+[![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge&color=007BFF)](https://github.com/X1NONs/PrefBar/releases)
+![Firmware](https://img.shields.io/badge/FW-4.00%E2%80%9313.60-007BFF?style=for-the-badge)
+[![Latest release](https://img.shields.io/github/v/release/X1NONs/PrefBar?style=for-the-badge&label=release&color=007BFF)](https://github.com/X1NONs/PrefBar/releases)
 
 **Version 0.3.1**
 (**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
