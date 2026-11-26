@@ -7,6 +7,7 @@
  */
 
 #include "ps5_platform.hpp"
+#include "prefbar/game_session.hpp"
 #include "ps5_injection.hpp"
 #include "web_server.hpp"
 #ifndef PREFBAR_NO_WEB
@@ -47,7 +48,8 @@ constexpr unsigned kWebRetryIntervalUs = 5'000'000;
 #endif
 constexpr unsigned kShellUiStableSamples = 10;
 constexpr unsigned kGameStableSamples = 3;
-constexpr unsigned kGameExitGraceSamples = 10; /* 500 ms at the controller poll rate */
+constexpr std::uint64_t kGameExitGraceUs = 2'000'000ULL;
+constexpr std::uint64_t kGameProcessScanIntervalUs = 250'000ULL;
 constexpr std::uint64_t kRendererWarningDelayUs = 20'000'000ULL;
 constexpr std::uint64_t kRendererWarningRepeatUs = 60'000'000ULL;
 constexpr unsigned kMaxRendererWarnings = 3;
@@ -161,7 +163,7 @@ void write_startup_record(
         "Telemetry=/dev/dce plus optional PS5 sensor APIs\n"
         "Overlay=loopback UDP rows only; port=39028\n"
         "Worker pid=%d ppid=%d first_shellui_pid=%d first_game_pid=%d "
-        "title_id=%s sysctl=%d/%d errno=%d bytes=%zu records=%u malformed=%u\n",
+        "title_id=%s app_id=%u command=%s sysctl=%d/%d errno=%d bytes=%zu records=%u malformed=%u\n",
 #ifdef PREFBAR_NO_WEB
         "single-controller embedded-telemetry shellui-renderer; web disabled",
         web_rc,
@@ -184,7 +186,9 @@ void write_startup_record(
         static_cast<int>(getppid()),
         static_cast<int>(first_shellui),
         static_cast<int>(game.pid),
-        game.title_id[0] ? game.title_id : "unknown",
+        game.launch_identity.title_id[0] ? game.launch_identity.title_id : "unknown",
+        static_cast<unsigned>(game.launch_identity.app_id),
+        game.launch_command[0] ? game.launch_command : "unknown",
         game.size_query_rc,
         game.data_query_rc,
         game.saved_errno,
@@ -198,14 +202,13 @@ void write_startup_record(
 [[noreturn]] void run_controller() noexcept {
     pid_t stable_shellui_pid = -1;
     unsigned stable_shellui_samples = 0;
-    pid_t stable_game_pid = -1;
-    unsigned stable_game_samples = 0;
-    unsigned missing_game_samples = 0;
+    prefbar::ps5::GameSessionTracker game_session(
+        kGameStableSamples, kGameExitGraceUs);
+    std::uint64_t next_game_process_scan_us = 0;
     bool renderer_online = false;
     bool renderer_was_reported = false;
     unsigned renderer_warnings = 0;
     std::uint64_t next_renderer_warning_us = 0;
-    pid_t reported_game_pid = -1;
     pid_t reported_shellui_pid = -1;
 #ifndef PREFBAR_NO_WEB
     std::uint64_t next_web_retry_us = 0;
@@ -254,42 +257,108 @@ void write_startup_record(
             reported_shellui_pid = stable_shellui_pid;
         }
 
-        const prefbar::ps5::ProcessLookupResult game =
-            prefbar::ps5::find_game_process();
-        bool game_exit_confirmed = false;
-        if (game.pid > 0) {
-            missing_game_samples = 0;
-            if (game.pid == stable_game_pid) {
-                if (stable_game_samples < kGameStableSamples)
-                    ++stable_game_samples;
-            } else {
-                stable_game_pid = game.pid;
-                stable_game_samples = 1;
-                /* Keep the last confirmed PID until this candidate is stable. */
+        const std::uint64_t now = monotonic_us();
+        prefbar::ps5::GameSessionUpdate session{};
+        if (now >= next_game_process_scan_us) {
+            next_game_process_scan_us = now + kGameProcessScanIntervalUs;
+            const auto* tracked_identity =
+                game_session.active() ? &game_session.identity() : nullptr;
+            const pid_t tracked_pid =
+                game_session.active() ? game_session.active_pid() : -1;
+            const prefbar::ps5::ProcessLookupResult game =
+                prefbar::ps5::find_game_process(tracked_identity, tracked_pid);
+
+            prefbar::ps5::GameProcessObservation observation{};
+            observation.scan_complete =
+                game.size_query_rc == 0 && game.data_query_rc == 0;
+            observation.launch_pid = game.pid;
+            observation.launch_identity = game.launch_identity;
+            std::snprintf(observation.launch_command,
+                          sizeof(observation.launch_command), "%s", game.launch_command);
+            observation.launch_ambiguous = game.launch_ambiguous;
+            observation.tracked_pid = game.tracked_pid;
+            observation.tracked_process_count = game.tracked_process_count;
+            observation.tracked_identity = game.tracked_identity;
+            std::snprintf(observation.tracked_command,
+                          sizeof(observation.tracked_command), "%s", game.tracked_command);
+
+            session = game_session.update(observation, now);
+            switch (session.event) {
+            case prefbar::ps5::GameSessionEvent::ScanFailed:
+                prefbar_debug_event(
+                    PBDBG_WARN, "game.scan.failed",
+                    "KERN_PROC snapshot incomplete (size_rc=%d data_rc=%d errno=%d)",
+                    game.size_query_rc, game.data_query_rc, game.saved_errno);
+                break;
+            case prefbar::ps5::GameSessionEvent::CandidateAmbiguous:
+                prefbar_debug_event(
+                    PBDBG_WARN, "game.candidate.ambiguous",
+                    "multiple distinct non-system eboot.bin applications are visible; refusing arbitrary selection");
+                break;
+            case prefbar::ps5::GameSessionEvent::Started:
+                renderer_warnings = 0;
+                next_renderer_warning_us = now + kRendererWarningDelayUs;
+                prefbar_debug_event(
+                    PBDBG_INFO, "game.session.start",
+                    "application session started (pid %d command %s app_id %u title %s processes %u generation %llu)",
+                    static_cast<int>(session.active_pid),
+                    session.active_command[0] ? session.active_command : "unknown",
+                    static_cast<unsigned>(session.identity.app_id),
+                    session.identity.title_id[0] ? session.identity.title_id : "unknown",
+                    session.process_count,
+                    static_cast<unsigned long long>(session.generation));
+                break;
+            case prefbar::ps5::GameSessionEvent::ProcessChanged:
+                prefbar_debug_event(
+                    PBDBG_INFO, "game.session.continue",
+                    "application continues across process change (pid %d -> %d command %s app_id %u title %s processes %u)",
+                    static_cast<int>(session.previous_pid),
+                    static_cast<int>(session.active_pid),
+                    session.active_command[0] ? session.active_command : "unknown",
+                    static_cast<unsigned>(session.identity.app_id),
+                    session.identity.title_id[0] ? session.identity.title_id : "unknown",
+                    session.process_count);
+                break;
+            case prefbar::ps5::GameSessionEvent::ProcessesChanged:
+                prefbar_debug_event(
+                    PBDBG_INFO, "game.session.processes",
+                    "application process set changed (pid %d command %s; %u matching processes)",
+                    static_cast<int>(session.active_pid),
+                    session.active_command[0] ? session.active_command : "unknown",
+                    session.process_count);
+                break;
+            case prefbar::ps5::GameSessionEvent::Switched:
+                renderer_warnings = 0;
+                next_renderer_warning_us = now + kRendererWarningDelayUs;
+                prefbar_debug_event(
+                    PBDBG_INFO, "game.session.transition",
+                    "stable application transition (pid %d -> %d command %s app_id %u title %s generation %llu)",
+                    static_cast<int>(session.previous_pid),
+                    static_cast<int>(session.active_pid),
+                    session.active_command[0] ? session.active_command : "unknown",
+                    static_cast<unsigned>(session.identity.app_id),
+                    session.identity.title_id[0] ? session.identity.title_id : "unknown",
+                    static_cast<unsigned long long>(session.generation));
+                break;
+            case prefbar::ps5::GameSessionEvent::Ended:
+                prefbar_debug_event(
+                    PBDBG_INFO, "game.exited",
+                    "no process for application remained during %llu ms exit grace (last pid %d title %s)",
+                    static_cast<unsigned long long>(kGameExitGraceUs / 1000ULL),
+                    static_cast<int>(session.previous_pid),
+                    session.previous_identity.title_id[0]
+                        ? session.previous_identity.title_id : "unknown");
+                break;
+            case prefbar::ps5::GameSessionEvent::None:
+            default:
+                break;
             }
-        } else if (game.size_query_rc != 0 || game.data_query_rc != 0) {
-            /* An incomplete sysctl scan is unknown, not proof that the game exited.
-             * Preserve readiness for the last confirmed game during this scan. */
-            if (reported_game_pid > 0) {
-                stable_game_pid = reported_game_pid;
-                stable_game_samples = kGameStableSamples;
-            }
-        } else if (reported_game_pid > 0 &&
-                   missing_game_samples < kGameExitGraceSamples) {
-            ++missing_game_samples;
-            stable_game_pid = reported_game_pid;
-            stable_game_samples = kGameStableSamples;
-        } else {
-            stable_game_pid = -1;
-            stable_game_samples = 0;
-            game_exit_confirmed = reported_game_pid > 0;
         }
 
-        const bool game_ready =
-            stable_game_pid > 0 && stable_game_samples >= kGameStableSamples;
+        const bool game_ready = game_session.active();
         g_game_process_ready.store(game_ready ? 1 : 0, std::memory_order_relaxed);
-
-        const std::uint64_t now = monotonic_us();
+        g_game_session_generation.store(
+            game_session.generation(), std::memory_order_relaxed);
 
         #ifndef PREFBAR_NO_WEB
         if (!prefbar::web::is_running() && now >= next_web_retry_us) {
@@ -311,25 +380,6 @@ void write_startup_record(
             }
         }
         #endif
-
-        if (game_ready && reported_game_pid != stable_game_pid) {
-            reported_game_pid = stable_game_pid;
-            g_game_session_generation.fetch_add(1, std::memory_order_relaxed);
-            renderer_warnings = 0;
-            next_renderer_warning_us = now + kRendererWarningDelayUs;
-            prefbar_debug_event(
-                PBDBG_INFO, "game.detected",
-                "game detected (pid %d, title %s)",
-                static_cast<int>(stable_game_pid),
-                game.title_id[0] ? game.title_id : "unknown");
-        } else if (game_exit_confirmed && reported_game_pid > 0) {
-            prefbar_debug_event(
-                PBDBG_INFO, "game.exited",
-                "game process no longer present (pid %d)",
-                static_cast<int>(reported_game_pid));
-            reported_game_pid = -1;
-            missing_game_samples = 0;
-        }
 
         const bool shellui_ready =
             stable_shellui_pid > 0 &&

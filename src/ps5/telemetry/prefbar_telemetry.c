@@ -3086,6 +3086,24 @@ static int prefbar_run(int install_signals, int lock)
             /* One attempt per confirmed game entry; a failed read leaves the
              * current last known-good settings untouched. */
             applied_config_session_generation = session_generation;
+
+            /*
+             * Only a genuine application-session generation change reaches
+             * this path. PID/executable handovers within one app leave the DCE
+             * descriptor, counter picker, and frame history untouched.
+             */
+            memset(&st, 0, sizeof st);
+            last_count = 0;
+            fps_active = 0;
+            fps_seen = 0;
+            dce_pick_reset(&pick);
+            dce_fail_since_ns = 0;
+            dce_error_reported = 0;
+            dce_state = -1;
+            dbg_event(DBG_TRACE, "dce.session.reset",
+                      "reset display-counter baseline for application session %llu",
+                      (unsigned long long)session_generation);
+
             memset(&g_pool_ram, 0, sizeof g_pool_ram);
             memset(&g_pool_vram, 0, sizeof g_pool_vram);
             if (reload_config(&cfg))

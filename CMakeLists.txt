@@ -281,5 +281,23 @@ else()
         target_include_directories(prefbar_crash_strike_tests PRIVATE include)
         target_compile_options(prefbar_crash_strike_tests PRIVATE -Wall -Wextra -UNDEBUG)
         add_test(NAME prefbar_crash_strike_tests COMMAND prefbar_crash_strike_tests)
+
+        add_executable(prefbar_game_session_tests
+            scripts/tests/test_game_session.cpp)
+        target_include_directories(prefbar_game_session_tests PRIVATE include)
+        target_compile_options(prefbar_game_session_tests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+        add_test(NAME prefbar_game_session_tests COMMAND prefbar_game_session_tests)
+
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            add_executable(prefbar_game_process_tests
+                scripts/tests/test_game_process.cpp
+                src/ps5/game_process.cpp)
+            target_include_directories(prefbar_game_process_tests PRIVATE
+                include src/ps5)
+            target_compile_options(prefbar_game_process_tests PRIVATE
+                -Wall -Wextra -Werror -UNDEBUG)
+            add_test(NAME prefbar_game_process_tests
+                COMMAND prefbar_game_process_tests)
+        endif()
     endif()
 endif()
