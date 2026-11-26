@@ -68,6 +68,7 @@ for artifact in "${CONTROLLER}" "${RENDERER}"; do
 done
 
 PREFBAR_DEBUG_NOTIFY="${PREFBAR_DEBUG_NOTIFY}" \
+PREFBAR_ENABLE_WEB="${PREFBAR_ENABLE_WEB}" \
   python3 "${ROOT}/scripts/tools/verify_release.py" "${CONTROLLER}" "${RENDERER}"
 
 OBJDUMP_TOOL="${OBJDUMP:-}"

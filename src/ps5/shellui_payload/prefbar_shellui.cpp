@@ -164,6 +164,7 @@ bool g_telemetry_hidden = false;
 std::uint32_t g_telemetry_row_handle[PREFBAR_ROWS]{};
 std::uint32_t g_telemetry_shadow_handle[PREFBAR_ROWS]{};
 std::uint32_t g_telemetry_background_handle{};
+std::uint64_t g_telemetry_background_retry_after_ms{};
 struct TelemetryLayout {
     int font;
     int requested_font;
@@ -477,6 +478,7 @@ bool wait_for_native_hook_ack(
     ShellUiHookAck& ack) noexcept;
 
 void log_line(const char* fmt, ...);
+std::uint64_t prefbar_now_ms();
 MonoImage* open_image(const char* path);
 
 bool probe_hook_bytes(
@@ -962,6 +964,33 @@ bool set_property_object(
     return exception == nullptr;
 }
 
+template <typename T>
+bool set_property_direct_fallback(
+    MonoClass* primary,
+    MonoClass* fallback,
+    MonoObject* instance,
+    const char* name,
+    T value) {
+
+    if (set_property_direct(primary, instance, name, value))
+        return true;
+    return fallback && fallback != primary &&
+        set_property_direct(fallback, instance, name, value);
+}
+
+bool set_property_object_fallback(
+    MonoClass* primary,
+    MonoClass* fallback,
+    MonoObject* instance,
+    const char* name,
+    MonoObject* value) {
+
+    if (set_property_object(primary, instance, name, value))
+        return true;
+    return fallback && fallback != primary &&
+        set_property_object(fallback, instance, name, value);
+}
+
 MonoObject* create_font(int size) {
     MonoClass* klass = mono_class_from_name_(
         g_pui_image,
@@ -1008,34 +1037,82 @@ MonoObject* create_color(float r, float g, float b, float a) {
     return reinterpret_cast<MonoObject*>(real);
 }
 
+void log_background_factory_failure(const char* reason) {
+    static unsigned int logged = 0;
+    if (logged++ < 5)
+        log_line("prefbar: background Panel factory failed: %s", reason);
+}
+
 MonoObject* create_telemetry_background_panel(float opacity) {
     MonoClass* klass = mono_class_from_name_(
         g_pui_image,
         "Sce.PlayStation.PUI.UI2",
         "Panel");
-    if (!klass)
+    if (!klass) {
+        log_background_factory_failure("Sce.PlayStation.PUI.UI2.Panel class unavailable");
         return nullptr;
+    }
+
+    MonoClass* widget_class = mono_class_from_name_(
+        g_pui_image,
+        "Sce.PlayStation.PUI.UI2",
+        "Widget");
 
     MonoObject* panel = mono_object_new_(g_domain, klass);
-    if (!panel)
+    if (!panel) {
+        log_background_factory_failure("mono_object_new returned null");
         return nullptr;
+    }
     mono_runtime_object_init_(panel);
 
     MonoString* name = mono_string_new_(g_domain, "id_prefbar_background");
     MonoObject* black = create_color(0.0f, 0.0f, 0.0f, 1.0f);
-    bool ok = true;
-    ok &= set_property_direct(klass, panel, "Name", name);
-    ok &= set_property_direct(klass, panel, "X", 0.0f);
-    ok &= set_property_direct(klass, panel, "Y", 0.0f);
-    ok &= set_property_direct(klass, panel, "Width", 1.0f);
-    ok &= set_property_direct(klass, panel, "Height", 1.0f);
-    ok &= set_property_object(klass, panel, "BackgroundColor", black);
-    ok &= set_property_direct(klass, panel, "BackgroundStyle", 1);
-    ok &= set_property_direct(klass, panel, "BackgroundOpacity", opacity);
-    ok &= set_property_direct(klass, panel, "BackgroundVisibility", false);
-    return ok ? panel : nullptr;
-}
 
+    const bool name_ok = name && set_property_direct_fallback(
+        klass, widget_class, panel, "Name", name);
+    const bool x_ok = set_property_direct_fallback(
+        klass, widget_class, panel, "X", 0.0f);
+    const bool y_ok = set_property_direct_fallback(
+        klass, widget_class, panel, "Y", 0.0f);
+    const bool width_ok = set_property_direct_fallback(
+        klass, widget_class, panel, "Width", 1.0f);
+    const bool height_ok = set_property_direct_fallback(
+        klass, widget_class, panel, "Height", 1.0f);
+    const bool color_ok = black && set_property_object_fallback(
+        klass, widget_class, panel, "BackgroundColor", black);
+
+    /* BackgroundStyle is optional on some PUI builds. The reference renderer
+     * uses it when available but does not make panel creation depend on it. */
+    const bool style_ok = set_property_direct_fallback(
+        klass, widget_class, panel, "BackgroundStyle", 1);
+    if (!style_ok) {
+        static unsigned int style_warnings = 0;
+        if (style_warnings++ < 3)
+            log_line("prefbar: optional BackgroundStyle setter unavailable; retaining PUI default");
+    }
+
+    const bool opacity_ok = set_property_direct_fallback(
+        klass, widget_class, panel, "BackgroundOpacity", opacity);
+    const bool visibility_ok = set_property_direct_fallback(
+        klass, widget_class, panel, "BackgroundVisibility", false);
+
+    if (!name_ok || !x_ok || !y_ok || !width_ok || !height_ok ||
+        !color_ok || !opacity_ok || !visibility_ok) {
+        log_background_factory_failure(
+            "required property setter failed (see per-property flags below)");
+        static unsigned int detail_warnings = 0;
+        if (detail_warnings++ < 5) {
+            log_line(
+                "prefbar: background Panel property flags "
+                "Name=%d X=%d Y=%d Width=%d Height=%d Color=%d Opacity=%d Visibility=%d",
+                name_ok, x_ok, y_ok, width_ok, height_ok, color_ok,
+                opacity_ok, visibility_ok);
+        }
+        return nullptr;
+    }
+
+    return panel;
+}
 MonoObject* create_label(
     const char* name,
     float x,
@@ -1115,6 +1192,72 @@ std::uint64_t prefbar_now_ms() {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<std::uint64_t>(ts.tv_sec) * 1000u +
            static_cast<std::uint64_t>(ts.tv_nsec) / 1000000u;
+}
+
+/* If the first Panel creation fails, recover it without rebuilding telemetry
+ * labels. The new Panel is appended first; existing labels are then re-appended
+ * so the translucent background remains underneath the text widgets. */
+bool reappend_telemetry_widgets_after_background(MonoObject* root) {
+    if (!root)
+        return false;
+
+    MonoObject* widgets[PREFBAR_ROWS * 2]{};
+    int count = 0;
+    for (int i = 0; i < PREFBAR_ROWS; ++i) {
+        MonoObject* shadow = managed_target(g_telemetry_shadow_handle[i]);
+        MonoObject* label = managed_target(g_telemetry_row_handle[i]);
+        if (shadow)
+            widgets[count++] = shadow;
+        if (label)
+            widgets[count++] = label;
+    }
+
+    int removed = 0;
+    for (; removed < count; ++removed) {
+        if (!remove_child(root, widgets[removed])) {
+            for (int i = 0; i < removed; ++i)
+                (void)append_child(root, widgets[i]);
+            return false;
+        }
+    }
+
+    bool appended = true;
+    for (int i = 0; i < count; ++i)
+        appended &= append_child(root, widgets[i]);
+    return appended;
+}
+
+void retry_missing_telemetry_background(MonoObject* root, float opacity) {
+    if (!root || managed_target(g_telemetry_background_handle))
+        return;
+
+    const std::uint64_t now = prefbar_now_ms();
+    if (now < g_telemetry_background_retry_after_ms)
+        return;
+    g_telemetry_background_retry_after_ms = now + 1000U;
+
+    MonoObject* panel = create_telemetry_background_panel(opacity);
+    if (!panel)
+        return;
+
+    if (!append_child(root, panel)) {
+        log_line("prefbar: background Panel recovery AppendChild failed");
+        return;
+    }
+    if (!replace_managed_handle(g_telemetry_background_handle, panel)) {
+        (void)remove_child(root, panel);
+        log_line("prefbar: background Panel recovery handle registration failed");
+        return;
+    }
+    if (!reappend_telemetry_widgets_after_background(root)) {
+        remove_and_release_handle(root, g_telemetry_background_handle);
+        g_telemetry_background_retry_after_ms = now + 3000U;
+        log_line("prefbar: background Panel recovery could not restore text widget order");
+        return;
+    }
+
+    g_telemetry_background_retry_after_ms = 0;
+    log_line("prefbar: background Panel recovered without rebuilding telemetry rows");
 }
 
 /* receiver thread: validate, sanitise, publish */
@@ -1317,15 +1460,21 @@ void prefbar_draw_text() {
         if (background_enabled) {
             MonoObject* panel = create_telemetry_background_panel(
                 static_cast<float>(background_opacity) / 100.0f);
-            if (panel && append_child(root, panel) &&
-                replace_managed_handle(g_telemetry_background_handle, panel)) {
-                /* The shared panel is appended before text widgets. */
+            if (!panel) {
+                g_telemetry_background_retry_after_ms = prefbar_now_ms() + 1000U;
+            } else if (!append_child(root, panel)) {
+                g_telemetry_background_retry_after_ms = prefbar_now_ms() + 1000U;
+                log_line("prefbar: background Panel AppendChild failed; text overlay remains available");
+            } else if (!replace_managed_handle(g_telemetry_background_handle, panel)) {
+                (void)remove_child(root, panel);
+                g_telemetry_background_retry_after_ms = prefbar_now_ms() + 1000U;
+                log_line("prefbar: background Panel managed-handle registration failed");
             } else {
-                if (panel)
-                    (void)remove_child(root, panel);
-                static int panel_warning_count = 0;
-                if (panel_warning_count++ < 5)
-                    log_line("prefbar: background Panel creation failed; text overlay remains available");
+                g_telemetry_background_retry_after_ms = 0;
+                static unsigned int attached_logs = 0;
+                if (attached_logs++ < 3)
+                    log_line("prefbar: background Panel attached opacity=%d%%",
+                             background_opacity);
             }
         }
         int created = 0;
@@ -1520,6 +1669,11 @@ void prefbar_draw_text() {
         }
     }
 
+    if (background_enabled &&
+        !managed_target(g_telemetry_background_handle)) {
+        retry_missing_telemetry_background(
+            root, static_cast<float>(background_opacity) / 100.0f);
+    }
     MonoObject* background = managed_target(g_telemetry_background_handle);
     if (background) {
         MonoClass* panel_class = mono_class_from_name_(
@@ -1568,8 +1722,8 @@ void prefbar_draw_text() {
         const bool show_background = background_enabled && have_bounds;
         bool background_ok = true;
         if (widget_class && panel_class) {
-            background_ok &= set_property_direct(
-                panel_class, background, "BackgroundOpacity",
+            background_ok &= set_property_direct_fallback(
+                panel_class, widget_class, background, "BackgroundOpacity",
                 static_cast<float>(background_opacity) / 100.0f);
 
             if (show_background) {
@@ -1596,8 +1750,8 @@ void prefbar_draw_text() {
             }
 
             /* Never expose a stale/half-sized panel if a PUI setter failed. */
-            background_ok &= set_property_direct(
-                panel_class, background, "BackgroundVisibility",
+            background_ok &= set_property_direct_fallback(
+                panel_class, widget_class, background, "BackgroundVisibility",
                 show_background && background_ok);
         } else {
             background_ok = false;

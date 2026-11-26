@@ -65,6 +65,36 @@ def main() -> int:
          "versioned startup attribution toast does not match PREFBAR_DEBUG_NOTIFY"),
     ]
 
+    if enabled("PREFBAR_ENABLE_WEB"):
+        checks.extend([
+            (
+                b"PS5_USER_AGENT_PATTERN" in controller and
+                b"PS5_CONSOLE_MODE" in controller,
+                "PS5 native User-Agent detection or console styling missing",
+            ),
+            (
+                b".game-scene { position: absolute; z-index: 0;" in controller and
+                b".scene-shade { position: absolute; z-index: 1;" in controller,
+                "PS5-safe preview image stacking missing",
+            ),
+            (
+                b"data:image/jpeg;base64," in controller,
+                "embedded F-15 preview image missing from Control Center",
+            ),
+        ])
+
+    checks.extend([
+        (
+            b"background Panel factory failed" in renderer and
+            b"background Panel recovered without rebuilding telemetry rows" in renderer,
+            "background panel diagnostics or independent recovery path missing",
+        ),
+        (
+            b"optional BackgroundStyle setter unavailable" in renderer,
+            "optional PUI BackgroundStyle compatibility path missing",
+        ),
+    ])
+
     failed = [message for ok, message in checks if not ok]
     for message in failed:
         print(f"ERROR: {message}", file=sys.stderr)
