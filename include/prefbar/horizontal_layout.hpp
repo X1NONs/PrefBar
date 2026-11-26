@@ -8,8 +8,38 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 namespace prefbar {
+
+/*
+ * Hash the row's non-numeric structure. Numeric runs are normalized so a
+ * value changing from one to three digits does not create a new slot.
+ */
+inline std::uint32_t horizontal_row_signature(const char* text) noexcept {
+    std::uint32_t hash = 2166136261u;
+    bool in_number = false;
+    if (!text)
+        return hash;
+
+    const auto mix = [&hash](std::uint8_t value) noexcept {
+        hash ^= value;
+        hash *= 16777619u;
+    };
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(text); *p; ++p) {
+        const bool numeric = (*p >= '0' && *p <= '9') || *p == '.' ||
+                             *p == '-' || *p == '+';
+        if (numeric) {
+            if (!in_number)
+                mix(static_cast<std::uint8_t>('#'));
+            in_number = true;
+        } else {
+            mix(*p);
+            in_number = false;
+        }
+    }
+    return hash;
+}
 
 /*
  * Retain the widest measured text for each horizontal row. PUI labels use
@@ -23,13 +53,21 @@ class StableWidthCache {
 public:
     void reset() noexcept {
         widths_.fill(0.0f);
+        signatures_.fill(0u);
+        initialized_.fill(false);
     }
 
-    float reserve(std::size_t index, float measured) noexcept {
+    float reserve(std::size_t index, std::uint32_t signature, float measured) noexcept {
         if (index >= Count)
             return 0.0f;
-        if (std::isfinite(measured) && measured > widths_[index])
+        if (!initialized_[index] || signatures_[index] != signature) {
+            initialized_[index] = true;
+            signatures_[index] = signature;
+            widths_[index] = std::isfinite(measured) && measured > 0.0f
+                ? measured : 0.0f;
+        } else if (std::isfinite(measured) && measured > widths_[index]) {
             widths_[index] = measured;
+        }
         return widths_[index];
     }
 
@@ -46,6 +84,8 @@ public:
 
 private:
     std::array<float, Count> widths_{};
+    std::array<std::uint32_t, Count> signatures_{};
+    std::array<bool, Count> initialized_{};
 };
 
 } // namespace prefbar

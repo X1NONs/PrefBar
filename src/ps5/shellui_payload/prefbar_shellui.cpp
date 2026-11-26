@@ -1407,7 +1407,9 @@ void prefbar_draw_text() {
             }
             /* Keep each horizontal slot at its widest observed measurement. */
             row_width[i] = horizontal
-                ? g_horizontal_width_cache.reserve(static_cast<std::size_t>(i), measured)
+                ? g_horizontal_width_cache.reserve(
+                    static_cast<std::size_t>(i),
+                    ::prefbar::horizontal_row_signature(text), measured)
                 : measured;
             if (horizontal) {
                 horizontal_text_width += row_width[i];
@@ -1467,7 +1469,8 @@ void prefbar_draw_text() {
                                 row_text[i], effective_font);
                         }
                         row_width[i] = g_horizontal_width_cache.reserve(
-                            static_cast<std::size_t>(i), measured);
+                            static_cast<std::size_t>(i),
+                            ::prefbar::horizontal_row_signature(row_text[i]), measured);
                         horizontal_text_width += row_width[i];
                     }
                 } else {
