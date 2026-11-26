@@ -145,8 +145,6 @@ std::atomic_bool g_runtime_ready{false};
 
 int g_receiver_fd = -1;
 
-constexpr const char* kLabelId = "id_prefbar_label";
-constexpr const char* kValueId = "id_prefbar_value";
 
 /* ---- PrefBar overlay: rows arrive over loopback UDP from the telemetry
  * worker inside the controller. The receiver publishes packets under
