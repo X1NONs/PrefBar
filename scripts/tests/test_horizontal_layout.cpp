@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 X1NONs
  * SPDX-License-Identifier: GPL-3.0-or-later
- * Host regression tests for stable horizontal telemetry row widths.
+ * Host regression tests for stable telemetry row widths.
  */
 #include "prefbar/horizontal_layout.hpp"
 
@@ -56,9 +56,9 @@ void test_font_scaling_preserves_reserved_geometry() {
 }
 
 void test_row_signature_tracks_structure_not_values() {
-    const auto first = prefbar::horizontal_row_signature("FPS 59.8 | FT 9.9ms");
-    const auto wider = prefbar::horizontal_row_signature("FPS 100.0 | FT 10.0ms");
-    const auto different = prefbar::horizontal_row_signature("CPU: 72% | 70C");
+    const auto first = prefbar::stable_row_signature("FPS 59.8 | FT 9.9ms");
+    const auto wider = prefbar::stable_row_signature("FPS 100.0 | FT 10.0ms");
+    const auto different = prefbar::stable_row_signature("CPU: 72% | 70C");
     CHECK(first == wider,
           "numeric value changes should preserve the same row signature");
     CHECK(first != different,
@@ -71,6 +71,39 @@ void test_row_signature_tracks_structure_not_values() {
           "same row with changed values should keep its width");
     CHECK(cache.reserve(0, different, 90.0f) == 90.0f,
           "new row identity should discard an unrelated old slot width");
+}
+
+void test_vertical_right_anchor_uses_stable_slot() {
+    prefbar::StableWidthCache<1> cache;
+    const auto signature = prefbar::stable_row_signature("CPU: 72% | 70C | 2400MHz");
+
+    const float initial_width = cache.reserve(0, signature, 132.0f);
+    const float initial_x = prefbar::right_aligned_slot_x(1920.0f, 24.0f, initial_width);
+
+    const float expanded_width = cache.reserve(0, signature, 148.0f);
+    const float expanded_x = prefbar::right_aligned_slot_x(1920.0f, 24.0f, expanded_width);
+    CHECK(expanded_width == 148.0f && expanded_x < initial_x,
+          "a newly observed widest value may expand the reserved vertical slot");
+
+    const float shorter_width = cache.reserve(0, signature, 118.0f);
+    const float shorter_x = prefbar::right_aligned_slot_x(1920.0f, 24.0f, shorter_width);
+    CHECK(shorter_width == expanded_width,
+          "shorter compact vertical values must not shrink their slot");
+    CHECK(shorter_x == expanded_x,
+          "right-anchored vertical row position must not jitter after shrinking values");
+}
+
+void test_right_anchor_geometry_fails_safe() {
+    CHECK(prefbar::right_aligned_slot_x(1920.0f, 24.0f, 1900.0f) == 24.0f,
+          "oversized rows should clamp to the configured margin");
+    CHECK(prefbar::right_aligned_slot_x(
+              std::numeric_limits<float>::quiet_NaN(), 24.0f, 100.0f) == 24.0f,
+          "invalid screen width should fall back to the left margin");
+    CHECK(prefbar::right_aligned_slot_x(
+              1920.0f, 24.0f, std::numeric_limits<float>::infinity()) == 24.0f,
+          "invalid slot width should fall back to the left margin");
+    CHECK(prefbar::right_aligned_slot_x(1920.0f, -1.0f, 100.0f) == 0.0f,
+          "invalid negative margin should fail safely");
 }
 
 void test_reset_and_invalid_measurements() {
@@ -98,11 +131,13 @@ int main() {
     test_rows_have_independent_slots();
     test_font_scaling_preserves_reserved_geometry();
     test_row_signature_tracks_structure_not_values();
+    test_vertical_right_anchor_uses_stable_slot();
+    test_right_anchor_geometry_fails_safe();
     test_reset_and_invalid_measurements();
     if (failures != 0) {
-        std::printf("%d horizontal layout test(s) failed\n", failures);
+        std::printf("%d layout test(s) failed\n", failures);
         return 1;
     }
-    std::puts("All horizontal layout tests passed");
+    std::puts("All telemetry layout tests passed");
     return 0;
 }

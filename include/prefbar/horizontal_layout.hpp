@@ -16,7 +16,7 @@ namespace prefbar {
  * Hash the row's non-numeric structure. Numeric runs are normalized so a
  * value changing from one to three digits does not create a new slot.
  */
-inline std::uint32_t horizontal_row_signature(const char* text) noexcept {
+inline std::uint32_t stable_row_signature(const char* text) noexcept {
     std::uint32_t hash = 2166136261u;
     bool in_number = false;
     if (!text)
@@ -41,8 +41,22 @@ inline std::uint32_t horizontal_row_signature(const char* text) noexcept {
     return hash;
 }
 
+/* Resolve a right-anchored row from its reserved slot width. Invalid geometry
+ * falls back to the left margin rather than propagating NaN into a PUI Widget.
+ */
+inline float right_aligned_slot_x(
+    float screen_width, float margin_x, float slot_width) noexcept {
+    if (!std::isfinite(margin_x) || margin_x < 0.0f)
+        return 0.0f;
+    if (!std::isfinite(screen_width) || !std::isfinite(slot_width) ||
+        slot_width < 0.0f)
+        return margin_x;
+    const float x = screen_width - margin_x - slot_width;
+    return std::isfinite(x) && x > margin_x ? x : margin_x;
+}
+
 /*
- * Retain the widest measured text for each horizontal row. PUI labels use
+ * Retain the widest measured text for each layout row. PUI labels use
  * FitWidthToText, so their measured widths can fluctuate as telemetry changes.
  * Keeping each slot at its high-water mark prevents repeated back-and-forth
  * movement. A slot can expand when a genuinely wider value appears, but never
