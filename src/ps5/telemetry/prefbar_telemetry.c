@@ -2937,6 +2937,7 @@ static void apply_debug_config(const config_t *cfg)
     DBG_UNLOCK();
 }
 
+#if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
 static int reload_config(config_t *active)
 {
     config_t candidate;
@@ -2946,6 +2947,7 @@ static int reload_config(config_t *active)
     apply_debug_config(active);
     return 1;
 }
+#endif
 
 /* ------------------------------------------------------------------ main */
 static volatile sig_atomic_t g_stop;
@@ -3070,7 +3072,9 @@ static int prefbar_run(int install_signals, int lock)
     int fps_active = 0, fps_seen = 0; /* frames flowing / ever seen           */
     int reports = 0, ram_noted = 0, cpu_zero_run = 0;
     int game_was_active = 0;
+#if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
     uint64_t applied_config_session_generation = 0;
+#endif
 
     while (!g_stop)
     {

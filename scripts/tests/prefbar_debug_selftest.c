@@ -125,8 +125,8 @@ static void test_levels(void)
         {"debug_notify=0\n", 0},
         {"warning_notifications=1\ndebug_notify=1\n", 1},
         {"warning_notifications=1\ndebug_notify=2\n", 2},
-        {"warning_notifications=1\ndebug_notify=3\n", 3},
-        {"warning_notifications=1\ndebug_notify=4\n", 4},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=3\n", 3},
+        {"warning_notifications=1\ndebug_notifications=1\ndebug_notify=4\n", 4},
         {NULL, 1}, /* default: errors only; startup toasts use their own category */
         {"warning_notifications=1\ndebug_notify=9\n", 1},
         {"warning_notifications=1\ndebug_notify=-1\n", 1},
@@ -564,15 +564,54 @@ static void test_config_header_upgrades_any_release(void)
               previous_versions[i]);
         if (body)
         {
-            static const char expected_migration[] =
-                "\n[notifications]\nwarning_notifications=0\n";
-            const size_t original_body_len = sizeof(config_body) - 1;
-            CHECK(strncmp(body + 1, config_body, original_body_len) == 0,
-                  "version %s config should preserve all original comments and settings",
-                  previous_versions[i]);
-            CHECK(strcmp(body + 1 + original_body_len, expected_migration) == 0,
-                  "version %s config should append only the new default warning setting",
-                  previous_versions[i]);
+            /* Migration may fold newly-added defaults into existing sections.
+             * Verify every original line survives without requiring a stale
+             * byte-for-byte suffix layout. */
+            const char *line = config_body;
+            while (*line)
+            {
+                const char *end = strchr(line, '\n');
+                if (!end)
+                    break;
+                const size_t line_len = (size_t)(end - line);
+                if (line_len > 0)
+                {
+                    char needle[512];
+                    if (line_len + 2U <= sizeof(needle))
+                    {
+                        memcpy(needle, line, line_len);
+                        needle[line_len] = '\n';
+                        needle[line_len + 1U] = '\0';
+                        CHECK(strstr(actual, needle) != NULL,
+                              "version %s config should preserve original line: %.*s",
+                              previous_versions[i], (int)line_len, line);
+                    }
+                    else
+                    {
+                        CHECK(0, "version %s original config line is unexpectedly long",
+                              previous_versions[i]);
+                    }
+                }
+                line = end + 1;
+            }
+
+            static const char *const migrated_defaults[] = {
+                "[notifications]\n",
+                "warning_notifications=0\n",
+                "[overlay]\n",
+                "text_opacity=100\n",
+                "background_enabled=1\n",
+                "background_opacity=70\n",
+                "[telemetry]\n",
+                "show_m2_temp=1\n",
+                "m2_temp_label=m2\n"
+            };
+            for (size_t j = 0;
+                 j < sizeof(migrated_defaults) / sizeof(migrated_defaults[0]);
+                 ++j)
+                CHECK(text_occurrences(actual, migrated_defaults[j]) == 1,
+                      "version %s config should contain migrated default exactly once: %s",
+                      previous_versions[i], migrated_defaults[j]);
         }
         CHECK(actual_len > 0,
               "version %s config should not be empty", previous_versions[i]);
@@ -927,6 +966,7 @@ static void test_m2_sensor_and_row(void)
     CHECK(load_config(&cfg) == 1 && cfg.show_m2_temp == 0 && cfg.m2_temp_label_ssd == 1,
           "M.2 visibility and SSD label should parse from config");
     reset(NULL);
+    ensure_default_config_file();
     CHECK(load_config(&cfg) == 1, "default M.2 config should load");
     CHECK(cfg.show_m2_temp == 1 && cfg.m2_temp_label_ssd == 0,
           "M.2 temperature should be enabled and use the M.2 label by default");
