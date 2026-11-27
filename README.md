@@ -2,9 +2,11 @@
   <img src="Docs/logo.png" alt="PrefBar Logo" width="90%" height="120">
 </p>
 
-[![GitHub downloads](https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge&color=007BFF)](https://github.com/X1NONs/PrefBar/releases)
-![Firmware](https://img.shields.io/badge/FW-4.00%E2%80%9313.60-007BFF?style=for-the-badge)
-[![Latest release](https://img.shields.io/github/v/release/X1NONs/PrefBar?style=for-the-badge&label=release&color=007BFF)](https://github.com/X1NONs/PrefBar/releases)
+<p align="center">
+  <a href="https://github.com/X1NONs/PrefBar/releases"><img src="https://img.shields.io/github/downloads/X1NONs/PrefBar/total?style=for-the-badge&color=007BFF" alt="GitHub downloads"></a>
+  <img src="https://img.shields.io/badge/FW-4.00%E2%80%9313.60-007BFF?style=for-the-badge" alt="Firmware 4.00–13.60">
+  <a href="https://github.com/X1NONs/PrefBar/releases"><img src="https://img.shields.io/github/v/release/X1NONs/PrefBar?style=for-the-badge&label=release&color=007BFF" alt="Latest release"></a>
+</p>
 
 **Version 0.3.1**
 (**Active Development:** PrefBar ships almost weekly on weekends. New features, firmware fixes, and optimizations land constantly. Check the Releases tab to stay current)
@@ -35,6 +37,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, SoC power, and M.2 temperature separately. The GPU label can be changed with `gpu_temp_label`; the M.2 label defaults to `m2` and can be changed to `ssd` with `m2_temp_label=ssd`.
 - **Compact and classic metric formats:** Compact groups related metrics; classic preserves the previous one-metric-per-row layout. Disabled metrics are omitted, and an exposed M.2 sensor channel with no valid reading displays N/A.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
+- **PS5 app shortcut:** Open PrefBar's built-in Control Center directly from the PS5 interface to customize the overlay on-console.
 - **Customizable overlay:** Change text color and opacity, the shared black background and its independent opacity, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
 - **Quick toggle:** Triple-click the DualSense touchpad to show or hide the overlay. This can be disabled in the configuration.
