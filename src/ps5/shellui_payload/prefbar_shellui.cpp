@@ -1737,15 +1737,15 @@ void prefbar_draw_text() {
                     ? right + kBackgroundPaddingX : screen_width;
                 const float panel_bottom = bottom + kBackgroundPaddingY < screen_height
                     ? bottom + kBackgroundPaddingY : screen_height;
-                background_ok &= set_property_direct(
-                    widget_class, background, "X", panel_x);
-                background_ok &= set_property_direct(
-                    widget_class, background, "Y", panel_y);
-                background_ok &= set_property_direct(
-                    widget_class, background, "Width",
+                background_ok &= set_property_direct_fallback(
+                    panel_class, widget_class, background, "X", panel_x);
+                background_ok &= set_property_direct_fallback(
+                    panel_class, widget_class, background, "Y", panel_y);
+                background_ok &= set_property_direct_fallback(
+                    panel_class, widget_class, background, "Width",
                     panel_right > panel_x ? panel_right - panel_x : 1.0f);
-                background_ok &= set_property_direct(
-                    widget_class, background, "Height",
+                background_ok &= set_property_direct_fallback(
+                    panel_class, widget_class, background, "Height",
                     panel_bottom > panel_y ? panel_bottom - panel_y : 1.0f);
             }
 
