@@ -266,6 +266,52 @@ Saving does not force a live telemetry reload. The telemetry worker reads the ne
 
 The server binds to all IPv4 interfaces and does not restrict client addresses or require authentication. Any device that can reach the PS5 on port 8998 can open the Control Center, read status/diagnostics, and change PrefBar settings. Keep this in mind when choosing the network the console is connected to.
 
+### PS5 Media shortcut
+
+When the Web Control Center is enabled, PrefBar also registers a Media-category shortcut named **PrefBar** in the PS5 interface. This is a shortcut to the local Control Center, not a second PrefBar payload, a native application package, or a payload loader. It does not start the PrefBar controller by itself.
+
+#### Build-time assets
+
+The launcher integration is part of the `PREFBAR_ENABLE_WEB` CMake option. With this option enabled, the PS5 build:
+
+1. Sets the shortcut Title ID to `PREF00001` and uses the Control Center's HTTP port, `8998`.
+2. Configures `web/backend/launcher/param.json.in` into a generated `param.json`. Its localized display name is `PrefBar`, and its deep link is `http://127.0.0.1:8998/`.
+3. Runs `scripts/tools/prepare_launcher_icon.py` on `Docs/logo.png` to create the square `icon0.png` launcher asset (512 × 512).
+4. Embeds the Control Center page, generated `param.json`, and icon PNG into generated C++ source using `scripts/tools/embed_binary.py`. Those generated sources are linked into the controller payload together with `web/backend/app_launcher.cpp`.
+
+No separate launcher asset files need to be copied to the console. If `PREFBAR_ENABLE_WEB=OFF`, CMake omits the HTTP server and app-launcher sources, their generated assets, and the AppInstUtil link dependency; the Media shortcut is therefore not installed by that build.
+
+#### Registration at runtime
+
+The controller attempts to start the Control Center HTTP server before starting the embedded telemetry worker. After a successful server start, it calls `prefbar::launcher::request_install()`. The controller also requests installation when the server is recovered by its retry/watchdog path.
+
+The request is asynchronous: `request_install()` starts a detached worker and returns to the controller. Atomic state prevents concurrent installer workers and avoids repeating work once the shortcut is registered. The worker makes up to three attempts, waiting 1.5 seconds between retryable failures. If those attempts are exhausted, a later Control Center restart/recovery can request installation again.
+
+The installer prepares the following files:
+
+- `/user/app/PREF00001/sce_sys/param.json` — PS5 shortcut metadata, including its display name and deep link.
+- `/user/app/PREF00001/sce_sys/icon0.png` — the PrefBar shortcut icon.
+- `/data/prefbar/launcher.owner` — ownership marker identifying this directory as PrefBar's launcher entry.
+- `/data/prefbar/launcher.installed` — completion marker written after successful registration.
+
+Before writing, it checks the Title ID directory and any existing metadata. It verifies the embedded assets against the files on disk, uses temporary files and rename for asset replacement, and refuses to overwrite a conflicting entry or unexpected file type. In particular, if `PREF00001` is already occupied by a different app or contains assets that do not match PrefBar's owned entry, installation is stopped rather than replacing them.
+
+After the metadata and icon have been written and verified, the installer initializes `SceAppInstUtil`. It uses the Title-Directory registration routine when it can resolve it from `libSceAppInstUtil.sprx`; otherwise it falls back to `sceAppInstUtilAppInstallAll`. It then terminates the AppInstUtil session and records successful registration. Registration failures are logged and retried; a Title ID conflict is treated as a hard stop.
+
+#### What happens when the shortcut is selected
+
+The shortcut's deep link is `http://127.0.0.1:8998/`. Selecting it opens the Control Center served locally by the running PrefBar controller. Because the address is loopback, the shortcut does not point to a remote website.
+
+The PrefBar payload must already be loaded and its HTTP server must be listening for the shortcut to reach the Control Center. If the controller is not running, the shortcut cannot start it; the local endpoint will not be available. Load the combined PrefBar payload first, then use the Media shortcut to open its Control Center.
+
+Useful installer events are written to `debug.log`:
+
+- `launcher.ready` — shortcut registration completed, including the Title ID, port, and registration path used.
+- `launcher.retry.exhausted` — registration could not complete within the current attempt sequence.
+- `launcher.aborted` — registration stopped because the Title ID is already occupied.
+
+The shortcut and Control Center share the same port setting. Keep the `PREFBAR_LAUNCHER_PORT` CMake value aligned with `prefbar::web::kDefaultPort`; the source includes a compile-time assertion to catch a mismatch.
+
 
 ## Diagnostics and hook-probe logs
 
