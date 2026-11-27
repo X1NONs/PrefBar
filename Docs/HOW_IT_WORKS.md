@@ -35,7 +35,7 @@ Host tests are optional and do not produce a PS5 payload:
 make test
 ```
 
-The test sources are under `scripts/tests/`; test executables are created under `build-host/`. The eight portable host tests cover wire-format validation, diagnostics/configuration, telemetry-pool behavior, adaptive DCE counter selection, touchpad input, ShellUI hook-protocol handling, crash-strike tracking, and application-session transitions. On Linux, an additional process-snapshot test mocks the KERN_PROC records and `sceKernelGetAppInfo` responses to verify app grouping, secondary executable discovery, PID reuse, and malformed-snapshot handling. These host tests do not validate live PS5 process metadata or compile the PS5-only Web Control Center backend; those still require a PS5 SDK build and console testing.
+The test sources are under `scripts/tests/`; test executables are created under `build-host/`. The nine portable host tests cover wire-format validation, diagnostics/configuration, telemetry-pool behavior, adaptive DCE counter selection, touchpad input, ShellUI hook-protocol handling, horizontal-layout behavior, crash-strike tracking, and application-session transitions. On Linux, an additional process-snapshot test mocks the KERN_PROC records and `sceKernelGetAppInfo` responses to verify app grouping, secondary executable discovery, PID reuse, and malformed-snapshot handling. These host tests do not validate live PS5 process metadata or compile the PS5-only Web Control Center backend; those still require a PS5 SDK build and console testing.
 
 ## Runtime architecture
 
