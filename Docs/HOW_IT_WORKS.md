@@ -1,6 +1,6 @@
 # PrefBar 0.3.1: how it works
 
-This document describes the implementation present in the repository. It is not a feature roadmap and does not claim that every firmware path has been tested.
+This document describes the implementation present in the repository.
 
 ## Build model
 
@@ -297,6 +297,6 @@ This instrumentation improves diagnosis; it is not itself a fix for firmware-spe
 
 ## Provenance
 
-PrefBar has its own controller organization, telemetry packet, telemetry worker integration, and current overlay data path. Some low-level PS5 integration, loader, and renderer code remains derived from earlier GPL-licensed projects. Bundling the required source means a separate checkout is not needed to build PrefBar; it does not make that code a clean-room rewrite.
+PrefBar has its own controller organization, telemetry packet, telemetry worker integration, and current overlay data path. Some low-level PS5 integration, loader, and renderer code remains derived from earlier GPL-licensed projects.
 
-In particular, `src/ps5/stable_elfldr_bridge.c` includes the bundled `src/ps5/compat/elfldr.c` implementation and uses its loader definitions/helper functions, including `elfldr_payload_args()`. The legacy ELF-loader source is therefore still present in the build; documentation should not describe it as removed. See [CREDITS.md](CREDITS.md) for project attribution and the retained file-level copyright/SPDX notices for source provenance.
+See [CREDITS.md](CREDITS.md) for project attribution and the retained file-level copyright/SPDX notices for source provenance.
