@@ -157,6 +157,9 @@
     .btn.primary { color: #fff; border-color: #0879EF; background: #0879EF; box-shadow: none; }
     .btn.primary:hover { filter: brightness(1.06); }
     .btn.ghost { background: transparent; }
+    .btn.danger { color: #fff; border-color: #a83240; background: #922b37; }
+    .btn.danger:hover { border-color: #df5360; background: #b53643; }
+    .btn:disabled { opacity: .58; cursor: wait; }
     .panel { display: none; }
     .panel.active { display: block; }
     .toast { position: fixed; z-index: 20; right: 24px; bottom: 78px; max-width: 360px; padding: 12px 15px; border: 1px solid #395164; border-radius: 4px; color: #d9e8ef; background: #152432; box-shadow: none; font-size: 11px; line-height: 1.5; opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity .12s ease; }
@@ -206,8 +209,8 @@
       .field-grid, .metric-grid { grid-template-columns: 1fr; }
       .card-head, .card-body { padding-left: 15px; padding-right: 15px; }
       .bottom-bar { align-items: flex-start; flex-direction: column; gap: 9px; }
-      .actions { width: 100%; }
-      .actions .btn { flex: 1; }
+      .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+      .actions .btn { min-width: 0; width: 100%; }
       .toast { right: 12px; left: 12px; bottom: 115px; max-width: none; }
       .file-chip { max-width: 100%; overflow: hidden; }
       .file-chip code { overflow: hidden; text-overflow: ellipsis; }
@@ -453,7 +456,7 @@
 
   <footer class="bottom-bar">
     <div class="save-state" id="save-state"><span class="state-dot"></span><span id="save-label">No unsaved changes</span></div>
-    <div class="actions"><button class="btn ghost" id="rawOpenBottom">View .conf</button><button class="btn" id="resetBtn">Reset defaults</button><button class="btn primary" id="saveBtn">Save to PS5</button></div>
+    <div class="actions"><button class="btn ghost" id="rawOpenBottom">View .conf</button><button class="btn danger" id="terminateBtn" type="button">Terminate PrefBar</button><button class="btn" id="resetBtn">Reset defaults</button><button class="btn primary" id="saveBtn">Save to PS5</button></div>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -753,6 +756,30 @@
       $('background_opacity_value').value = String(opacity);
       updatePreview();
     });
+    $('terminateBtn').addEventListener('click', terminatePrefBar);
+    async function terminatePrefBar() {
+      if (!window.confirm('Terminate PrefBar? The overlay will be hidden and the process will exit.')) return;
+      const button = $('terminateBtn');
+      button.disabled = true;
+      button.textContent = 'Terminating…';
+      try {
+        const response = await fetch('/api/v1/shutdown', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+          cache: 'no-store'
+        });
+        if (!response.ok) {
+          button.disabled = false;
+          button.textContent = 'Terminate PrefBar';
+          toast(`Could not terminate PrefBar (HTTP ${response.status}).`);
+          return;
+        }
+        toast('Termination requested. PrefBar is shutting down.');
+      } catch {
+        toast('The connection closed before confirmation. PrefBar may already be terminated; check PLDmgr.');
+      }
+    }
     $('rawOpen').addEventListener('click', openConfig);
     $('rawOpenBottom').addEventListener('click', openConfig);
     $('modalClose').addEventListener('click', closeConfig);

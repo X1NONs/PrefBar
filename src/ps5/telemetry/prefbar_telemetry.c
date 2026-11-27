@@ -3093,6 +3093,8 @@ static int prefbar_run(int install_signals, int lock)
     char stop_path[160];
     snprintf(stop_path, sizeof stop_path, "%s/STOP", DATA_DIR);
     unlink(stop_path); /* clear a stale stop request */
+    char terminate_path[160];
+    snprintf(terminate_path, sizeof terminate_path, "%s/TERMINATE", DATA_DIR);
 
     config_t cfg;
     int have_conf = load_config(&cfg);
@@ -3178,6 +3180,12 @@ static int prefbar_run(int install_signals, int lock)
 
     while (!g_stop)
     {
+        /* The controller creates this marker for a full process shutdown. */
+        if (access(terminate_path, F_OK) == 0)
+        {
+            dbg_event(DBG_INFO, "terminate", "Control Center requested process shutdown");
+            break;
+        }
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
         overlay_control_poll();
 #endif
@@ -3468,6 +3476,15 @@ static int prefbar_run(int install_signals, int lock)
 
     dbg_event(DBG_INFO, "exit", "sampler stopped");
 #if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
+    if (access(terminate_path, F_OK) == 0)
+    {
+        /* ShellUI hosts the renderer independently; clear its last frame first. */
+        config_t hidden_cfg = cfg;
+        hidden_cfg.overlay = 0;
+        char empty_rows[PREFBAR_ROWS][PREFBAR_ROW_LEN] = {{0}};
+        overlay_send(&hidden_cfg, empty_rows, 1);
+        write_file_atomic("telemetry.stopped", "overlay hidden\n");
+    }
     if (g_control_fd >= 0)
     {
         close(g_control_fd);

@@ -440,6 +440,9 @@ extern "C" void prefbar_boot_stage(
 extern "C" int main() {
     const int mkdir_rc = mkdir("/data/prefbar", 0777);
     const int mkdir_errno = errno;
+    /* Clear a stale shutdown handshake before the Control Center is exposed. */
+    (void)unlink("/data/prefbar/TERMINATE");
+    (void)unlink("/data/prefbar/telemetry.stopped");
     write_boot_stage("entry", mkdir_rc, mkdir_errno);
 
     errno = 0;
@@ -452,7 +455,7 @@ extern "C" int main() {
     errno = 0;
     write_boot_stage("before_thread_name", -1, -1);
 #ifdef SYS_thr_set_name
-    const long process_name_rc = syscall(SYS_thr_set_name, -1L, "PrefBar");
+    const long process_name_rc = syscall(SYS_thr_set_name, -1L, "PrefBar.elf");
     const int process_name_errno = errno;
 #else
     const long process_name_rc = -1;

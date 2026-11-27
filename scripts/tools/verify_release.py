@@ -40,8 +40,10 @@ def main() -> int:
         (b"game.session.start" in controller and b"game.exited" in controller,
          "game-session lifecycle markers missing"),
         (b"renderer.online" in controller, "renderer lifecycle marker missing"),
-        (b"process.name" in controller and b"main thread name request" in controller,
-         "PrefBar main-thread naming request marker missing"),
+        (b"process.name" in controller and b"main thread name request" in controller and b"PrefBar.elf" in controller,
+         "PrefBar.elf main-thread naming request marker missing"),
+        (b"TERMINATE" in controller and b"telemetry.stopped" in controller,
+         "sampler shutdown handshake markers missing"),
         (b"/data/prefbar/prefbar.conf" in controller,
          "PrefBar runtime configuration path missing"),
         (b"read_raw_rc=%d" in controller and b"read_attempted=%d" in controller and b"read_reported_len=%u" in controller and b"read_requested=%u" in controller,
@@ -67,6 +69,12 @@ def main() -> int:
 
     if enabled("PREFBAR_ENABLE_WEB"):
         checks.extend([
+            (
+                b"Terminate PrefBar" in controller and
+                b"/api/v1/shutdown" in controller and
+                b"application/json" in controller,
+                "Control Center terminate action or shutdown API missing",
+            ),
             (
                 b"PS5_USER_AGENT_PATTERN" in controller and
                 b"PS5_CONSOLE_MODE" in controller,

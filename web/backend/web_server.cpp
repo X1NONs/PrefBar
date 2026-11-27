@@ -51,6 +51,8 @@ constexpr char kControllerLogPath[] = "/data/prefbar/controller.log";
 constexpr char kDebugLogPath[] = "/data/prefbar/debug.log";
 constexpr char kDiagnosticPath[] = "/data/prefbar/diag.txt";
 constexpr char kBootLogPath[] = "/data/prefbar/boot.log";
+constexpr char kTerminateRequestPath[] = "/data/prefbar/TERMINATE";
+constexpr char kTelemetryStoppedPath[] = "/data/prefbar/telemetry.stopped";
 
 constexpr std::size_t kMaxHeaderBytes = 8 * 1024;
 constexpr std::size_t kMaxBodyBytes = 16 * 1024;
@@ -63,6 +65,7 @@ constexpr unsigned kSocketTimeoutSeconds = 3;
 std::atomic<bool> g_running{false};
 std::atomic<bool> g_stopping{false};
 std::atomic<int> g_listener{-1};
+std::atomic<bool> g_terminate_requested{false};
 pthread_t g_worker{};
 bool g_worker_created = false;
 pthread_mutex_t g_lifecycle_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -591,7 +594,8 @@ int read_request(int socket_fd,
     if (unsupported_transfer_encoding)
         return 400;
 
-    if (std::strcmp(request->method, "PUT") == 0 && !have_content_length)
+    if ((std::strcmp(request->method, "PUT") == 0 ||
+         std::strcmp(request->method, "POST") == 0) && !have_content_length)
         return 411;
 
     std::size_t received_body = used > header_bytes ? used - header_bytes : 0;
@@ -787,6 +791,54 @@ void handle_api_request(int socket_fd,
         return;
     }
 
+    if (std::strcmp(request.method, "POST") == 0) {
+        if (std::strcmp(request.target, "/api/v1/shutdown") != 0) {
+            send_error(socket_fd, 404, "Not Found", "not_found");
+            return;
+        }
+        /* JSON content-type forces browser cross-origin requests through CORS
+         * preflight; the server deliberately does not grant cross-origin access. */
+        if (strncasecmp(request.content_type, "application/json", 16) != 0) {
+            send_error(socket_fd, 415, "Unsupported Media Type",
+                       "expected_application_json");
+            return;
+        }
+        if (!request.body || request.body_size != 2 ||
+            std::memcmp(request.body, "{}", 2) != 0) {
+            send_error(socket_fd, 400, "Bad Request",
+                       "invalid_shutdown_request");
+            return;
+        }
+
+        const int marker_fd = open(
+            kTerminateRequestPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (marker_fd < 0) {
+            send_error(socket_fd, 500, "Internal Server Error",
+                       "termination_request_failed");
+            return;
+        }
+        static constexpr char marker[] = "web-ui\n";
+        bool marker_written = write_all(marker_fd, marker, sizeof(marker) - 1);
+        if (close(marker_fd) != 0)
+            marker_written = false;
+        if (!marker_written) {
+            (void)unlink(kTerminateRequestPath);
+            send_error(socket_fd, 500, "Internal Server Error",
+                       "termination_request_failed");
+            return;
+        }
+
+        prefbar_debug_event(
+            kLogWarning, "process.terminate.request",
+            "Control Center requested PrefBar process termination");
+        static constexpr char response[] = "{\"terminating\":true}\n";
+        send_response(socket_fd, 202, "Accepted",
+                      "application/json; charset=utf-8",
+                      response, sizeof(response) - 1);
+        g_terminate_requested.store(true, std::memory_order_release);
+        return;
+    }
+
     send_error(socket_fd, 405, "Method Not Allowed", "method_not_allowed");
 }
 
@@ -842,7 +894,8 @@ void handle_client(int client_fd) noexcept {
 
     if (std::strcmp(request.method, "GET") == 0 ||
         std::strcmp(request.method, "HEAD") == 0 ||
-        std::strcmp(request.method, "PUT") == 0) {
+        std::strcmp(request.method, "PUT") == 0 ||
+        std::strcmp(request.method, "POST") == 0) {
         handle_api_request(client_fd, request, head_only);
         return;
     }
@@ -896,6 +949,30 @@ void* server_worker(void*) noexcept {
 
         handle_client(client);
         close(client);
+
+        if (g_terminate_requested.load(std::memory_order_acquire)) {
+            bool sampler_stopped = false;
+            for (unsigned elapsed_ms = 0; elapsed_ms < 2500; elapsed_ms += 25) {
+                if (access(kTelemetryStoppedPath, F_OK) == 0) {
+                    sampler_stopped = true;
+                    break;
+                }
+                (void)usleep(25'000);
+            }
+
+            if (sampler_stopped) {
+                /* Let ShellUI consume the final overlay-hidden UDP packet. */
+                (void)usleep(150'000);
+                prefbar_debug_event(
+                    kLogInfo, "process.terminate",
+                    "sampler acknowledged shutdown; exiting PrefBar");
+            } else {
+                prefbar_debug_event(
+                    kLogWarning, "process.terminate.timeout",
+                    "sampler did not acknowledge shutdown within 2500 ms; exiting anyway");
+            }
+            _exit(0);
+        }
     }
 
     g_running.store(false, std::memory_order_release);
@@ -907,6 +984,7 @@ void* server_worker(void*) noexcept {
 int start() noexcept {
     prefbar_boot_stage("web_enter", -1, -1);
     pthread_mutex_lock(&g_lifecycle_mutex);
+    g_terminate_requested.store(false, std::memory_order_release);
     prefbar_boot_stage("web_mutex_locked", -1, -1);
 
     if (g_worker_created) {
