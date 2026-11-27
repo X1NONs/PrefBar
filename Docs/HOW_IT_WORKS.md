@@ -98,6 +98,8 @@ The M.2 temperature metric reads `sceKernelGetSocSensorTemperature(2, ...)`, the
 
 The PWR metric uses the optional sceKernelGetSocPowerConsumption kernel API. Its raw milliwatt lanes are aggregated and converted to watts; if the API is unavailable or returns no valid sample, the row is omitted. Horizontal mode places the compacted metrics on one line. It estimates the complete bar width, then aligns it left, centered, or right. Font size is reduced only when needed to fit within the screen margins.
 
+Every reading in a compact row (`CPU: 45% | 62C | 3500MHz`) is drawn by its own PUI label. The renderer splits each row at ` | `, measures each reading through PUI, and reserves a slot at the widest width that reading has reached. Slots only grow until the layout is rebuilt, so a value gaining or losing a digit moves only the end of its own reading and never shifts the readings after it. The background panel is sized from these same slots, so it does not pulse as values change. If the background does not appear, `/system_tmp/prefbar_shellui.log` lists which `Panel` and `Widget` background properties this firmware exposes (`background Panel property probe`) and whether their getters return values (`background Panel state`).
+
 **Fan duty is not fan RPM.** The currently used fan API reports a Q10 duty value, converted to a percentage. The project does not claim that this API supplies tachometer RPM.
 
 The telemetry worker writes human-readable `status.txt` and key/value `status.kv` files under `/data/prefbar`. It also appends debug events to `debug.log`; optional diagnostic captures are written to `diag.txt`.

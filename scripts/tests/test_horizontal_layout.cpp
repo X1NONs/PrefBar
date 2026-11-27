@@ -6,6 +6,7 @@
 #include "prefbar/horizontal_layout.hpp"
 
 #include <cstdio>
+#include <cstring>
 #include <limits>
 
 namespace {
@@ -124,6 +125,99 @@ void test_reset_and_invalid_measurements() {
     CHECK(cache.get(0) == 0.0f,
           "reset should clear widths when the layout is rebuilt");
 }
+
+bool segment_is(const char* text, const prefbar::RowSegments& s,
+                std::size_t index, const char* expected) {
+    return index < s.count &&
+           s.length[index] == std::strlen(expected) &&
+           std::strncmp(text + s.begin[index], expected, s.length[index]) == 0;
+}
+
+void test_compact_row_splits_into_independent_readings() {
+    const char* row = "CPU: 45% | 62C | 3500MHz";
+    const auto s = prefbar::split_row_segments(row);
+    CHECK(s.count == 3, "three readings expected, got %zu", s.count);
+    CHECK(segment_is(row, s, 0, "CPU: 45%"), "first reading keeps its label");
+    CHECK(segment_is(row, s, 1, "| 62C"), "separator stays with the following reading");
+    CHECK(segment_is(row, s, 2, "| 3500MHz"), "last reading keeps its separator");
+}
+
+void test_segment_signatures_ignore_digit_count() {
+    const char* narrow = "CPU: 9% | 62C | 800MHz";
+    const char* wide = "CPU: 100% | 100C | 3500MHz";
+    const auto a = prefbar::split_row_segments(narrow);
+    const auto b = prefbar::split_row_segments(wide);
+    CHECK(a.count == b.count && a.count == 3, "segment count must not depend on digits");
+    for (std::size_t i = 0; i < a.count; ++i) {
+        char left[96]{};
+        char right[96]{};
+        std::memcpy(left, narrow + a.begin[i], a.length[i]);
+        std::memcpy(right, wide + b.begin[i], b.length[i]);
+        CHECK(prefbar::stable_row_signature(left) == prefbar::stable_row_signature(right),
+              "segment %zu must keep one slot identity across digit changes", i);
+    }
+}
+
+void test_segment_slots_keep_following_readings_still() {
+    /* The 62C reading must stay put while the CPU percentage grows and shrinks. */
+    prefbar::StableWidthCache<3> cache;
+    const char* rows[] = {"CPU: 9% | 62C", "CPU: 45% | 62C", "CPU: 100% | 62C", "CPU: 7% | 62C"};
+    const float widths[][2] = {{70.0f, 48.0f}, {82.0f, 48.0f}, {96.0f, 48.0f}, {64.0f, 48.0f}};
+    float first_x = -1.0f;
+    for (int n = 0; n < 4; ++n) {
+        const auto s = prefbar::split_row_segments(rows[n]);
+        float x = 0.0f;
+        float second_x = 0.0f;
+        for (std::size_t i = 0; i < s.count; ++i) {
+            char text[96]{};
+            std::memcpy(text, rows[n] + s.begin[i], s.length[i]);
+            const float slot = cache.reserve(
+                i, prefbar::stable_row_signature(text), widths[n][i]);
+            if (i == 1)
+                second_x = x;
+            x += slot + prefbar::intra_row_gap(26);
+        }
+        if (n == 0) {
+            first_x = second_x;
+        } else if (n >= 2) {
+            CHECK(second_x >= first_x, "slots may only grow");
+        }
+        if (n == 3) {
+            CHECK(second_x == cache.get(0) + prefbar::intra_row_gap(26),
+                  "62C must not move when the CPU value shrinks again");
+        }
+    }
+}
+
+void test_segment_splitting_edge_cases() {
+    CHECK(prefbar::split_row_segments(nullptr).count == 0, "null text has no segments");
+    CHECK(prefbar::split_row_segments("").count == 0, "empty text has no segments");
+
+    const char* plain = "FPS 60.0";
+    const auto one = prefbar::split_row_segments(plain);
+    CHECK(one.count == 1 && segment_is(plain, one, 0, "FPS 60.0"),
+          "a row without separators stays one segment");
+
+    const char* lead = " | 62C";
+    const auto leading = prefbar::split_row_segments(lead);
+    CHECK(leading.count == 1 && segment_is(lead, leading, 0, " | 62C"),
+          "a leading separator must not create an empty segment");
+
+    const char* four = "A | B | C | D | E";
+    const auto capped = prefbar::split_row_segments(four, 2);
+    CHECK(capped.count == 2 && segment_is(four, capped, 0, "A") &&
+              segment_is(four, capped, 1, "| B | C | D | E"),
+          "the last permitted segment keeps the remaining text");
+    const auto limited = prefbar::split_row_segments(four);
+    CHECK(limited.count == prefbar::kMaxRowSegments,
+          "segment count must never exceed the compile-time limit");
+
+    const char* bars = "cores: 10 20 30 | |";
+    const auto odd = prefbar::split_row_segments(bars);
+    CHECK(odd.count > 0 && odd.count <= prefbar::kMaxRowSegments,
+          "repeated separators must remain within the segment limit");
+}
+
 } // namespace
 
 int main() {
@@ -134,6 +228,10 @@ int main() {
     test_vertical_right_anchor_uses_stable_slot();
     test_right_anchor_geometry_fails_safe();
     test_reset_and_invalid_measurements();
+    test_compact_row_splits_into_independent_readings();
+    test_segment_signatures_ignore_digit_count();
+    test_segment_slots_keep_following_readings_still();
+    test_segment_splitting_edge_cases();
     if (failures != 0) {
         std::printf("%d layout test(s) failed\n", failures);
         return 1;

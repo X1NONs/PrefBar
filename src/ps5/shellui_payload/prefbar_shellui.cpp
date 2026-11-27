@@ -161,8 +161,17 @@ std::atomic<std::uint64_t> g_telemetry_rx_count{0};
 std::atomic<std::uint64_t> g_telemetry_rx_ms{0};
 std::uint64_t g_telemetry_applied_count = 0;
 bool g_telemetry_hidden = false;
-std::uint32_t g_telemetry_row_handle[PREFBAR_ROWS]{};
-std::uint32_t g_telemetry_shadow_handle[PREFBAR_ROWS]{};
+/* One PUI label per displayed reading ("cell"). A wire row such as
+ * "CPU: 45% | 62C | 3500MHz" becomes up to kMaxRowSegments cells, each with its
+ * own fixed slot, so a value gaining a digit cannot push the readings after it
+ * sideways. The names keep their historical "row" prefix. */
+constexpr int PREFBAR_CELLS = 40;
+static_assert(PREFBAR_CELLS >= PREFBAR_ROWS, "every wire row needs at least one cell");
+std::uint32_t g_telemetry_row_handle[PREFBAR_CELLS]{};
+std::uint32_t g_telemetry_shadow_handle[PREFBAR_CELLS]{};
+int g_telemetry_prev_cells = 0;
+float g_telemetry_cell_x[PREFBAR_CELLS]{};
+float g_telemetry_cell_y[PREFBAR_CELLS]{};
 std::uint32_t g_telemetry_background_handle{};
 std::uint64_t g_telemetry_background_retry_after_ms{};
 struct TelemetryLayout {
@@ -185,7 +194,7 @@ struct TelemetryLayout {
     bool valid;
 };
 TelemetryLayout g_telemetry_layout{};
-::prefbar::StableWidthCache<PREFBAR_ROWS> g_telemetry_width_cache{};
+::prefbar::StableWidthCache<PREFBAR_CELLS> g_telemetry_width_cache{};
 std::atomic<bool> g_telemetry_draw_busy{false};   /* the draw routine must never run twice at once */
 int g_row_rebuild_count = 0;
 
@@ -1043,6 +1052,91 @@ void log_background_factory_failure(const char* reason) {
         log_line("prefbar: background Panel factory failed: %s", reason);
 }
 
+bool background_property_exists(
+    MonoClass* primary, MonoClass* fallback, const char* name) {
+
+    return property_setter(primary, name) != nullptr ||
+        (fallback && fallback != primary &&
+         property_setter(fallback, name) != nullptr);
+}
+
+/* Check that a property getter can be invoked and returned a value. Do not
+ * copy raw bytes from an unknown boxed Mono type: bools, integers and enums
+ * do not all have an eight-byte payload. */
+bool read_property_status(
+    MonoClass* primary,
+    MonoClass* fallback,
+    MonoObject* instance,
+    const char* name) {
+
+    if (!instance)
+        return false;
+    MonoMethod* getter = property_getter(primary, name);
+    if (!getter && fallback && fallback != primary)
+        getter = property_getter(fallback, name);
+    return getter && invoke(getter, instance) != nullptr;
+}
+
+/* One-time report of which Panel/Widget background properties this PUI build
+ * really exposes (G = getter, S = setter). */
+void log_background_property_probe(MonoClass* panel_class, MonoClass* widget_class) {
+    static bool logged = false;
+    if (logged)
+        return;
+    logged = true;
+
+    static const char* const kNames[] = {
+        "Name", "X", "Y", "Width", "Height", "Visible", "Visibility", "Alpha",
+        "Opacity", "BackgroundColor", "BackgroundStyle", "BackgroundOpacity",
+        "BackgroundVisibility", "BackgroundImage", "Color",
+    };
+    char line[512];
+    std::size_t used = 0;
+    line[0] = '\0';
+    for (const char* name : kNames) {
+        const bool get =
+            property_getter(panel_class, name) != nullptr ||
+            (widget_class && property_getter(widget_class, name) != nullptr);
+        const bool set = background_property_exists(panel_class, widget_class, name);
+        const int n = std::snprintf(
+            line + used, sizeof(line) - used, "%s%s=%s%s",
+            used ? " " : "", name, get ? "G" : "-", set ? "S" : "-");
+        if (n < 0 || static_cast<std::size_t>(n) >= sizeof(line) - used)
+            break;
+        used += static_cast<std::size_t>(n);
+    }
+    log_line("prefbar: background Panel property probe: %s", line);
+}
+
+void log_background_state(
+    const char* stage,
+    MonoClass* panel_class,
+    MonoClass* widget_class,
+    MonoObject* panel) {
+
+    static unsigned int logged = 0;
+    if (logged++ >= 6)
+        return;
+
+    static const char* const kNames[] = {
+        "BackgroundStyle", "BackgroundOpacity", "BackgroundVisibility",
+    };
+    char line[256];
+    std::size_t used = 0;
+    line[0] = '\0';
+    for (const char* name : kNames) {
+        const bool ok = read_property_status(
+            panel_class, widget_class, panel, name);
+        const int n = std::snprintf(
+            line + used, sizeof(line) - used, "%s%s=%s",
+            used ? " " : "", name, ok ? "getter-ok" : "n/a");
+        if (n < 0 || static_cast<std::size_t>(n) >= sizeof(line) - used)
+            break;
+        used += static_cast<std::size_t>(n);
+    }
+    log_line("prefbar: background Panel state %s: %s", stage, line);
+}
+
 MonoObject* create_telemetry_background_panel(float opacity) {
     MonoClass* klass = mono_class_from_name_(
         g_pui_image,
@@ -1064,10 +1158,12 @@ MonoObject* create_telemetry_background_panel(float opacity) {
         return nullptr;
     }
     mono_runtime_object_init_(panel);
+    log_background_property_probe(klass, widget_class);
+    log_background_state("defaults", klass, widget_class, panel);
 
+    /* Geometry is the only hard requirement. Appearance properties are
+     * best-effort because PUI differs between firmware builds. */
     MonoString* name = mono_string_new_(g_domain, "id_prefbar_background");
-    MonoObject* black = create_color(0.0f, 0.0f, 0.0f, 1.0f);
-
     const bool name_ok = name && set_property_direct_fallback(
         klass, widget_class, panel, "Name", name);
     const bool x_ok = set_property_direct_fallback(
@@ -1078,11 +1174,27 @@ MonoObject* create_telemetry_background_panel(float opacity) {
         klass, widget_class, panel, "Width", 1.0f);
     const bool height_ok = set_property_direct_fallback(
         klass, widget_class, panel, "Height", 1.0f);
-    const bool color_ok = black && set_property_object_fallback(
-        klass, widget_class, panel, "BackgroundColor", black);
 
-    /* BackgroundStyle is optional on some PUI builds. The reference renderer
-     * uses it when available but does not make panel creation depend on it. */
+    /* Prefer the explicit opacity property. If absent or rejected, use the
+     * UIColor alpha instead, never applying the same opacity twice. */
+    const bool has_opacity_property = background_property_exists(
+        klass, widget_class, "BackgroundOpacity");
+    MonoObject* black = create_color(
+        0.0f, 0.0f, 0.0f, has_opacity_property ? 1.0f : opacity);
+    bool color_ok = black && set_property_object_fallback(
+        klass, widget_class, panel, "BackgroundColor", black);
+    bool opacity_ok = !has_opacity_property ||
+        set_property_direct_fallback(
+            klass, widget_class, panel, "BackgroundOpacity", opacity);
+    if (has_opacity_property && !opacity_ok) {
+        MonoObject* alpha_fallback = create_color(0.0f, 0.0f, 0.0f, opacity);
+        if (alpha_fallback) {
+            color_ok = set_property_object_fallback(
+                klass, widget_class, panel, "BackgroundColor", alpha_fallback);
+        }
+    }
+
+    /* BackgroundStyle is optional on some PUI builds. */
     const bool style_ok = set_property_direct_fallback(
         klass, widget_class, panel, "BackgroundStyle", 1);
     if (!style_ok) {
@@ -1091,28 +1203,88 @@ MonoObject* create_telemetry_background_panel(float opacity) {
             log_line("prefbar: optional BackgroundStyle setter unavailable; retaining PUI default");
     }
 
-    const bool opacity_ok = set_property_direct_fallback(
-        klass, widget_class, panel, "BackgroundOpacity", opacity);
-    const bool visibility_ok = set_property_direct_fallback(
-        klass, widget_class, panel, "BackgroundVisibility", false);
+    log_background_state("configured", klass, widget_class, panel);
 
-    if (!name_ok || !x_ok || !y_ok || !width_ok || !height_ok ||
-        !color_ok || !opacity_ok || !visibility_ok) {
+    if (!x_ok || !y_ok || !width_ok || !height_ok) {
         log_background_factory_failure(
-            "required property setter failed (see per-property flags below)");
+            "required geometry setter failed (see per-property flags below)");
         static unsigned int detail_warnings = 0;
         if (detail_warnings++ < 5) {
             log_line(
                 "prefbar: background Panel property flags "
-                "Name=%d X=%d Y=%d Width=%d Height=%d Color=%d Opacity=%d Visibility=%d",
+                "Name=%d X=%d Y=%d Width=%d Height=%d Color=%d Style=%d Opacity=%d",
                 name_ok, x_ok, y_ok, width_ok, height_ok, color_ok,
-                opacity_ok, visibility_ok);
+                style_ok, opacity_ok);
         }
         return nullptr;
     }
 
+    if (!name_ok || !color_ok || !opacity_ok) {
+        static unsigned int soft_warnings = 0;
+        if (soft_warnings++ < 3)
+            log_line(
+                "prefbar: background Panel created with optional setters missing "
+                "Name=%d Color=%d Style=%d Opacity=%d",
+                name_ok, color_ok, style_ok, opacity_ok);
+    }
+
     return panel;
 }
+
+/* Place and show/hide the shared background. Geometry and visibility are
+ * reported separately so a log shows which half failed on a given firmware. */
+bool update_telemetry_background(
+    MonoObject* panel,
+    bool show,
+    float x,
+    float y,
+    float width,
+    float height) {
+
+    MonoClass* panel_class = mono_class_from_name_(
+        g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel");
+    MonoClass* widget_class = mono_class_from_name_(
+        g_pui_image, "Sce.PlayStation.PUI.UI2", "Widget");
+    if (!panel || !panel_class)
+        return false;
+
+    if (!show) {
+        x = 0.0f;
+        y = 0.0f;
+        width = 1.0f;
+        height = 1.0f;
+    }
+
+    bool geometry_ok = true;
+    geometry_ok &= set_property_direct_fallback(
+        panel_class, widget_class, panel, "X", x);
+    geometry_ok &= set_property_direct_fallback(
+        panel_class, widget_class, panel, "Y", y);
+    geometry_ok &= set_property_direct_fallback(
+        panel_class, widget_class, panel, "Width", width);
+    geometry_ok &= set_property_direct_fallback(
+        panel_class, widget_class, panel, "Height", height);
+
+    /* Either property may be the one this build honours; both are harmless. */
+    bool visibility_ok = false;
+    visibility_ok |= set_property_direct_fallback(
+        panel_class, widget_class, panel, "BackgroundVisibility", show);
+    visibility_ok |= set_property_direct_fallback(
+        panel_class, widget_class, panel, "Visible", show);
+
+    static unsigned int shown_logs = 0;
+    if (show && shown_logs++ < 4) {
+        log_line(
+            "prefbar: background Panel shown x=%.0f y=%.0f w=%.0f h=%.0f "
+            "geometry=%d visibility=%d",
+            static_cast<double>(x), static_cast<double>(y),
+            static_cast<double>(width), static_cast<double>(height),
+            geometry_ok, visibility_ok);
+        log_background_state("shown", panel_class, widget_class, panel);
+    }
+    return geometry_ok;
+}
+
 MonoObject* create_label(
     const char* name,
     float x,
@@ -1201,9 +1373,9 @@ bool reappend_telemetry_widgets_after_background(MonoObject* root) {
     if (!root)
         return false;
 
-    MonoObject* widgets[PREFBAR_ROWS * 2]{};
+    MonoObject* widgets[PREFBAR_CELLS * 2]{};
     int count = 0;
-    for (int i = 0; i < PREFBAR_ROWS; ++i) {
+    for (int i = 0; i < PREFBAR_CELLS; ++i) {
         MonoObject* shadow = managed_target(g_telemetry_shadow_handle[i]);
         MonoObject* label = managed_target(g_telemetry_row_handle[i]);
         if (shadow)
@@ -1424,14 +1596,16 @@ void prefbar_draw_text() {
     if (g_telemetry_layout.horizontal != horizontal) why |= 256u;
     if (g_telemetry_layout.screen_width != screen_width ||
         g_telemetry_layout.screen_height != screen_height) why |= 512u;
-    MonoObject* labels[PREFBAR_ROWS]{};
-    MonoObject* shadows[PREFBAR_ROWS]{};
+
+    MonoObject* labels[PREFBAR_CELLS]{};
+    MonoObject* shadows[PREFBAR_CELLS]{};
     if (!why) {
         /* A failed panel factory must not force a full label rebuild every frame.
          * Layout/config changes still retry panel creation through the normal path. */
-        for (int i = 0; i < PREFBAR_ROWS; ++i) {
+        for (int i = 0; i < PREFBAR_CELLS; ++i) {
             labels[i] = managed_target(g_telemetry_row_handle[i]);
-            if (want_shadow) shadows[i] = managed_target(g_telemetry_shadow_handle[i]);
+            if (want_shadow)
+                shadows[i] = managed_target(g_telemetry_shadow_handle[i]);
             if (!labels[i] || (want_shadow && !shadows[i])) {
                 why |= 32u;
                 break;
@@ -1439,9 +1613,18 @@ void prefbar_draw_text() {
         }
     }
     const bool rebuild = why != 0;
+    const float line_h = static_cast<float>(font_px) * 1.3f;
+    const float y0 = bottom_corner
+        ? screen_height - my - line_h * static_cast<float>(layout_rows)
+        : my;
 
     if (rebuild) {
         g_telemetry_width_cache.reset();
+        g_telemetry_prev_cells = 0;
+        for (int i = 0; i < PREFBAR_CELLS; ++i) {
+            g_telemetry_cell_x[i] = std::nanf("");
+            g_telemetry_cell_y[i] = std::nanf("");
+        }
         prefbar_blank_rows();
         for (auto& h : g_telemetry_row_handle)
             remove_and_release_handle(root, h);
@@ -1453,10 +1636,6 @@ void prefbar_draw_text() {
             log_line("prefbar: UIFont create failed");
             return;
         }
-        const float line_h = static_cast<float>(font_px) * 1.3f;
-        const float y0 = bottom_corner
-            ? screen_height - my - line_h * static_cast<float>(layout_rows)
-            : my;
         if (background_enabled) {
             MonoObject* panel = create_telemetry_background_panel(
                 static_cast<float>(background_opacity) / 100.0f);
@@ -1477,15 +1656,16 @@ void prefbar_draw_text() {
                              background_opacity);
             }
         }
+
         int created = 0;
-        for (int i = 0; i < PREFBAR_ROWS; ++i) {
+        for (int i = 0; i < PREFBAR_CELLS; ++i) {
             char id[32];
             std::snprintf(id, sizeof(id), "id_prefbar_row%d", i);
             if (want_shadow) {
                 char shadow_id[40];
                 std::snprintf(shadow_id, sizeof(shadow_id), "id_prefbar_shadow%d", i);
                 MonoObject* shadow = create_label(
-                    shadow_id, mx + 1.5f, y0 + (horizontal ? 0.0f : line_h * static_cast<float>(i)) + 1.5f,
+                    shadow_id, mx + 1.5f, y0 + 1.5f,
                     "", font, 0, 0.0f, 0.0f, 0.0f, 0.82f);
                 if (shadow && append_child(root, shadow) &&
                     replace_managed_handle(g_telemetry_shadow_handle[i], shadow)) {
@@ -1494,8 +1674,11 @@ void prefbar_draw_text() {
                     shadows[i] = nullptr;
                 }
             }
+
+            /* Cells are placed on every update, so their start position is
+             * irrelevant; they are blank until text is assigned. */
             MonoObject* label = create_label(
-                id, mx, y0 + (horizontal ? 0.0f : line_h * static_cast<float>(i)), "", font, 0,
+                id, mx, y0, "", font, 0,
                 pkt.r, pkt.g, pkt.b, pkt.a);
             if (label && append_child(root, label) &&
                 replace_managed_handle(g_telemetry_row_handle[i], label) &&
@@ -1508,66 +1691,126 @@ void prefbar_draw_text() {
         }
         ++g_row_rebuild_count;
         log_line("prefbar: rows built #%d why=0x%x created=%d/%d font=%d corner=%d rows=%d",
-                 g_row_rebuild_count, why, created, PREFBAR_ROWS, font_px, corner, rows);
+                 g_row_rebuild_count, why, created, PREFBAR_CELLS, font_px, corner, rows);
         g_telemetry_layout = TelemetryLayout{
             font_px, requested_font, corner, layout_rows, mx, my,
             screen_width, screen_height, pkt.r, pkt.g, pkt.b, pkt.a,
             background_opacity, background_enabled,
-            want_shadow, horizontal, created == PREFBAR_ROWS};
+            want_shadow, horizontal, created == PREFBAR_CELLS};
     }
 
-    int applied = 0;
     MonoClass* label_class = mono_class_from_name_(
         g_pui_image, "Sce.PlayStation.PUI.UI2", "Label");
-    const char* row_text[PREFBAR_ROWS]{};
-    float row_width[PREFBAR_ROWS]{};
-    int horizontal_items = 0;
-    float horizontal_text_width = 0.0f;
-    static bool width_warning_logged = false;
 
-    /* FitWidthToText updates Label.Width when Text changes. Measure through
-     * PUI instead of assuming every glyph is 0.62 em wide. */
+    /* Decide what every wire row says. */
+    const char* row_text[PREFBAR_ROWS]{};
+    int populated_rows = 0;
     for (int i = 0; i < PREFBAR_ROWS; ++i) {
-        if (!labels[i])
-            continue;
         const char* text = "";
         if (overlay_visible && banner)
             text = (i == 0) ? banner : "";
         else if (overlay_visible && !stale && i < rows)
             text = pkt.text[i];
         row_text[i] = text;
+        if (text[0])
+            ++populated_rows;
+    }
 
-        if (want_shadow && shadows[i])
-            (void)set_label_text(shadows[i], text);
-        if (set_label_text(labels[i], text))
+    /* Split each populated row into independently placed readings. */
+    char cell_text[PREFBAR_CELLS][PREFBAR_ROW_LEN]{};
+    int cell_count = 0;
+    int group_count = 0;
+    int group_first[PREFBAR_ROWS]{};
+    int group_cells[PREFBAR_ROWS]{};
+    int group_row[PREFBAR_ROWS]{};
+    int rows_after = populated_rows;
+    for (int i = 0; i < PREFBAR_ROWS && cell_count < PREFBAR_CELLS; ++i) {
+        if (!row_text[i][0])
+            continue;
+        --rows_after;
+        /* Leave one cell for every row still to come so none is dropped. */
+        int budget = PREFBAR_CELLS - cell_count - rows_after;
+        if (budget < 1)
+            budget = 1;
+        const ::prefbar::RowSegments segments = ::prefbar::split_row_segments(
+            row_text[i], static_cast<std::size_t>(budget));
+        group_first[group_count] = cell_count;
+        group_row[group_count] = i;
+        for (std::size_t k = 0; k < segments.count && cell_count < PREFBAR_CELLS; ++k) {
+            std::size_t length = segments.length[k];
+            if (length > static_cast<std::size_t>(PREFBAR_ROW_LEN - 1))
+                length = static_cast<std::size_t>(PREFBAR_ROW_LEN - 1);
+            std::memcpy(cell_text[cell_count], row_text[i] + segments.begin[k], length);
+            cell_text[cell_count][length] = '\0';
+            ++cell_count;
+        }
+        group_cells[group_count] = cell_count - group_first[group_count];
+        ++group_count;
+    }
+
+    /* Assign text. Cells that were in use last time but are not now are blanked. */
+    int applied = 0;
+    const int cells_to_write = cell_count > g_telemetry_prev_cells
+        ? cell_count : g_telemetry_prev_cells;
+    for (int c = 0; c < cells_to_write && c < PREFBAR_CELLS; ++c) {
+        if (!labels[c])
+            continue;
+        const char* text = c < cell_count ? cell_text[c] : "";
+        if (want_shadow && shadows[c])
+            (void)set_label_text(shadows[c], text);
+        if (set_label_text(labels[c], text))
             ++applied;
+    }
+    g_telemetry_prev_cells = cell_count;
 
-        if (text[0]) {
+    float slot[PREFBAR_CELLS]{};
+    static bool width_warning_logged = false;
+
+    /* Measure via PUI and retain each reading's high-water width. */
+    const auto measure_cells = [&](int estimate_font) {
+        for (int c = 0; c < cell_count; ++c) {
+            if (!labels[c])
+                continue;
             float measured = 0.0f;
-            if (!read_float_property(label_class, labels[i], "Width", &measured) ||
+            if (!read_float_property(label_class, labels[c], "Width", &measured) ||
                 !std::isfinite(measured) || measured <= 0.0f) {
-                measured = estimated_label_width(text, g_telemetry_layout.font);
+                measured = estimated_label_width(cell_text[c], estimate_font);
                 if (!width_warning_logged) {
                     log_line("prefbar: PUI Label.Width unavailable; using guarded width estimate");
                     width_warning_logged = true;
                 }
             }
-            /* Keep a stable high-water width for every populated row in both layouts. */
-            row_width[i] = g_telemetry_width_cache.reserve(
-                static_cast<std::size_t>(i),
-                ::prefbar::stable_row_signature(text), measured);
-            if (horizontal) {
-                horizontal_text_width += row_width[i];
-                ++horizontal_items;
-            }
+            slot[c] = g_telemetry_width_cache.reserve(
+                static_cast<std::size_t>(c),
+                ::prefbar::stable_row_signature(cell_text[c]), measured);
         }
-    }
+    };
+    measure_cells(g_telemetry_layout.font);
 
     int effective_font = g_telemetry_layout.font > 0
         ? g_telemetry_layout.font : requested_font;
-    if (horizontal && horizontal_items > 0) {
+
+    /* Width of one group: its cells plus the small gap between readings. */
+    const auto group_width = [&](int g, int font) {
+        float width = 0.0f;
+        for (int k = 0; k < group_cells[g]; ++k)
+            width += slot[group_first[g] + k];
+        if (group_cells[g] > 1)
+            width += static_cast<float>(group_cells[g] - 1) *
+                ::prefbar::intra_row_gap(font);
+        return width;
+    };
+    const auto groups_total_width = [&](int font) {
+        float width = 0.0f;
+        for (int g = 0; g < group_count; ++g)
+            width += group_width(g, font);
+        return width;
+    };
+
+    if (horizontal && group_count > 0) {
+        const float horizontal_text_width = groups_total_width(effective_font);
         const float current_gap_total =
-            static_cast<float>(horizontal_items - 1) *
+            static_cast<float>(group_count - 1) *
             static_cast<float>(effective_font) * horizontal_gap_scale;
         const float current_total = horizontal_text_width + current_gap_total;
         const float requested_total = current_total *
@@ -1587,12 +1830,12 @@ void prefbar_draw_text() {
             MonoObject* fit_font = create_font(fitted_font);
             if (fit_font && label_class) {
                 bool font_applied = true;
-                for (int i = 0; i < PREFBAR_ROWS; ++i) {
-                    if (labels[i] &&
-                        !set_label_font(label_class, labels[i], fit_font))
+                for (int c = 0; c < PREFBAR_CELLS; ++c) {
+                    if (labels[c] &&
+                        !set_label_font(label_class, labels[c], fit_font))
                         font_applied = false;
-                    if (want_shadow && shadows[i] &&
-                        !set_label_font(label_class, shadows[i], fit_font))
+                    if (want_shadow && shadows[c] &&
+                        !set_label_font(label_class, shadows[c], fit_font))
                         font_applied = false;
                 }
                 if (font_applied) {
@@ -1601,23 +1844,11 @@ void prefbar_draw_text() {
                     g_telemetry_width_cache.scale(
                         static_cast<float>(effective_font) /
                         static_cast<float>(previous_effective_font));
-                    horizontal_text_width = 0.0f;
-                    for (int i = 0; i < PREFBAR_ROWS; ++i) {
-                        if (!labels[i] || !row_text[i] || !row_text[i][0])
-                            continue;
-                        (void)set_label_text(labels[i], row_text[i]);
-                        float measured = 0.0f;
-                        if (!read_float_property(
-                                label_class, labels[i], "Width", &measured) ||
-                            !std::isfinite(measured) || measured <= 0.0f) {
-                            measured = estimated_label_width(
-                                row_text[i], effective_font);
-                        }
-                        row_width[i] = g_telemetry_width_cache.reserve(
-                            static_cast<std::size_t>(i),
-                            ::prefbar::stable_row_signature(row_text[i]), measured);
-                        horizontal_text_width += row_width[i];
+                    for (int c = 0; c < cell_count; ++c) {
+                        if (labels[c])
+                            (void)set_label_text(labels[c], cell_text[c]);
                     }
+                    measure_cells(effective_font);
                 } else {
                     log_line("prefbar: could not apply fitted font to every horizontal label");
                 }
@@ -1627,12 +1858,16 @@ void prefbar_draw_text() {
         }
     }
 
+    /* Resolve every cell's position from its reserved slot. */
+    float cell_x[PREFBAR_CELLS]{};
+    float cell_y[PREFBAR_CELLS]{};
+    bool cell_positioned[PREFBAR_CELLS]{};
+    const float intra_gap = ::prefbar::intra_row_gap(effective_font);
     if (horizontal) {
         const float horizontal_gap =
             static_cast<float>(effective_font) * horizontal_gap_scale;
-        const float horizontal_total_width = horizontal_text_width +
-            static_cast<float>(horizontal_items > 0 ? horizontal_items - 1 : 0) *
-                horizontal_gap;
+        const float horizontal_total_width = groups_total_width(effective_font) +
+            static_cast<float>(group_count > 0 ? group_count - 1 : 0) * horizontal_gap;
         float horizontal_x = mx;
         if (horizontal_alignment_mode == PREFBAR_WIRE_FLAG_HORIZONTAL_ALIGN_RIGHT) {
             horizontal_x = screen_width - mx - horizontal_total_width;
@@ -1642,30 +1877,63 @@ void prefbar_draw_text() {
         if (horizontal_x < mx)
             horizontal_x = mx;
 
-        for (int i = 0; i < PREFBAR_ROWS; ++i) {
-            if (!labels[i])
-                continue;
-            if (label_class) {
-                (void)set_property_direct(label_class, labels[i], "X", horizontal_x);
-                if (want_shadow && shadows[i])
-                    (void)set_property_direct(
-                        label_class, shadows[i], "X", horizontal_x + 1.5f);
+        float cursor = horizontal_x;
+        for (int g = 0; g < group_count; ++g) {
+            for (int k = 0; k < group_cells[g]; ++k) {
+                const int c = group_first[g] + k;
+                cell_x[c] = cursor;
+                cell_y[c] = y0;
+                cursor += slot[c];
+                if (k + 1 < group_cells[g])
+                    cursor += intra_gap;
             }
-            if (row_text[i] && row_text[i][0])
-                horizontal_x += row_width[i] + horizontal_gap;
+            cursor += horizontal_gap;
         }
-    } else if (right_vertical_anchor && label_class) {
-        /* Right-align each populated vertical row independently. Width comes
-         * from PUI after Text is updated, with a guarded estimate as fallback. */
-        for (int i = 0; i < PREFBAR_ROWS; ++i) {
-            if (!labels[i])
+    } else {
+        for (int g = 0; g < group_count; ++g) {
+            /* Right-anchored rows align by their total reserved group width. */
+            float cursor = right_vertical_anchor
+                ? ::prefbar::right_aligned_slot_x(
+                      screen_width, mx, group_width(g, effective_font))
+                : mx;
+            const float row_y = y0 + line_h * static_cast<float>(group_row[g]);
+            for (int k = 0; k < group_cells[g]; ++k) {
+                const int c = group_first[g] + k;
+                cell_x[c] = cursor;
+                cell_y[c] = row_y;
+                cursor += slot[c] + intra_gap;
+            }
+        }
+    }
+
+    /* Only touch PUI when a cell really has to move. Failed setters are retried
+     * next frame rather than being cached as successful positions. */
+    if (label_class) {
+        for (int c = 0; c < cell_count; ++c) {
+            if (!labels[c])
                 continue;
-            const float row_x = ::prefbar::right_aligned_slot_x(
-                screen_width, mx, row_width[i]);
-            (void)set_property_direct(label_class, labels[i], "X", row_x);
-            if (want_shadow && shadows[i])
-                (void)set_property_direct(
-                    label_class, shadows[i], "X", row_x + 1.5f);
+            bool x_ok = true;
+            bool y_ok = true;
+            if (g_telemetry_cell_x[c] != cell_x[c]) {
+                x_ok = set_property_direct(label_class, labels[c], "X", cell_x[c]);
+                if (want_shadow && shadows[c])
+                    x_ok = set_property_direct(
+                        label_class, shadows[c], "X", cell_x[c] + 1.5f) && x_ok;
+                if (x_ok)
+                    g_telemetry_cell_x[c] = cell_x[c];
+            }
+            if (g_telemetry_cell_y[c] != cell_y[c]) {
+                y_ok = set_property_direct(label_class, labels[c], "Y", cell_y[c]);
+                if (want_shadow && shadows[c])
+                    y_ok = set_property_direct(
+                        label_class, shadows[c], "Y", cell_y[c] + 1.5f) && y_ok;
+                if (y_ok)
+                    g_telemetry_cell_y[c] = cell_y[c];
+            }
+            cell_positioned[c] =
+                x_ok && y_ok &&
+                g_telemetry_cell_x[c] == cell_x[c] &&
+                g_telemetry_cell_y[c] == cell_y[c];
         }
     }
 
@@ -1676,87 +1944,46 @@ void prefbar_draw_text() {
     }
     MonoObject* background = managed_target(g_telemetry_background_handle);
     if (background) {
-        MonoClass* panel_class = mono_class_from_name_(
-            g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel");
-        MonoClass* widget_class = mono_class_from_name_(
-            g_pui_image, "Sce.PlayStation.PUI.UI2", "Widget");
-
+        /* Bounds come from our computed cell geometry, not PUI getters that may
+         * lag behind the text just assigned. */
         bool have_bounds = false;
         float left = screen_width;
         float top = screen_height;
         float right = 0.0f;
         float bottom = 0.0f;
-        const float fallback_line_height = static_cast<float>(effective_font) * 1.3f;
-
-        for (int i = 0; i < PREFBAR_ROWS; ++i) {
-            if (!labels[i] || !row_text[i] || !row_text[i][0])
+        const float cell_height = static_cast<float>(effective_font) * 1.3f;
+        for (int c = 0; c < cell_count; ++c) {
+            if (!labels[c] || !cell_positioned[c])
                 continue;
-
-            float x = mx;
-            float y = bottom_corner
-                ? screen_height - my - fallback_line_height * static_cast<float>(layout_rows)
-                    + (horizontal ? 0.0f : fallback_line_height * static_cast<float>(i))
-                : my + (horizontal ? 0.0f : fallback_line_height * static_cast<float>(i));
-            /* Keep the panel aligned to the reserved row slot in both layouts. */
-            float width = row_width[i] > 0.0f
-                ? row_width[i]
-                : estimated_label_width(row_text[i], effective_font);
-            float height = fallback_line_height;
-
-            (void)read_float_property(label_class, labels[i], "X", &x);
-            (void)read_float_property(label_class, labels[i], "Y", &y);
-            if (!std::isfinite(width) || width <= 0.0f)
-                width = estimated_label_width(row_text[i], effective_font);
-            if (!read_float_property(label_class, labels[i], "Height", &height) ||
-                height <= 0.0f) {
-                height = fallback_line_height;
-            }
-
-            if (x < left) left = x;
-            if (y < top) top = y;
-            if (x + width > right) right = x + width;
-            if (y + height > bottom) bottom = y + height;
+            if (cell_x[c] < left) left = cell_x[c];
+            if (cell_y[c] < top) top = cell_y[c];
+            if (cell_x[c] + slot[c] > right) right = cell_x[c] + slot[c];
+            if (cell_y[c] + cell_height > bottom) bottom = cell_y[c] + cell_height;
             have_bounds = true;
         }
 
         const bool show_background = background_enabled && have_bounds;
-        bool background_ok = true;
-        if (widget_class && panel_class) {
-            background_ok &= set_property_direct_fallback(
-                panel_class, widget_class, background, "BackgroundOpacity",
-                static_cast<float>(background_opacity) / 100.0f);
-
-            if (show_background) {
-                constexpr float kBackgroundPaddingX = 10.0f;
-                constexpr float kBackgroundPaddingY = 7.0f;
-                const float panel_x = left > kBackgroundPaddingX
-                    ? left - kBackgroundPaddingX : 0.0f;
-                const float panel_y = top > kBackgroundPaddingY
-                    ? top - kBackgroundPaddingY : 0.0f;
-                const float panel_right = right + kBackgroundPaddingX < screen_width
-                    ? right + kBackgroundPaddingX : screen_width;
-                const float panel_bottom = bottom + kBackgroundPaddingY < screen_height
-                    ? bottom + kBackgroundPaddingY : screen_height;
-                background_ok &= set_property_direct_fallback(
-                    panel_class, widget_class, background, "X", panel_x);
-                background_ok &= set_property_direct_fallback(
-                    panel_class, widget_class, background, "Y", panel_y);
-                background_ok &= set_property_direct_fallback(
-                    panel_class, widget_class, background, "Width",
-                    panel_right > panel_x ? panel_right - panel_x : 1.0f);
-                background_ok &= set_property_direct_fallback(
-                    panel_class, widget_class, background, "Height",
-                    panel_bottom > panel_y ? panel_bottom - panel_y : 1.0f);
-            }
-
-            /* Never expose a stale/half-sized panel if a PUI setter failed. */
-            background_ok &= set_property_direct_fallback(
-                panel_class, widget_class, background, "BackgroundVisibility",
-                show_background && background_ok);
-        } else {
-            background_ok = false;
+        float panel_x = 0.0f;
+        float panel_y = 0.0f;
+        float panel_w = 1.0f;
+        float panel_h = 1.0f;
+        if (show_background) {
+            constexpr float kBackgroundPaddingX = 10.0f;
+            constexpr float kBackgroundPaddingY = 7.0f;
+            panel_x = left > kBackgroundPaddingX
+                ? left - kBackgroundPaddingX : 0.0f;
+            panel_y = top > kBackgroundPaddingY
+                ? top - kBackgroundPaddingY : 0.0f;
+            const float panel_right = right + kBackgroundPaddingX < screen_width
+                ? right + kBackgroundPaddingX : screen_width;
+            const float panel_bottom = bottom + kBackgroundPaddingY < screen_height
+                ? bottom + kBackgroundPaddingY : screen_height;
+            panel_w = panel_right > panel_x ? panel_right - panel_x : 1.0f;
+            panel_h = panel_bottom > panel_y ? panel_bottom - panel_y : 1.0f;
         }
 
+        const bool background_ok = update_telemetry_background(
+            background, show_background, panel_x, panel_y, panel_w, panel_h);
         static bool background_warning_logged = false;
         if (!background_ok && !background_warning_logged) {
             log_line("prefbar: background Panel properties unavailable; text overlay remains available");
@@ -1768,12 +1995,13 @@ void prefbar_draw_text() {
 
     static int logged = 0;
     if (logged++ < 5)
-        log_line("prefbar: text applied rows=%d/%d count=%llu stale=%d banner=%d",
-                 applied, PREFBAR_ROWS, static_cast<unsigned long long>(count),
+        log_line("prefbar: text applied cells=%d/%d count=%llu stale=%d banner=%d",
+                 applied, cell_count, static_cast<unsigned long long>(count),
                  stale ? 1 : 0, banner ? 1 : 0);
     g_telemetry_applied_count = count;
     g_telemetry_hidden = stale;
 }
+
 
 struct pad_state_t {
     std::uint32_t buttons{};

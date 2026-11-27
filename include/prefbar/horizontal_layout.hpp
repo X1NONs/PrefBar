@@ -41,6 +41,60 @@ inline std::uint32_t stable_row_signature(const char* text) noexcept {
     return hash;
 }
 
+/*
+ * Compact rows pack several readings into one string ("CPU: 45% | 62C |
+ * 3500MHz"). A single PUI label cannot keep the later readings still when an
+ * earlier number gains or loses a digit, so the renderer draws every reading in
+ * its own label and gives each one its own reserved slot.
+ *
+ * Splitting happens at " | ". The bar stays with the reading that follows it
+ * (segment text is "| 62C"), so every separator sits at the left edge of a
+ * fixed slot. At most max_segments pieces are produced; the final piece
+ * keeps whatever text remains. Offsets are relative to text.
+ */
+constexpr std::size_t kMaxRowSegments = 4;
+
+struct RowSegments {
+    std::size_t count{};
+    std::size_t begin[kMaxRowSegments]{};
+    std::size_t length[kMaxRowSegments]{};
+};
+
+inline RowSegments split_row_segments(
+    const char* text, std::size_t max_segments = kMaxRowSegments) noexcept {
+
+    RowSegments out;
+    if (!text || !text[0])
+        return out;
+    if (max_segments < 1)
+        max_segments = 1;
+    if (max_segments > kMaxRowSegments)
+        max_segments = kMaxRowSegments;
+
+    std::size_t length = 0;
+    while (text[length])
+        ++length;
+
+    std::size_t start = 0;
+    for (std::size_t i = 0; i + 2 < length && out.count + 1 < max_segments; ++i) {
+        if (text[i] == ' ' && text[i + 1] == '|' && text[i + 2] == ' ' && i > start) {
+            out.begin[out.count] = start;
+            out.length[out.count] = i - start;
+            ++out.count;
+            start = i + 1;   /* the '|' opens the next segment */
+        }
+    }
+    out.begin[out.count] = start;
+    out.length[out.count] = length - start;
+    ++out.count;
+    return out;
+}
+
+/* Gap between the readings of one row; roughly one space character. */
+inline float intra_row_gap(int font_px) noexcept {
+    return static_cast<float>(font_px) * 0.30f;
+}
+
 /* Resolve a right-anchored row from its reserved slot width. Invalid geometry
  * falls back to the left margin rather than propagating NaN into a PUI Widget.
  */

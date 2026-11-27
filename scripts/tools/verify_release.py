@@ -93,6 +93,15 @@ def main() -> int:
             b"optional BackgroundStyle setter unavailable" in renderer,
             "optional PUI BackgroundStyle compatibility path missing",
         ),
+        (
+            b"background Panel property probe" in renderer and
+            b"background Panel shown" in renderer,
+            "background panel property probe or shown-state diagnostics missing",
+        ),
+        (
+            b"prefbar: text applied cells" in renderer,
+            "per-reading cell layout marker missing from renderer",
+        ),
     ])
 
     failed = [message for ok, message in checks if not ok]
