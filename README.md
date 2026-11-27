@@ -43,6 +43,8 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 4. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 5. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
 
+> **Security note:** The Web Control Center has no authentication and listens on all IPv4 interfaces.
+
 The Web Control Center is embedded in the payload and starts with PrefBar. It has no authentication, so keep the PS5 on a trusted network. If you built PrefBar with the Web Control Center disabled, use the manual configuration method below instead.
 
 ## Compatibility
