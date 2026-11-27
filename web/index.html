@@ -409,6 +409,23 @@
                   <div class="inline-info" style="margin-top:18px"><span style="color:var(--accent);font-size:14px">ⓘ</span><div><strong>Advanced:</strong> polling values outside 500–20000 μs are not accepted by the current configuration parser. Changing this setting can affect sampling behavior.</div></div>
                 </div>
               </div>
+              <div class="card" style="margin-top:16px">
+                <div class="card-head"><div><div class="card-title">Fan temperature target</div><div class="card-desc">Optional override for the PS5 automatic fan controller.</div></div></div>
+                <div class="card-body">
+                  <div class="toggle-row" style="padding-top:0">
+                    <div class="toggle-copy"><div class="toggle-name">Use a custom target</div><div class="toggle-help">Off by default; leaves the fan target system-managed unless another payload has already changed it.</div></div>
+                    <label class="switch"><input id="fan_target_override" type="checkbox"><span class="track"></span></label>
+                  </div>
+                  <div class="field" style="margin-top:18px">
+                    <div class="field-label">Target temperature</div>
+                    <div class="range-wrap">
+                      <input id="fan_target_degrees" type="range" min="50" max="91" step="1" value="75" disabled>
+                      <span class="range-value" id="fan_target_value">75 °C</span>
+                    </div>
+                  </div>
+                  <div class="inline-info" style="margin-top:18px"><span style="color:var(--accent);font-size:14px">ⓘ</span><div><strong>Cooling:</strong> the override is applied once when a new game session is confirmed; saving does not change an active game immediately. Higher targets delay fan ramp-up and can increase console temperatures. Use only one payload to control this setting. Switching back to System stops future PrefBar writes; it does not restore a previous custom target.</div></div>
+                </div>
+              </div>
             </section>
           </div>
 
@@ -476,7 +493,8 @@
       sensors: true, show_fps: true, show_frametime: true, show_1percent_low: true, show_cpu_usage: true, show_cpu_temp: true, show_cpu_clock: true,
       show_gpu_temp: true, gpu_temp_label: 'gpu', show_gpu_clock: true, show_fan_duty: true, show_ram: true, show_vram: true, show_power: true, show_m2_temp: true, m2_temp_label: 'm2',
       notifications: true, startup_notification: true, error_notifications: true, warning_notifications: false, debug_notifications: false, debug_notify: '1', notify_sec: '0',
-      touchpad_toggle: true, diag: false, poll_us: '2000'
+      touchpad_toggle: true, diag: false, poll_us: '2000',
+      fan_target_override: false, fan_target_degrees: '75'
     };
     let initialSnapshot = '';
     let toastTimer;
@@ -496,6 +514,12 @@
       const dirty = snapshot() !== initialSnapshot;
       $('save-state').classList.toggle('unsaved', dirty);
       $('save-label').textContent = dirty ? 'Unsaved changes' : 'No unsaved changes';
+    }
+    function syncFanTargetControl() {
+      const enabled = $('fan_target_override').checked;
+      const slider = $('fan_target_degrees');
+      slider.disabled = !enabled;
+      $('fan_target_value').textContent = `${slider.value} °C`;
     }
     function toast(message) {
       $('toast').textContent = message;
@@ -688,6 +712,8 @@
     }));
     document.querySelectorAll('.segmented').forEach(group => group.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => setSegment(group, btn.dataset.value))));
     document.querySelectorAll('input, select').forEach(el => el.addEventListener('input', () => {
+      if (el.id === 'fan_target_override' || el.id === 'fan_target_degrees')
+        syncFanTargetControl();
       if (el.id === 'text_color_picker') $('text_color').value = el.value.toUpperCase();
       if (el.id === 'text_color') {
         if (/^#[0-9A-Fa-f]{6}$/.test(el.value)) $('text_color_picker').value = el.value;
@@ -736,7 +762,7 @@
     function generateConfig() {
       const s = readState();
       const bool = v => v ? '1' : '0';
-      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_opacity=${s.text_opacity}\nbackground_enabled=${bool(s.background_enabled)}\nbackground_opacity=${s.background_opacity}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\nshow_m2_temp=${bool(s.show_m2_temp)}\nm2_temp_label=${s.m2_temp_label}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
+      return `# PrefBar 0.3.1 configuration\n\n[notifications]\nnotifications=${bool(s.notifications)}\nstartup_notification=${bool(s.startup_notification)}\nerror_notifications=${bool(s.error_notifications)}\nwarning_notifications=${bool(s.warning_notifications)}\ndebug_notifications=${bool(s.debug_notifications)}\ndebug_notify=${s.debug_notify}\nnotify_sec=${s.notify_sec}\n\n[overlay]\noverlay=${bool(s.overlay)}\ntext_color=${s.text_color}\ntext_opacity=${s.text_opacity}\nbackground_enabled=${bool(s.background_enabled)}\nbackground_opacity=${s.background_opacity}\ntext_shadow=${bool(s.text_shadow)}\noverlay_mode=${s.overlay_mode}\noverlay_font=${s.overlay_font}\noverlay_corner=${s.overlay_corner}\noverlay_x=${s.overlay_x}\noverlay_y=${s.overlay_y}\noverlay_format=${s.overlay_format}\noverlay_horizontal=${s.overlay_horizontal}\noverlay_horizontal_spacing=${s.overlay_horizontal_spacing}\noverlay_horizontal_align=${s.overlay_horizontal_align}\n\n[telemetry]\nsensors=${bool(s.sensors)}\nshow_fps=${bool(s.show_fps)}\nshow_frametime=${bool(s.show_frametime)}\nshow_1percent_low=${bool(s.show_1percent_low)}\nshow_cpu_usage=${bool(s.show_cpu_usage)}\nshow_cpu_temp=${bool(s.show_cpu_temp)}\nshow_cpu_clock=${bool(s.show_cpu_clock)}\nshow_gpu_temp=${bool(s.show_gpu_temp)}\ngpu_temp_label=${s.gpu_temp_label}\nshow_gpu_clock=${bool(s.show_gpu_clock)}\nshow_fan_duty=${bool(s.show_fan_duty)}\nshow_ram=${bool(s.show_ram)}\nshow_vram=${bool(s.show_vram)}\nshow_power=${bool(s.show_power)}\nshow_m2_temp=${bool(s.show_m2_temp)}\nm2_temp_label=${s.m2_temp_label}\n\n[cooling]\nfan_target_temperature=${s.fan_target_override ? s.fan_target_degrees : 'system'}\n\n[input]\ntouchpad_toggle=${bool(s.touchpad_toggle)}\n\n[diagnostics]\ndiag=${bool(s.diag)}\npoll_us=${s.poll_us}\n`;
     }
     $('copyConfig').addEventListener('click', async () => {
       const value = $('config-output').textContent;
@@ -822,6 +848,7 @@
       $('text_color_picker').value = defaults.text_color;
       $('text_opacity_value').value = $('text_opacity').value;
       $('background_opacity_value').value = $('background_opacity').value;
+      syncFanTargetControl();
       updatePreview(); toast('Settings reset to PrefBar defaults.');
     });
     function applyRemoteConfig(documentText) {
@@ -876,6 +903,17 @@
       if (/^#[0-9A-Fa-f]{6}$/.test(values.text_color || '')) {
         $('text_color_picker').value = values.text_color;
       }
+      const fanTarget = values.fan_target_temperature;
+      if (fanTarget === 'system' || fanTarget === 'auto') {
+        $('fan_target_override').checked = false;
+      } else if (/^\\d+$/.test(fanTarget || '')) {
+        const numericTarget = Number(fanTarget);
+        if (Number.isInteger(numericTarget) && numericTarget >= 50 && numericTarget <= 91) {
+          $('fan_target_override').checked = true;
+          $('fan_target_degrees').value = String(numericTarget);
+        }
+      }
+      syncFanTargetControl();
       updatePreview();
     }
 
@@ -893,6 +931,7 @@
     }
 
     window.addEventListener('resize', updatePreview);
+    syncFanTargetControl();
     updatePreview();
     initialSnapshot = snapshot();
     markDirty();

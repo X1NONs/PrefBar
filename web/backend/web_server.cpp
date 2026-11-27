@@ -87,7 +87,8 @@ enum class ValueKind {
     Boolean,
     Integer,
     Color,
-    Choice
+    Choice,
+    FanTemperature
 };
 
 struct ConfigRule {
@@ -134,6 +135,7 @@ constexpr ConfigRule kConfigRules[] = {
     {"gpu_temp_label", ValueKind::Choice, 0, 0, "gpu|soc"},
     {"show_gpu_clock", ValueKind::Boolean, 0, 1, nullptr},
     {"show_fan_duty", ValueKind::Boolean, 0, 1, nullptr},
+    {"fan_target_temperature", ValueKind::FanTemperature, 0, 0, nullptr},
     {"show_ram", ValueKind::Boolean, 0, 1, nullptr},
     {"show_vram", ValueKind::Boolean, 0, 1, nullptr},
     {"show_power", ValueKind::Boolean, 0, 1, nullptr},
@@ -188,6 +190,14 @@ bool valid_color(const char* value) noexcept {
     return true;
 }
 
+bool valid_fan_temperature(const char* value) noexcept {
+    if (!value)
+        return false;
+    if (std::strcmp(value, "system") == 0 || std::strcmp(value, "auto") == 0)
+        return true;
+    return valid_integer(value, 50, 91);
+}
+
 bool valid_choice(const char* value, const char* choices) noexcept {
     if (!value || !choices)
         return false;
@@ -232,6 +242,8 @@ bool valid_config_value(const ConfigRule& rule, const char* value) noexcept {
         return valid_color(value);
     case ValueKind::Choice:
         return valid_choice(value, rule.choices);
+    case ValueKind::FanTemperature:
+        return valid_fan_temperature(value);
     }
     return false;
 }

@@ -284,6 +284,14 @@ else()
         add_test(NAME prefbar_horizontal_layout_tests
             COMMAND prefbar_horizontal_layout_tests)
 
+        add_executable(prefbar_fan_target_tests
+            scripts/tests/test_fan_target.cpp)
+        target_include_directories(prefbar_fan_target_tests PRIVATE include)
+        target_compile_options(prefbar_fan_target_tests PRIVATE
+            -Wall -Wextra -Werror -UNDEBUG)
+        add_test(NAME prefbar_fan_target_tests
+            COMMAND prefbar_fan_target_tests)
+
         add_executable(prefbar_crash_strike_tests
             scripts/tests/test_crash_strikes.cpp)
         target_include_directories(prefbar_crash_strike_tests PRIVATE include)

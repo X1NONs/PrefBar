@@ -102,6 +102,10 @@ Every reading in a compact row (`CPU: 45% | 62C | 3500MHz`) is drawn by its own 
 
 **Fan duty is not fan RPM.** The currently used fan API reports a Q10 duty value, converted to a percentage. The project does not claim that this API supplies tachometer RPM.
 
+**Optional fan target control.** The Control Center can leave the automatic fan target system-managed (the default) or request a target from 50–91 °C. PrefBar uses the PS5 automatic fan-controller interface at `/dev/icc_fan`: it reads the current autoservo configuration, changes only the target-temperature field, writes it, and reads it back to verify the result. A custom request is applied once when a new game session is confirmed; saving does not change an active game immediately. The implementation follows the interface used by [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus).
+
+System mode means PrefBar sends no fan-setting write. It does **not** restore an earlier custom target. Other payloads that write the same fan-controller setting can overwrite PrefBar's value, so configure only one fan-control owner at a time. Higher targets delay fan ramp-up and can increase console temperatures; leave the override disabled unless you have a clear reason to change it.
+
 The telemetry worker writes human-readable `status.txt` and key/value `status.kv` files under `/data/prefbar`. It also appends debug events to `debug.log`; optional diagnostic captures are written to `diag.txt`.
 
 ### 3. Telemetry and control protocol

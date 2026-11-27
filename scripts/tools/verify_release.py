@@ -102,6 +102,12 @@ def main() -> int:
             b"prefbar: text applied cells" in renderer,
             "per-reading cell layout marker missing from renderer",
         ),
+        (
+            b"/dev/icc_fan" in controller and
+            b"fan_target_temperature" in controller and
+            b"0xC01C8F08" in controller and b"0xC01C8F07" in controller,
+            "optional automatic fan target controller path missing",
+        ),
     ])
 
     failed = [message for ok, message in checks if not ok]

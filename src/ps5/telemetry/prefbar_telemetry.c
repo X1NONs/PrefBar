@@ -59,6 +59,7 @@
 #include <ps5/nid.h>
 #endif
 #include "prefbar/telemetry_wire.h"
+#include "prefbar/fan_target.h"
 #ifndef PREFBAR_SIM
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -819,6 +820,8 @@ static void ensure_default_config_file(void)
         "show_power=1\n"
         "show_m2_temp=1\n"
         "m2_temp_label=m2\n\n"
+        "[cooling]\n"
+        "fan_target_temperature=system\n\n"
         "[input]\n"
         "touchpad_toggle=1\n\n"
         "[diagnostics]\n"
@@ -2167,6 +2170,7 @@ typedef struct
     int gpu_temp_label_soc;
     int show_ram, show_vram, show_power;
     int show_m2_temp, m2_temp_label_ssd;
+    int fan_target_temperature;
     int overlay_horizontal, overlay_horizontal_spacing, overlay_horizontal_align;
     int overlay_format;
     int touchpad_toggle;
@@ -2704,6 +2708,94 @@ static void diag_capture(const char *tag, int idx, uint64_t t_ns, uint64_t t0_ns
     diag_end();
 }
 
+/* ---------------------------------------------------------------- fan target */
+
+/*
+ * Keep the controller change narrow: read the 28-byte autoservo record,
+ * modify only its target-temperature field, write it, and verify by reading
+ * the record back. This mirrors the interface used by ShadowMountPlus.
+ */
+#if defined(PREFBAR_EMBED) && !defined(PREFBAR_SIM)
+#define PREFBAR_FAN_DEVICE "/dev/icc_fan"
+#define PREFBAR_FAN_GET_AUTOSERVO 0xC01C8F08UL
+#define PREFBAR_FAN_SET_AUTOSERVO 0xC01C8F07UL
+#define PREFBAR_FAN_CONFIG_SIZE 28u
+#define PREFBAR_FAN_SELECTOR 0u
+#define PREFBAR_FAN_TARGET_OFFSET 5u
+
+static int prefbar_fan_get_config(
+    int fd, uint8_t config[PREFBAR_FAN_CONFIG_SIZE]) {
+
+    memset(config, 0, PREFBAR_FAN_CONFIG_SIZE);
+    config[2] = PREFBAR_FAN_SELECTOR;
+    return ioctl(fd, PREFBAR_FAN_GET_AUTOSERVO, config);
+}
+
+static int prefbar_fan_write_target(
+    int fd, uint8_t target_c, uint8_t *previous_target_out) {
+
+    if (!previous_target_out) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    uint8_t current[PREFBAR_FAN_CONFIG_SIZE];
+    uint8_t verified[PREFBAR_FAN_CONFIG_SIZE];
+    if (prefbar_fan_get_config(fd, current) != 0)
+        return -1;
+
+    *previous_target_out = current[PREFBAR_FAN_TARGET_OFFSET];
+    if (*previous_target_out == target_c)
+        return 0;
+
+    current[PREFBAR_FAN_TARGET_OFFSET] = target_c;
+    if (ioctl(fd, PREFBAR_FAN_SET_AUTOSERVO, current) != 0)
+        return -1;
+    if (prefbar_fan_get_config(fd, verified) != 0)
+        return -1;
+    if (verified[PREFBAR_FAN_TARGET_OFFSET] == target_c)
+        return 0;
+
+    errno = EIO;
+    return -1;
+}
+
+static void prefbar_fan_apply_target(int target_c) {
+    if (target_c == PREFBAR_FAN_TARGET_SYSTEM) {
+        dlog("fan: system-managed target selected; no override write\\n");
+        return;
+    }
+    if (!prefbar_fan_target_valid(target_c)) {
+        dlog("fan: invalid target %d C; ignoring request\\n", target_c);
+        return;
+    }
+
+    const int fd = open(PREFBAR_FAN_DEVICE, O_RDWR | O_DIRECT);
+    if (fd < 0) {
+        dlog("fan: cannot open autoservo device (errno=%d: %s)\\n",
+             errno, strerror(errno));
+        return;
+    }
+
+    uint8_t previous_target = 0;
+    const int result = prefbar_fan_write_target(
+        fd, (uint8_t)target_c, &previous_target);
+    const int saved_errno = errno;
+    (void)close(fd);
+    errno = saved_errno;
+
+    if (result != 0) {
+        dlog("fan: target apply failed for %d C (errno=%d: %s)\\n",
+             target_c, errno, strerror(errno));
+    } else if (previous_target == target_c) {
+        dlog("fan: target already %d C\\n", target_c);
+    } else {
+        dlog("fan: target applied %u C -> %d C\\n",
+             (unsigned)previous_target, target_c);
+    }
+}
+#endif
+
 /* ---------------------------------------------------------------- config */
 
 static void config_defaults(config_t *c)
@@ -2748,6 +2840,7 @@ static void config_defaults(config_t *c)
     c->show_power = 1;
     c->show_m2_temp = 1;
     c->m2_temp_label_ssd = 0;
+    c->fan_target_temperature = PREFBAR_FAN_TARGET_SYSTEM;
     c->overlay_horizontal = 0;
     c->overlay_horizontal_spacing = PREFBAR_HORIZONTAL_SPACING_MEDIUM;
     c->overlay_horizontal_align = PREFBAR_HORIZONTAL_ALIGN_CENTER;
@@ -2841,6 +2934,13 @@ static void config_apply_value(config_t *c, const char *key, const char *value)
     }
     CONFIG_INT("show_gpu_clock", show_gpu_clock, 1, 0, 1)
     CONFIG_INT("show_fan_duty", show_fan_duty, 1, 0, 1)
+    if (strcmp(key, "fan_target_temperature") == 0)
+    {
+        int target_c = PREFBAR_FAN_TARGET_SYSTEM;
+        if (prefbar_fan_target_parse(value, &target_c))
+            c->fan_target_temperature = target_c;
+        return;
+    }
     CONFIG_INT("show_ram", show_ram, 1, 0, 1)
     CONFIG_INT("show_vram", show_vram, 1, 0, 1)
     CONFIG_INT("show_power", show_power, 1, 0, 1)
@@ -3136,6 +3236,8 @@ static int prefbar_run(int install_signals, int lock)
                           "reload failed for game session %llu; keeping previous settings",
                           (unsigned long long)session_generation);
             }
+            /* Apply the current last-known-good target once per game entry. */
+            prefbar_fan_apply_target(cfg.fan_target_temperature);
         }
 #endif
         uint64_t words[DCE_WORDS];
