@@ -906,7 +906,7 @@
       const fanTarget = values.fan_target_temperature;
       if (fanTarget === 'system' || fanTarget === 'auto') {
         $('fan_target_override').checked = false;
-      } else if (/^\\d+$/.test(fanTarget || '')) {
+      } else if (/^\d+$/.test(fanTarget || '')) {
         const numericTarget = Number(fanTarget);
         if (Number.isInteger(numericTarget) && numericTarget >= 50 && numericTarget <= 91) {
           $('fan_target_override').checked = true;

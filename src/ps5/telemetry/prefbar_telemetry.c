@@ -2762,17 +2762,17 @@ static int prefbar_fan_write_target(
 
 static void prefbar_fan_apply_target(int target_c) {
     if (target_c == PREFBAR_FAN_TARGET_SYSTEM) {
-        dlog("fan: system-managed target selected; no override write\\n");
+        dlog("fan: system-managed target selected; no override write\n");
         return;
     }
     if (!prefbar_fan_target_valid(target_c)) {
-        dlog("fan: invalid target %d C; ignoring request\\n", target_c);
+        dlog("fan: invalid target %d C; ignoring request\n", target_c);
         return;
     }
 
     const int fd = open(PREFBAR_FAN_DEVICE, O_RDWR | O_DIRECT);
     if (fd < 0) {
-        dlog("fan: cannot open autoservo device (errno=%d: %s)\\n",
+        dlog("fan: cannot open autoservo device (errno=%d: %s)\n",
              errno, strerror(errno));
         return;
     }
@@ -2785,12 +2785,12 @@ static void prefbar_fan_apply_target(int target_c) {
     errno = saved_errno;
 
     if (result != 0) {
-        dlog("fan: target apply failed for %d C (errno=%d: %s)\\n",
+        dlog("fan: target apply failed for %d C (errno=%d: %s)\n",
              target_c, errno, strerror(errno));
     } else if (previous_target == target_c) {
-        dlog("fan: target already %d C\\n", target_c);
+        dlog("fan: target already %d C\n", target_c);
     } else {
-        dlog("fan: target applied %u C -> %d C\\n",
+        dlog("fan: target applied %u C -> %d C\n",
              (unsigned)previous_target, target_c);
     }
 }

@@ -13,7 +13,7 @@ int failures = 0;
 #define CHECK(condition, message) do { \
     if (!(condition)) { \
         ++failures; \
-        std::printf("FAIL line %d: %s\\n", __LINE__, message); \
+        std::printf("FAIL line %d: %s\n", __LINE__, message); \
     } \
 } while (0)
 
@@ -80,7 +80,7 @@ int main() {
     test_invalid_values_are_rejected();
     test_output_is_unchanged_on_failure();
     if (failures != 0) {
-        std::printf("%d fan target test(s) failed\\n", failures);
+        std::printf("%d fan target test(s) failed\n", failures);
         return 1;
     }
     std::puts("All fan target tests passed");
