@@ -37,7 +37,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Independent telemetry controls:** Enable or disable FPS, frametime, 1% low, CPU usage/temperature/clock, GPU temperature/clock, fan duty, RAM, VRAM, SoC power, and M.2 temperature separately. The GPU label can be changed with `gpu_temp_label`; the M.2 label defaults to `m2` and can be changed to `ssd` with `m2_temp_label=ssd`.
 - **Compact and classic metric formats:** Compact groups related metrics; classic preserves the previous one-metric-per-row layout. Disabled metrics are omitted, and an exposed M.2 sensor channel with no valid reading displays N/A.
 - **Standalone payload:** The controller and ShellUI renderer are packaged into one combined ELF.
-- **PS5 app shortcut:** Open PrefBar's built-in Control Center directly from the PS5 interface to customize the overlay on-console.
+- **PS5 app shortcut:** Open PrefBar's built-in Control Center directly from the PS5 interface to customize the overlay on console.
 - **Customizable overlay:** Change text color and opacity, the shared black background and its independent opacity, font size, shadow, screen position, corner, layout, visibility, and which metric rows are displayed.
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
 - **Quick toggle:** Triple-click the DualSense touchpad to show or hide the overlay. This can be disabled in the configuration.
@@ -50,7 +50,7 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 4. Start a game. PrefBar waits for the game and ShellUI to be ready; allow a few seconds for initialization. The vertical layout normally appears at the top-left; horizontal mode is centered across the screen by default.
 5. Triple-click the DualSense touchpad to toggle the overlay on or off. It is enabled by default.
 
-PrefBar automatically registers its **PS5 app** entry after the Control Center starts; it may take a moment to appear. The app opens the Control Center provided by the already-running payload—it does not load PrefBar itself. The Control Center has no authentication, so keep the PS5 on a trusted network. If you built PrefBar with Web Control Center support disabled, use the manual configuration method below instead.
+PrefBar automatically registers its **PS5 app** entry after the Control Center starts; it may take a moment to appear. The app opens the Control Center provided by the already running payload it does not load PrefBar itself.
 
 ## Compatibility
 
@@ -76,9 +76,9 @@ please [open an issue](https://github.com/X1NONs/PrefBar/issues) with your resul
 
 ### PS5 app (recommended)
 
-The **PrefBar PS5 app** is the main way to customize PrefBar. After you load the PrefBar payload, it automatically registers a **PrefBar** app entry in the PS5 interface. Open PrefBar from the PS5 app to launch the built-in Control Center directly on your console. From there, adjust the overlay's appearance and layout, choose which telemetry metrics are shown, preview the result, and save your settings.
+The **PrefBar PS5 app** is the main way to customize PrefBar. After you load the PrefBar payload, it automatically registers a **PrefBar** app in the PS5 interface. Open PrefBar from the PS5 app to launch the built-in Control Center directly on your console. From there, adjust the overlay's appearance and layout, choose which telemetry metrics are shown, preview the result, and save your settings.
 
-The PS5 app entry opens the Control Center served by the running PrefBar payload; it is not a separate payload or a way to load PrefBar. The combined payload must already be running.
+The PS5 app entry opens the Control Center served by the running PrefBar payload; it is not a separate payload or a way to load PrefBar. The payload must already be running.
 
 ### Web Control Center
 
@@ -100,7 +100,7 @@ Configuration changes are automatically reloaded when a new game session starts.
 
 ### Metric format
 
-`overlay_format=compact` is the default. It groups frame metrics, CPU metrics, GPU metrics, memory, and system readings into a small number of labeled rows. Set `overlay_format=classic` to restore the previous one-metric-per-row layout. Every `show_*` switch remains independent in both formats.
+`overlay_format=compact` is the default. It groups frame metrics, CPU metrics, GPU metrics, memory, and system readings into a small number of labeled rows. Set `overlay_format=classic` The old classic layout, many prefer this one over compact.
 
 ### Horizontal overlay
 
