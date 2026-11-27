@@ -96,10 +96,15 @@
     .range-number { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; color: #8c9aaa; font-size: 11px; }
     .range-number input { width: 61px; min-height: 34px; padding: 7px 8px; border: 1px solid #2a3949; border-radius: 4px; color: #EAF3FF; background: #0d151f; text-align: right; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; outline: none; }
     .range-number input:focus { border-color: rgba(8,121,239,.65); }
-    .color-control { display: flex; align-items: center; gap: 9px; }
-    input[type="color"] { appearance: none; width: 37px; height: 34px; padding: 3px; border: 1px solid #344557; border-radius: 4px; background: #0d151f; cursor: pointer; }
-    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-    input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 5px; }
+    .color-picker-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .color-swatches { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .color-swatch { display: block; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 1px solid rgba(255,255,255,.38); border-radius: 50%; background: var(--swatch); cursor: pointer; }
+    .color-swatch.selected { outline: 2px solid #65adff; outline-offset: 2px; }
+    .color-custom { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; color: #aebdca; font-size: 11px; cursor: pointer; }
+    .color-custom input[type="color"] { appearance: none; width: 36px; height: 34px; padding: 3px; border: 1px solid #344557; border-radius: 4px; background: #0d151f; cursor: pointer; }
+    .color-custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    .color-custom input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
+    .color-hex { flex: 0 0 94px; width: 94px !important; text-align: center; text-transform: uppercase; }
     .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 15px; min-height: 47px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
     .toggle-row:last-child { border-bottom: 0; }
     .toggle-copy { min-width: 0; }
@@ -232,6 +237,10 @@
       html.ps5 .field-label, html.ps5 .toggle-name { font-size: 14px; }
       html.ps5 .toggle-help, html.ps5 .hint { font-size: 11px; }
       html.ps5 .select, html.ps5 .text-input { min-height: 44px; font-size: 13px; padding: 10px 12px; }
+      html.ps5 .color-swatch { flex-basis: 34px; width: 34px; height: 34px; }
+      html.ps5 .color-custom { min-height: 44px; font-size: 13px; }
+      html.ps5 .color-custom input[type="color"] { width: 42px; height: 40px; }
+      html.ps5 .color-hex { flex-basis: 104px; width: 104px !important; }
       html.ps5 .segmented button { min-height: 44px; padding: 11px 12px; font-size: 13px; }
       html.ps5 .btn { min-height: 44px; padding: 11px 16px; font-size: 13px; }
       html.ps5 .bottom-bar { left: 272px; padding: 14px 34px; }
@@ -286,7 +295,26 @@
                 <div class="card-body">
                   <div class="toggle-row" style="padding-top:0;margin-bottom:17px"><div class="toggle-copy"><div class="toggle-name">Show PrefBar overlay</div><div class="toggle-help">Hide the overlay without stopping telemetry sampling.</div></div><label class="switch"><input id="overlay" type="checkbox" checked><span class="track"></span></label></div>
                   <div class="field-grid">
-                    <div class="field"><div class="field-label">Text color</div><div class="color-control"><input id="text_color_picker" type="color" value="#f2f2f2"><input id="text_color" class="text-input" value="#F2F2F2" maxlength="7" spellcheck="false"></div></div>
+                    <div class="field full">
+                      <div class="field-label">Text color <span class="hint">Choose a swatch or set a custom color</span></div>
+                      <div class="color-picker-row">
+                        <div class="color-swatches" id="text-color-swatches" role="group" aria-label="Preset text colors">
+                          <button type="button" class="color-swatch selected" data-color="#F2F2F2" style="--swatch:#F2F2F2" aria-label="Soft white" title="Soft white" aria-pressed="true"></button>
+                          <button type="button" class="color-swatch" data-color="#FFFFFF" style="--swatch:#FFFFFF" aria-label="White" title="White" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#FF6B6B" style="--swatch:#FF6B6B" aria-label="Red" title="Red" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#FF9F43" style="--swatch:#FF9F43" aria-label="Orange" title="Orange" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#FFD43B" style="--swatch:#FFD43B" aria-label="Yellow" title="Yellow" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#69DB7C" style="--swatch:#69DB7C" aria-label="Green" title="Green" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#38D9A9" style="--swatch:#38D9A9" aria-label="Teal" title="Teal" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#4DABF7" style="--swatch:#4DABF7" aria-label="Blue" title="Blue" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#748FFC" style="--swatch:#748FFC" aria-label="Indigo" title="Indigo" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#B197FC" style="--swatch:#B197FC" aria-label="Purple" title="Purple" aria-pressed="false"></button>
+                          <button type="button" class="color-swatch" data-color="#F783AC" style="--swatch:#F783AC" aria-label="Pink" title="Pink" aria-pressed="false"></button>
+                        </div>
+                        <label class="color-custom" for="text_color_picker"><span>Custom</span><input id="text_color_picker" type="color" value="#f2f2f2" aria-label="Choose a custom text color"></label>
+                        <input id="text_color" class="text-input color-hex" value="#F2F2F2" maxlength="7" spellcheck="false" aria-label="Text color hexadecimal value">
+                      </div>
+                    </div>
                     <div class="field"><div class="field-label">Font size <span class="hint">10–96 px</span></div><div class="range-wrap"><input id="overlay_font" type="range" min="10" max="96" value="26"><span class="range-value" id="font_value">26 px</span></div></div>
                     <div class="field"><div class="field-label"><label for="text_opacity">Text opacity</label><span class="hint">0–100%</span></div><div class="range-wrap"><input id="text_opacity" type="range" min="0" max="100" step="1" value="100" aria-label="Text opacity"><div class="range-number"><input id="text_opacity_value" type="number" min="0" max="100" step="1" value="100" inputmode="numeric" aria-label="Text opacity percentage"><span aria-hidden="true">%</span></div></div></div>
                     <div class="field full"><div class="toggle-row" style="padding:0;border:0;min-height:36px"><div class="toggle-copy"><div class="toggle-name">Black background</div><div class="toggle-help">Show one shared black panel behind the overlay rows.</div></div><label class="switch"><input id="background_enabled" type="checkbox" checked><span class="track"></span></label></div></div>
@@ -548,6 +576,7 @@
 
     function updatePreview() {
       const s = readState();
+      syncTextColorSwatches();
       const screen = $('preview-screen');
       const sample = $('overlay-sample');
       $('font_value').textContent = `${s.overlay_font} px`;
@@ -634,6 +663,25 @@
       container.querySelectorAll('button').forEach(btn => btn.classList.toggle('selected', btn.dataset.value === value));
       updatePreview();
     }
+    function syncTextColorSwatches() {
+      const color = $('text_color').value.trim().toUpperCase();
+      document.querySelectorAll('.color-swatch').forEach(button => {
+        const selected = button.dataset.color === color;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+    }
+    function applyTextColor(value) {
+      if (!/^#[0-9A-Fa-f]{6}$/.test(value)) return;
+      const color = value.toUpperCase();
+      $('text_color').value = color;
+      $('text_color_picker').value = color.toLowerCase();
+      syncTextColorSwatches();
+      updatePreview();
+    }
+    document.querySelectorAll('.color-swatch').forEach(button => {
+      button.addEventListener('click', () => applyTextColor(button.dataset.color));
+    });
     document.querySelectorAll('.nav button').forEach(btn => btn.addEventListener('click', () => {
       document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${btn.dataset.tab}`));
@@ -644,6 +692,7 @@
       if (el.id === 'text_color') {
         if (/^#[0-9A-Fa-f]{6}$/.test(el.value)) $('text_color_picker').value = el.value;
       }
+      if (el.id === 'text_color' || el.id === 'text_color_picker') syncTextColorSwatches();
       if (el.id === 'text_opacity') $('text_opacity_value').value = el.value;
       if (el.id === 'background_opacity') $('background_opacity_value').value = el.value;
       if (el.id === 'background_opacity_value' && el.value !== '') {
