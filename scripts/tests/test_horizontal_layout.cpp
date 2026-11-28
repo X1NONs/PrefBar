@@ -218,6 +218,26 @@ void test_segment_splitting_edge_cases() {
           "repeated separators must remain within the segment limit");
 }
 
+
+void test_estimates_never_become_the_permanent_slot() {
+    prefbar::StableWidthCache<2> cache;
+    /* Width unreadable on the first frame: a generous estimate stands in. */
+    CHECK(cache.reserve_estimate(0, 0x11u, 240.0f) == 240.0f,
+          "an estimate may be used until a real width exists");
+    CHECK(cache.reserve_estimate(0, 0x11u, 250.0f) == 250.0f,
+          "estimates may still grow while nothing was measured");
+    /* The first real measurement replaces it, even though it is smaller. */
+    CHECK(cache.reserve(0, 0x11u, 190.0f) == 190.0f,
+          "a real width must replace the estimate instead of being capped by it");
+    CHECK(cache.reserve_estimate(0, 0x11u, 300.0f) == 190.0f,
+          "once measured, estimates are ignored");
+    CHECK(cache.reserve(0, 0x11u, 175.0f) == 190.0f,
+          "measured widths keep their high-water behaviour");
+    CHECK(cache.reserve(0, 0x11u, 205.0f) == 205.0f,
+          "measured widths still grow");
+    CHECK(cache.reserve_estimate(1, 0x22u, std::numeric_limits<float>::quiet_NaN()) == 0.0f,
+          "invalid estimates reserve nothing");
+}
 } // namespace
 
 int main() {
@@ -232,6 +252,7 @@ int main() {
     test_segment_signatures_ignore_digit_count();
     test_segment_slots_keep_following_readings_still();
     test_segment_splitting_edge_cases();
+    test_estimates_never_become_the_permanent_slot();
     if (failures != 0) {
         std::printf("%d layout test(s) failed\n", failures);
         return 1;

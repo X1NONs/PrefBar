@@ -123,18 +123,47 @@ public:
         widths_.fill(0.0f);
         signatures_.fill(0u);
         initialized_.fill(false);
+        measured_.fill(false);
     }
 
+    /* A width that PUI really reported. It replaces any earlier estimate. */
     float reserve(std::size_t index, std::uint32_t signature, float measured) noexcept {
         if (index >= Count)
             return 0.0f;
+        const bool valid = std::isfinite(measured) && measured > 0.0f;
         if (!initialized_[index] || signatures_[index] != signature) {
             initialized_[index] = true;
             signatures_[index] = signature;
-            widths_[index] = std::isfinite(measured) && measured > 0.0f
-                ? measured : 0.0f;
-        } else if (std::isfinite(measured) && measured > widths_[index]) {
+            widths_[index] = valid ? measured : 0.0f;
+            measured_[index] = valid;
+        } else if (valid && !measured_[index]) {
+            /* First real value: drop whatever the estimate had reserved. */
             widths_[index] = measured;
+            measured_[index] = true;
+        } else if (valid && measured > widths_[index]) {
+            widths_[index] = measured;
+        }
+        return widths_[index];
+    }
+
+    /*
+     * Fallback for when PUI cannot report a width. Estimates are crude (they
+     * overshoot real text), so they must never become the permanent slot: they
+     * only stand in until the first real measurement arrives, and are ignored
+     * once one has.
+     */
+    float reserve_estimate(
+        std::size_t index, std::uint32_t signature, float estimate) noexcept {
+        if (index >= Count)
+            return 0.0f;
+        const bool valid = std::isfinite(estimate) && estimate > 0.0f;
+        if (!initialized_[index] || signatures_[index] != signature) {
+            initialized_[index] = true;
+            signatures_[index] = signature;
+            widths_[index] = valid ? estimate : 0.0f;
+            measured_[index] = false;
+        } else if (!measured_[index] && valid && estimate > widths_[index]) {
+            widths_[index] = estimate;
         }
         return widths_[index];
     }
@@ -154,6 +183,7 @@ private:
     std::array<float, Count> widths_{};
     std::array<std::uint32_t, Count> signatures_{};
     std::array<bool, Count> initialized_{};
+    std::array<bool, Count> measured_{};
 };
 
 } // namespace prefbar

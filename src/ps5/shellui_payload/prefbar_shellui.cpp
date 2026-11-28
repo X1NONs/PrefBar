@@ -174,6 +174,15 @@ float g_telemetry_cell_x[PREFBAR_CELLS]{};
 float g_telemetry_cell_y[PREFBAR_CELLS]{};
 std::uint32_t g_telemetry_background_handle{};
 std::uint64_t g_telemetry_background_retry_after_ms{};
+/* What the shared background panel was last told, so PUI is only touched when
+ * something changes and a hidden panel is never left half-configured. */
+struct BackgroundState {
+    bool known;
+    bool shown;
+    float x, y, width, height;
+    float opacity;
+};
+BackgroundState g_background_state{};
 struct TelemetryLayout {
     int font;
     int requested_font;
@@ -878,6 +887,8 @@ void prefbar_blank_rows() {
     }
 }
 
+void retire_telemetry_background(MonoObject* root);   /* defined with the panel code */
+
 void prefbar_remove_rows(MonoObject* root) {
     static int logged = 0;
     if (logged++ < 10)
@@ -887,7 +898,7 @@ void prefbar_remove_rows(MonoObject* root) {
         remove_and_release_handle(root, h);
     for (auto& h : g_telemetry_shadow_handle)
         remove_and_release_handle(root, h);
-    remove_and_release_handle(root, g_telemetry_background_handle);
+    retire_telemetry_background(root);
     g_telemetry_layout.valid = false;
     g_telemetry_applied_count = 0;
     g_telemetry_hidden = false;
@@ -899,7 +910,7 @@ void prefbar_release_rows() {
         release_managed_handle(h);
     for (auto& h : g_telemetry_shadow_handle)
         release_managed_handle(h);
-    release_managed_handle(g_telemetry_background_handle);
+    retire_telemetry_background(nullptr);
     g_telemetry_layout.valid = false;
     g_telemetry_applied_count = 0;
     g_telemetry_hidden = false;
@@ -1088,7 +1099,7 @@ void log_background_property_probe(MonoClass* panel_class, MonoClass* widget_cla
     static const char* const kNames[] = {
         "Name", "X", "Y", "Width", "Height", "Visible", "Visibility", "Alpha",
         "Opacity", "BackgroundColor", "BackgroundStyle", "BackgroundOpacity",
-        "BackgroundVisibility", "BackgroundImage", "Color",
+        "BackgroundVisibility", "BackgroundImage", "Color", "Anchors", "Padding",
     };
     char line[512];
     std::size_t used = 0;
@@ -1231,15 +1242,30 @@ MonoObject* create_telemetry_background_panel(float opacity) {
     return panel;
 }
 
-/* Place and show/hide the shared background. Geometry and visibility are
- * reported separately so a log shows which half failed on a given firmware. */
+bool set_background_opacity(
+    MonoClass* panel_class, MonoClass* widget_class, MonoObject* panel, float opacity) {
+
+    /* Same rule as at creation: BackgroundOpacity when this build has it,
+     * otherwise the colour's own alpha. */
+    if (background_property_exists(panel_class, widget_class, "BackgroundOpacity"))
+        return set_property_direct_fallback(
+            panel_class, widget_class, panel, "BackgroundOpacity", opacity);
+    MonoObject* color = create_color(0.0f, 0.0f, 0.0f, opacity);
+    return color && set_property_object_fallback(
+        panel_class, widget_class, panel, "BackgroundColor", color);
+}
+
+/* Place and show/hide the shared background. Only values that changed are
+ * sent to PUI. Hiding also collapses the panel and drops its opacity to zero,
+ * so a firmware that ignores one of the three still draws nothing. */
 bool update_telemetry_background(
     MonoObject* panel,
     bool show,
     float x,
     float y,
     float width,
-    float height) {
+    float height,
+    float opacity) {
 
     MonoClass* panel_class = mono_class_from_name_(
         g_pui_image, "Sce.PlayStation.PUI.UI2", "Panel");
@@ -1253,24 +1279,48 @@ bool update_telemetry_background(
         y = 0.0f;
         width = 1.0f;
         height = 1.0f;
+        opacity = 0.0f;
     }
 
-    bool geometry_ok = true;
-    geometry_ok &= set_property_direct_fallback(
-        panel_class, widget_class, panel, "X", x);
-    geometry_ok &= set_property_direct_fallback(
-        panel_class, widget_class, panel, "Y", y);
-    geometry_ok &= set_property_direct_fallback(
-        panel_class, widget_class, panel, "Width", width);
-    geometry_ok &= set_property_direct_fallback(
-        panel_class, widget_class, panel, "Height", height);
+    BackgroundState& st = g_background_state;
+    const bool first = !st.known;
+    const bool geometry_changed = first || st.x != x || st.y != y ||
+        st.width != width || st.height != height;
+    const bool opacity_changed = first || st.opacity != opacity;
+    const bool visibility_changed = first || st.shown != show;
+    if (!geometry_changed && !opacity_changed && !visibility_changed)
+        return true;
 
-    /* Either property may be the one this build honours; both are harmless. */
-    bool visibility_ok = false;
-    visibility_ok |= set_property_direct_fallback(
-        panel_class, widget_class, panel, "BackgroundVisibility", show);
-    visibility_ok |= set_property_direct_fallback(
-        panel_class, widget_class, panel, "Visible", show);
+    const auto set_visibility = [&]() {
+        bool ok = false;
+        /* Either property may be the one this build honours; both are harmless. */
+        ok |= set_property_direct_fallback(
+            panel_class, widget_class, panel, "BackgroundVisibility", show);
+        ok |= set_property_direct_fallback(
+            panel_class, widget_class, panel, "Visible", show);
+        return ok;
+    };
+
+    bool geometry_ok = true;
+    bool visibility_ok = true;
+    if (!show && visibility_changed)
+        visibility_ok = set_visibility();
+    if (opacity_changed)
+        (void)set_background_opacity(panel_class, widget_class, panel, opacity);
+    if (geometry_changed) {
+        geometry_ok &= set_property_direct_fallback(
+            panel_class, widget_class, panel, "X", x);
+        geometry_ok &= set_property_direct_fallback(
+            panel_class, widget_class, panel, "Y", y);
+        geometry_ok &= set_property_direct_fallback(
+            panel_class, widget_class, panel, "Width", width);
+        geometry_ok &= set_property_direct_fallback(
+            panel_class, widget_class, panel, "Height", height);
+    }
+    if (show && visibility_changed)
+        visibility_ok = set_visibility();
+
+    st = BackgroundState{true, show, x, y, width, height, opacity};
 
     static unsigned int shown_logs = 0;
     if (show && shown_logs++ < 4) {
@@ -1283,6 +1333,18 @@ bool update_telemetry_background(
         log_background_state("shown", panel_class, widget_class, panel);
     }
     return geometry_ok;
+}
+
+/* Never drop the panel while it is still drawn: removal does not visibly
+ * erase widgets on every firmware, so hide it first. */
+void retire_telemetry_background(MonoObject* root) {
+    MonoObject* panel = managed_target(g_telemetry_background_handle);
+    if (panel) {
+        g_background_state = BackgroundState{};   /* force every property out */
+        (void)update_telemetry_background(panel, false, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
+    }
+    remove_and_release_handle(root, g_telemetry_background_handle);
+    g_background_state = BackgroundState{};
 }
 
 MonoObject* create_label(
@@ -1421,8 +1483,9 @@ void retry_missing_telemetry_background(MonoObject* root, float opacity) {
         log_line("prefbar: background Panel recovery handle registration failed");
         return;
     }
+    g_background_state = BackgroundState{};
     if (!reappend_telemetry_widgets_after_background(root)) {
-        remove_and_release_handle(root, g_telemetry_background_handle);
+        retire_telemetry_background(root);
         g_telemetry_background_retry_after_ms = now + 3000U;
         log_line("prefbar: background Panel recovery could not restore text widget order");
         return;
@@ -1507,7 +1570,9 @@ void prefbar_draw_text() {
         pkt.margin_x = 24.0f;
         pkt.margin_y = 24.0f;
         pkt.r = 0.95f; pkt.g = 0.95f; pkt.b = 0.95f; pkt.a = 1.0f;
-        pkt.background_enabled = 1;
+        /* No background before real data: the user's setting has not arrived
+         * yet, and a panel created now could outlive a "background off". */
+        pkt.background_enabled = 0;
         pkt.background_opacity = 70;
     }
 
@@ -1589,8 +1654,8 @@ void prefbar_draw_text() {
     if (g_telemetry_layout.r != pkt.r || g_telemetry_layout.g != pkt.g ||
         g_telemetry_layout.b != pkt.b) why |= 64u;
     if (g_telemetry_layout.a != pkt.a) why |= 1024u;
-    if (g_telemetry_layout.background_enabled != background_enabled) why |= 2048u;
-    if (g_telemetry_layout.background_opacity != background_opacity) why |= 4096u;
+    /* Background on/off and opacity are applied to the persistent panel in
+     * place; they must not rebuild (and flicker) the text labels. */
     const bool want_shadow = (pkt.flags & PREFBAR_WIRE_FLAG_TEXT_SHADOW) != 0;
     if (g_telemetry_layout.shadow != want_shadow) why |= 128u;
     if (g_telemetry_layout.horizontal != horizontal) why |= 256u;
@@ -1630,13 +1695,14 @@ void prefbar_draw_text() {
             remove_and_release_handle(root, h);
         for (auto& h : g_telemetry_shadow_handle)
             remove_and_release_handle(root, h);
-        remove_and_release_handle(root, g_telemetry_background_handle);
         MonoObject* font = create_font(font_px);
         if (!font) {
             log_line("prefbar: UIFont create failed");
             return;
         }
-        if (background_enabled) {
+        /* One panel lives for the whole scene and is only shown or hidden. It is
+         * created once, before the labels, so it stays underneath them. */
+        if (background_enabled && !managed_target(g_telemetry_background_handle)) {
             MonoObject* panel = create_telemetry_background_panel(
                 static_cast<float>(background_opacity) / 100.0f);
             if (!panel) {
@@ -1649,6 +1715,7 @@ void prefbar_draw_text() {
                 g_telemetry_background_retry_after_ms = prefbar_now_ms() + 1000U;
                 log_line("prefbar: background Panel managed-handle registration failed");
             } else {
+                g_background_state = BackgroundState{};
                 g_telemetry_background_retry_after_ms = 0;
                 static unsigned int attached_logs = 0;
                 if (attached_logs++ < 3)
@@ -1772,17 +1839,24 @@ void prefbar_draw_text() {
             if (!labels[c])
                 continue;
             float measured = 0.0f;
+            const std::uint32_t signature =
+                ::prefbar::stable_row_signature(cell_text[c]);
             if (!read_float_property(label_class, labels[c], "Width", &measured) ||
                 !std::isfinite(measured) || measured <= 0.0f) {
-                measured = estimated_label_width(cell_text[c], estimate_font);
+                /* Not reported yet (typically the first frame after a label
+                 * was created). The estimate overshoots, so it only stands in
+                 * until a real width arrives and is never kept as the slot. */
+                slot[c] = g_telemetry_width_cache.reserve_estimate(
+                    static_cast<std::size_t>(c), signature,
+                    estimated_label_width(cell_text[c], estimate_font));
                 if (!width_warning_logged) {
                     log_line("prefbar: PUI Label.Width unavailable; using guarded width estimate");
                     width_warning_logged = true;
                 }
+                continue;
             }
             slot[c] = g_telemetry_width_cache.reserve(
-                static_cast<std::size_t>(c),
-                ::prefbar::stable_row_signature(cell_text[c]), measured);
+                static_cast<std::size_t>(c), signature, measured);
         }
     };
     measure_cells(g_telemetry_layout.font);
@@ -1983,7 +2057,8 @@ void prefbar_draw_text() {
         }
 
         const bool background_ok = update_telemetry_background(
-            background, show_background, panel_x, panel_y, panel_w, panel_h);
+            background, show_background, panel_x, panel_y, panel_w, panel_h,
+            static_cast<float>(background_opacity) / 100.0f);
         static bool background_warning_logged = false;
         if (!background_ok && !background_warning_logged) {
             log_line("prefbar: background Panel properties unavailable; text overlay remains available");
