@@ -188,7 +188,27 @@ ShellUiHookPollResult poll_and_apply_shellui_hook(
             &transferred, &report.read_errno, &report.read_raw_rc, &attempted);
         report.read_attempted = attempted != 0;
         report.read_reported_len = static_cast<std::uint32_t>(transferred);
-        return rc;
+        if (rc == 0 || !shellui_hook_read_needs_mdbg_fallback(
+                backend, report.read_attempted,
+                report.read_raw_rc, report.read_errno)) {
+            return rc;
+        }
+
+        /*
+         * Some firmware lets us attach with ptrace but rejects PT_IO reads of
+         * ShellUI's JIT-backed methods with EFAULT. A successful MDBG copyout
+         * is a safe, read-only fallback. Keep the selected ptrace backend for
+         * writes; this does not broaden the patch/write policy.
+         */
+        errno = 0;
+        report.read_mdbg_fallback_attempted = true;
+        report.read_mdbg_fallback_rc = mdbg_copyout(
+            shellui_pid,
+            static_cast<intptr_t>(request.method_address),
+            destination,
+            size);
+        report.read_mdbg_fallback_errno = errno;
+        return report.read_mdbg_fallback_rc;
     };
     const auto write_target = [&](const std::uint8_t* bytes) {
         /*
@@ -285,18 +305,6 @@ ShellUiHookPollResult poll_and_apply_shellui_hook(
                 report.verified = true;
                 report.status = ShellUiHookStatus::Success;
             } else {
-                if (shellui_hook_probe_needs_mdbg_diagnostic(
-                        report.sdk_version, report.read_attempted,
-                        report.read_raw_rc, report.read_errno)) {
-                    std::array<std::uint8_t, kShellUiHookPatchSize> diagnostic{};
-                    errno = 0;
-                    report.probe_mdbg_attempted = true;
-                    report.probe_mdbg_rc = mdbg_copyout(
-                        shellui_pid,
-                        static_cast<intptr_t>(request.method_address),
-                        diagnostic.data(), diagnostic.size());
-                    report.probe_mdbg_errno = errno;
-                }
                 report.status = ShellUiHookStatus::ExpectedBytesMismatch;
             }
         } else if (report.read_rc != 0 ||

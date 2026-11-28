@@ -453,7 +453,8 @@ bool ensure_shellui_renderer() {
                 "phase=%s method=0x%llx displaced=%u status=%d "
                 "read_rc=%d read_raw_rc=%d read_attempted=%d "
                 "read_errno=%d read_reported_len=%u read_requested=%u "
-                "probe_mdbg_attempted=%d probe_mdbg_rc=%d probe_mdbg_errno=%d "
+                "read_mdbg_fallback_attempted=%d read_mdbg_fallback_rc=%d "
+                "read_mdbg_fallback_errno=%d "
                 "write_attempted=%d write_rc=%d "
                 "expected=%d verified=%d "
                 "restored=%d detached=%d auth_restored=%d",
@@ -475,9 +476,9 @@ bool ensure_shellui_renderer() {
                 hook_report.read_errno,
                 hook_report.read_reported_len,
                 hook_report.read_requested,
-                hook_report.probe_mdbg_attempted ? 1 : 0,
-                hook_report.probe_mdbg_rc,
-                hook_report.probe_mdbg_errno,
+                hook_report.read_mdbg_fallback_attempted ? 1 : 0,
+                hook_report.read_mdbg_fallback_rc,
+                hook_report.read_mdbg_fallback_errno,
                 hook_report.write_attempted ? 1 : 0,
                 hook_report.write_rc,
                 hook_report.expected_matched ? 1 : 0,

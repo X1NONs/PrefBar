@@ -11,15 +11,17 @@
 int main() {
     using prefbar::ShellUiHookBackend;
     using prefbar::shellui_hook_probe_backend;
-    using prefbar::shellui_hook_probe_needs_mdbg_diagnostic;
+    using prefbar::shellui_hook_read_needs_mdbg_fallback;
 
     for (const std::uint32_t sdk : {
              0x09000000U, 0x09030000U, 0x09050005U, 0x09600000U}) {
         assert(shellui_hook_probe_backend(sdk) == ShellUiHookBackend::Mdbg);
         assert(prefbar::shellui_main_thread_guard_backend(sdk) ==
                ShellUiHookBackend::Mdbg);
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, EFAULT));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::Mdbg, true, EFAULT, 0));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::Mdbg, true, -1, EFAULT));
         assert(prefbar::shellui_hook_backend(sdk, false) ==
                ShellUiHookBackend::Mdbg);
         assert(prefbar::shellui_hook_backend(sdk, true) ==
@@ -32,14 +34,30 @@ int main() {
 
     for (const std::uint32_t sdk : {0x08300000U, 0x10000000U}) {
         assert(shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo);
-              assert(shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));
-        assert(shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, EFAULT));
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, false, EFAULT, 0));
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, 0, EFAULT));
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, EPERM));
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EIO, 0));
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, 0));
+        assert(shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::PtraceIo, true, EFAULT, 0));
+        assert(shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::PtraceIo, true, -1, EFAULT));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::PtraceIo, false, EFAULT, 0));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::PtraceIo, true, 0, EFAULT));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::PtraceIo, true, -1, EPERM));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::PtraceIo, true, EIO, 0));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            ShellUiHookBackend::PtraceIo, true, -1, 0));
     }
+
+    /* Issue #34: FW 10.60 fails the PT_IO read but succeeds with MDBG. */
+    constexpr std::uint32_t kFirmware1060 = 0x10600006U;
+    const auto firmware1060_backend = shellui_hook_probe_backend(kFirmware1060);
+    assert(firmware1060_backend == ShellUiHookBackend::PtraceIo);
+    assert(prefbar::shellui_main_thread_guard_backend(kFirmware1060) ==
+           ShellUiHookBackend::PtraceIo);
+    assert(shellui_hook_read_needs_mdbg_fallback(
+        firmware1060_backend, true, EFAULT, 0));
 
     /* Issue #17: no Application.Update detour below FW 7.00. The one-byte
      * main-thread guard must stay available there as the fallback. */
@@ -76,8 +94,10 @@ int main() {
 
     for (const std::uint32_t sdk : {0U, 0x08200000U, 0x09000000U,
                                    0x11000000U, 0x14000000U}) {
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, EFAULT, 0));
-        assert(!shellui_hook_probe_needs_mdbg_diagnostic(sdk, true, -1, EFAULT));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            shellui_hook_probe_backend(sdk), true, EFAULT, 0));
+        assert(!shellui_hook_read_needs_mdbg_fallback(
+            shellui_hook_probe_backend(sdk), true, -1, EFAULT));
     }
 
     assert(prefbar::shellui_main_thread_guard_backend(0x09600000U) ==

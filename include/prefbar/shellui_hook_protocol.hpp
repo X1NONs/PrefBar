@@ -289,10 +289,10 @@ inline ShellUiHookBackend shellui_hook_probe_backend(
     return ShellUiHookBackend::Unsupported;
 }
 
-inline bool shellui_hook_probe_needs_mdbg_diagnostic(
-    std::uint32_t sdk, bool read_attempted,
+inline bool shellui_hook_read_needs_mdbg_fallback(
+    ShellUiHookBackend backend, bool read_attempted,
     int read_raw_rc, int read_errno) noexcept {
-    return shellui_hook_probe_backend(sdk) == ShellUiHookBackend::PtraceIo &&
+    return backend == ShellUiHookBackend::PtraceIo &&
         read_attempted &&
         (read_raw_rc == EFAULT ||
          (read_raw_rc == -1 && read_errno == EFAULT));
