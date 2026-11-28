@@ -35,6 +35,19 @@ The built-in performance bars available in some PS5 homebrew setups can conflict
 - **Automatic configuration reload:** Settings are reloaded when a new game session starts, without restarting PrefBar.
 - **Quick toggle:** Triple-click the DualSense touchpad to show or hide the overlay. This can be disabled in the configuration.
 
+## Download
+
+* **Direct download:** Grab the latest prebuilt `.elf` from [**Releases**](https://github.com/X1NONs/PrefBar/releases/latest).
+* **PS5 Payload Manager (auto-updates):**
+  1. Open **PS5 Payload Manager** → **Settings** → enable **Multiple Payload Sources**.
+  2. Go to **Manage Sources** → **+ Add Source**.
+  3. Paste:
+     ```
+     https://raw.githubusercontent.com/X1NONs/PrefBar/main/repo.json
+     ```
+
+> **Maintainers:** when you publish a release, update `version`, `filename`, `url`, `last_update` and `checksum` (SHA-256 of the `.elf`) in `repo.json` so Payload Manager offers the update.
+
 ## How to use it
 
 1. Download `Prefbar_V0.3.1.elf` from [GitHub Releases](https://github.com/X1NONs/PrefBar/releases/tag/v0.3.1).
