@@ -1,0 +1,21 @@
+{
+  "name": "PrefBar (PS5)",
+  "icons_url": "icons.json?v=1",
+  "payloads": [
+    {
+      "id": "prefbar",
+      "name": "PrefBar",
+      "filename": "Prefbar_V0.3.1.elf",
+      "url": "https://github.com/X1NONs/PrefBar/releases/download/v0.3.1/Prefbar_V0.3.1.elf",
+      "description": "Standalone on-screen performance overlay for jailbroken PS5: FPS, frametime, 1% lows, CPU/GPU clocks and temperatures, fan duty, RAM/VRAM and SoC power, configurable from a built-in Web Control Center on port 8998.",
+      "version": "v0.3.1",
+      "last_update": "2026-11-24",
+      "category": "Utilities",
+      "checksum": "b876836d4597e28e519ae6bc80df0eeceefde2e8648491c66d4983a779dff134",
+      "author": "X1NONs",
+      "icon_key": "prefbar",
+      "details_url": "https://raw.githubusercontent.com/X1NONs/PrefBar/main/README.md",
+      "source": "https://github.com/X1NONs/PrefBar"
+    }
+  ]
+}
